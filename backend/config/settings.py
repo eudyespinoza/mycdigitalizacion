@@ -1,6 +1,44 @@
 import sys
+from collections.abc import Mapping
 from os import environ
 from pathlib import Path
+
+from django.core.exceptions import ImproperlyConfigured
+
+PLACEHOLDER_VALUES = frozenset(
+    {
+        "",
+        "change-me-for-local-development",
+        "unsafe-development-key-change-me",
+        "localhost",
+        "example.com",
+        "ops@example.com",
+    }
+)
+
+
+def validate_runtime_environment(environment: Mapping[str, str]) -> None:
+    """Reject accidental production startup with development configuration."""
+    app_env = environment.get("APP_ENV", "").strip().lower()
+    if app_env not in {"development", "production", "test"}:
+        raise ImproperlyConfigured("APP_ENV must be development, production, or test")
+
+    if app_env != "production":
+        return
+
+    for field, minimum_length in (
+        ("DJANGO_SECRET_KEY", 32),
+        ("POSTGRES_PASSWORD", 16),
+        ("SITE_ADDRESS", 1),
+        ("DJANGO_ALLOWED_HOSTS", 1),
+    ):
+        value = environment.get(field, "").strip()
+        if value.lower() in PLACEHOLDER_VALUES or len(value) < minimum_length:
+            raise ImproperlyConfigured(f"{field} must be a non-placeholder production value")
+
+
+APP_ENV = environ.get("APP_ENV", "").lower()
+validate_runtime_environment(environ)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = environ.get("DJANGO_SECRET_KEY", "unsafe-development-key-change-me")
@@ -61,7 +99,8 @@ LANGUAGE_CODE = "es-ar"
 TIME_ZONE = "America/Argentina/Buenos_Aires"
 USE_I18N = True
 USE_TZ = True
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {"DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"]}

@@ -2,7 +2,7 @@
 
 ## Runtime boundaries
 
-The storefront (`frontend/`) is a Next.js 16.3 App Router application using React 19, TypeScript and Tailwind CSS 4.3. The API and back office (`backend/`) use Django 5.2 LTS and Django REST Framework. PostgreSQL is the system of record; Redis is the Celery broker/result backend. Caddy is the only public entry point in containers.
+The storefront (`frontend/`) is a Next.js 16.3 App Router application using React 19, TypeScript and Tailwind CSS 4.3. The API and back office (`backend/`) use Django 5.2 LTS and Django REST Framework. PostgreSQL is the system of record; Redis is the Celery broker/result backend. Caddy is the only public entry point in containers. Development Caddy listens explicitly on HTTP localhost; production Caddy is HTTPS-enabled and requires a public `SITE_ADDRESS`.
 
 `GET /healthz` is an unauthenticated, non-sensitive liveness endpoint for the Django process. `GET /health` is the corresponding storefront availability page. Future readiness checks may include dependency checks, but they must not leak credentials, provider responses or customer data.
 
@@ -16,6 +16,6 @@ The storefront (`frontend/`) is a Next.js 16.3 App Router application using Reac
 
 ## Delivery operations
 
-Development uses `compose.yaml` with bind mounts; `compose.prod.yaml` removes source mounts and runs the production targets. The production Caddy instance owns HTTP/TLS entry and reverse-proxies application traffic. Database and Caddy volumes are persistent and must be backed up by the deployment operator.
+Development uses `compose.yaml` with bind mounts; `compose.prod.yaml` removes source mounts and runs the production targets. The production Caddy instance owns HTTP/TLS entry and reverse-proxies application traffic. Django runs `collectstatic` before the production web process starts; its `static_files` volume is mounted read-only into Caddy and served at `/static/*`. Database, static and Caddy volumes are persistent and must be backed up by the deployment operator.
 
-No example configuration carries a live API key or provider secret. The `.env.example` values are deliberately non-production placeholders.
+No example configuration carries a live API key or provider secret. The `.env.example` values are deliberately non-production placeholders. Production startup requires `APP_ENV=production` and rejects missing or known placeholder signing keys, database passwords and site configuration.

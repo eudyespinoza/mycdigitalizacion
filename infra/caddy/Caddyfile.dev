@@ -1,4 +1,4 @@
-{$SITE_ADDRESS} {
+http://localhost {
 	encode zstd gzip
 
 	@api path /api/*
@@ -9,11 +9,6 @@
 	@backendHealth path /healthz
 	handle @backendHealth {
 		reverse_proxy backend:8000
-	}
-
-	handle_path /static/* {
-		root * /srv/static
-		file_server
 	}
 
 	handle {

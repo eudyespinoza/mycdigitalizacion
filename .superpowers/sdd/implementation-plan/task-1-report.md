@@ -38,3 +38,29 @@ Foundation implementation: `c87fa09f0509da0fcefa888118f1f1eb2c2cc27f` (`feat: sc
 ## Concerns
 
 None. pnpm reported skipped dependency build scripts during installation, but the installed project completed linting, both test suites and the Next.js production build.
+
+## Fix Round 1
+
+### Summary
+
+Addressed all six review findings and removed the unused `CADDY_EMAIL` contract. Development and production now use separate Caddyfiles: development is explicit HTTP-only, while production remains HTTPS-enabled. The browser API base is `/api`; production requires `APP_ENV=production` and rejects absent/placeholder configuration; Python dependencies use generated hash-checked transitive locks; production collects and Caddy serves Django static assets; and CI executes the repository container/proxy-health contract.
+
+### Red-green evidence
+
+- RED: `.\\venv\\Scripts\\python -m pytest backend\\tests\\test_settings.py -v` failed with `ImportError: cannot import name 'validate_runtime_environment'` before the production-validation contract existed.
+- GREEN: `$env:APP_ENV='test'; .\\venv\\Scripts\\python -m pytest backend\\tests\\test_settings.py -v` passed 5 tests covering explicit environment mode, known placeholders and valid production values.
+- GREEN (full backend): `$env:APP_ENV='test'; .\\venv\\Scripts\\python -m pytest backend` passed 6 tests.
+
+### Verification commands and results
+
+- `.\\venv\\Scripts\\python -m pip install --require-hashes -r backend\\requirements-dev.lock` — passed using the committed transitive lock.
+- `corepack pnpm lint`, `corepack pnpm test:ci`, `corepack pnpm build` — passed; Vitest 1/1 and Next.js production build completed.
+- `$env:APP_ENV='test'; .\\venv\\Scripts\\python -m ruff check backend; .\\venv\\Scripts\\python -m pytest backend` — passed; Ruff and 6 pytest tests.
+- `docker compose --env-file .env.example config --quiet` and `docker compose -f compose.prod.yaml config --quiet` with safe CI values — passed.
+- `caddy validate` against both `infra/caddy/Caddyfile.dev` and `infra/caddy/Caddyfile` — passed.
+- `docker compose --env-file .env.example build` and `docker compose -f compose.prod.yaml build` with safe CI values — passed.
+- `CADDY_HTTP_PORT=8080 docker compose --env-file .env.example up --detach` followed by `curl.exe --fail http://localhost:8080/healthz` and `curl.exe --fail http://localhost:8080/health` — passed through Caddy; stack was removed with `docker compose down --volumes --remove-orphans`.
+
+### Concerns
+
+The local Windows environment does not provide Bash, so the portable Linux CI command `bash scripts/verify-containers.sh` was exercised equivalently with PowerShell. GitHub Actions runs the script on Ubuntu. Docker Desktop required a PostgreSQL healthcheck `start_period` during first-volume initialization; the Compose contract now includes that allowance.

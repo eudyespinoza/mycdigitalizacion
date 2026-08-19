@@ -14,25 +14,32 @@ services:
     restart: unless-stopped
 
   backend:
+    image: mycdigitalizaciones-backend-prod
     build:
       context: ./backend
       target: production
     restart: unless-stopped
-    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3
+    command: >-
+      sh -c "python manage.py collectstatic --noinput &&
+      gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_HOST: postgres
       REDIS_URL: redis://redis:6379/0
+      APP_ENV: production
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in .env}
       DJANGO_DEBUG: "false"
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?set DJANGO_ALLOWED_HOSTS in .env}
     depends_on:
       - postgres
       - redis
+    volumes:
+      - static_files:/app/staticfiles
 
   worker:
+    image: mycdigitalizaciones-worker-prod
     build:
       context: ./backend
       target: production
@@ -44,6 +51,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_HOST: postgres
       REDIS_URL: redis://redis:6379/0
+      APP_ENV: production
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in .env}
       DJANGO_DEBUG: "false"
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?set DJANGO_ALLOWED_HOSTS in .env}
@@ -52,8 +60,10 @@ services:
       - redis
 
   frontend:
+    image: mycdigitalizaciones-frontend-prod
     build:
-      context: ./frontend
+      context: .
+      dockerfile: frontend/Dockerfile
       target: production
     restart: unless-stopped
     environment:
@@ -66,10 +76,10 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      CADDY_EMAIL: ${CADDY_EMAIL}
       SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env}
     volumes:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - static_files:/srv/static:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
@@ -80,3 +90,4 @@ volumes:
   postgres_data:
   caddy_data:
   caddy_config:
+  static_files:
