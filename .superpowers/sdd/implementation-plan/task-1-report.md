@@ -64,3 +64,29 @@ Addressed all six review findings and removed the unused `CADDY_EMAIL` contract.
 ### Concerns
 
 The local Windows environment does not provide Bash, so the portable Linux CI command `bash scripts/verify-containers.sh` was exercised equivalently with PowerShell. GitHub Actions runs the script on Ubuntu. Docker Desktop required a PostgreSQL healthcheck `start_period` during first-volume initialization; the Compose contract now includes that allowance.
+
+## Fix Round 2
+
+### Summary
+
+Replaced the production runtime static-files volume with a build-time static collection contract. The backend production image now runs `collectstatic` before switching to its non-root user. WhiteNoise 6.12.0 is direct-pinned and hash-locked, serves Django's compressed manifest assets, and production Caddy proxies `/static/*` to Django. The static named volume and the runtime `collectstatic` command were removed. The container verification script starts a clean production topology and requires a non-empty `200` response for `/static/admin/css/base.css` through Caddy.
+
+### Red-green evidence
+
+- RED: `$env:APP_ENV='test'; .\\venv\\Scripts\\python -m pytest backend\\tests\\test_staticfiles.py -v` failed as intended with `ValueError: 'whitenoise.middleware.WhiteNoiseMiddleware' is not in list` before the WhiteNoise contract existed.
+- GREEN: after adding the pinned/hash-locked dependency and settings, the same command passed: 1 test.
+- GREEN (full backend): `$env:APP_ENV='test'; .\\venv\\Scripts\\python -m ruff check backend; .\\venv\\Scripts\\python -m pytest backend -v` passed Ruff plus 7 pytest tests.
+
+### Verification commands and results
+
+- `.\\venv\\Scripts\\pip-compile --generate-hashes --strip-extras --output-file backend\\requirements.lock backend\\requirements.in` and the matching dev-lock command — completed; both committed locks include hash-checked `whitenoise==6.12.0`.
+- `.\\venv\\Scripts\\python -m pip install --require-hashes -r backend\\requirements-dev.lock` — passed.
+- `docker compose --env-file .env.example config --quiet` and `docker compose -f compose.prod.yaml config --quiet` with safe CI values — passed.
+- `docker run --rm ... Caddyfile.dev ... caddy validate ...` and the matching production Caddyfile validation — passed.
+- Production-equivalent `$env:APP_ENV='production'; .\\venv\\Scripts\\python backend\\manage.py collectstatic --noinput` — passed: 426 post-processed assets; `backend\\staticfiles\\admin\\css\\base.css` is non-empty (22,120 bytes).
+- `CI=true pnpm lint; pnpm test -- --run; pnpm build` — did not complete locally because pnpm's external supply-chain verification retained the reinstall process; it was stopped without changing manifests.
+- `docker compose -f compose.prod.yaml build` — did not complete locally: Docker Desktop remained within image dependency installation and was interrupted; no production containers were started. The committed Linux CI smoke script runs this build, starts a clean production topology, and asserts the Caddy-proxied static asset is non-empty.
+
+### Concerns
+
+The clean Docker image/proxy smoke could not complete on this Windows Docker Desktop session because the build process remained blocked during dependency installation; it was stopped as requested. The static build contract itself was verified with production settings locally, but the end-to-end Caddy request remains for CI to execute. The frontend matrix is likewise pending CI because pnpm's injected supply-chain verifier did not complete its fresh non-interactive installation.

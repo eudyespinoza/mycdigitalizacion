@@ -11,9 +11,9 @@
 		reverse_proxy backend:8000
 	}
 
-	handle_path /static/* {
-		root * /srv/static
-		file_server
+	@static path /static/*
+	handle @static {
+		reverse_proxy backend:8000
 	}
 
 	handle {

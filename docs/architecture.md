@@ -16,6 +16,6 @@ The storefront (`frontend/`) is a Next.js 16.3 App Router application using Reac
 
 ## Delivery operations
 
-Development uses `compose.yaml` with bind mounts; `compose.prod.yaml` removes source mounts and runs the production targets. The production Caddy instance owns HTTP/TLS entry and reverse-proxies application traffic. Django runs `collectstatic` before the production web process starts; its `static_files` volume is mounted read-only into Caddy and served at `/static/*`. Database, static and Caddy volumes are persistent and must be backed up by the deployment operator.
+Development uses `compose.yaml` with bind mounts; `compose.prod.yaml` removes source mounts and runs the production targets. The production Caddy instance owns HTTP/TLS entry and reverse-proxies application traffic. Django runs `collectstatic` while the production image is built, then WhiteNoise serves immutable manifest assets at `/static/*` behind Caddy. Database and Caddy volumes are persistent and must be backed up by the deployment operator.
 
 No example configuration carries a live API key or provider secret. The `.env.example` values are deliberately non-production placeholders. Production startup requires `APP_ENV=production` and rejects missing or known placeholder signing keys, database passwords and site configuration.
