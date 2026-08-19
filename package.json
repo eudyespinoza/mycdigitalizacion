@@ -1,0 +1,12 @@
+{
+  "name": "mycdigitalizacion",
+  "private": true,
+  "packageManager": "pnpm@10.18.2",
+  "scripts": {
+    "dev": "pnpm --filter @mycdigitalizacion/storefront dev",
+    "build": "pnpm --filter @mycdigitalizacion/storefront build",
+    "lint": "pnpm --filter @mycdigitalizacion/storefront lint",
+    "test": "pnpm --filter @mycdigitalizacion/storefront test",
+    "test:ci": "pnpm --filter @mycdigitalizacion/storefront test:ci"
+  }
+}
