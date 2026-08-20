@@ -440,6 +440,36 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
   .order-item { grid-template-columns: 1fr auto; }
   .order-item > strong { grid-column: 1 / -1; text-align: left; }
 }
+.management-header-actions, .management-search, .management-form-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.management-search { max-width: 680px; margin: 32px 0 18px; }
+.management-search label { flex: 1 1 280px; }
+.management-search input { width: 100%; min-height: 48px; border: 1px solid #aab8ce; border-radius: 12px; padding: 10px 14px; font: inherit; }
+.management-content-gap { margin-top: 32px; }
+.management-table-wrap { overflow-x: auto; border: 1px solid #dbe4f1; border-radius: 16px; background: white; }
+.management-table { width: 100%; border-collapse: collapse; min-width: 760px; }
+.management-table th { padding: 14px 18px; border-bottom: 1px solid #ccd7e7; background: #edf3fb; color: #526078; font-size: .76rem; letter-spacing: .04em; text-align: left; text-transform: uppercase; }
+.management-table td { padding: 17px 18px; border-bottom: 1px solid #e3e9f2; vertical-align: middle; }
+.management-table tbody tr:last-child td { border-bottom: 0; }
+.management-table td:first-child a { color: var(--blue); font-weight: 900; }
+.management-table td:first-child small { display: block; margin-top: 3px; color: var(--muted); }
+.management-pill { display: inline-flex; padding: 5px 9px; border-radius: 999px; font-size: .75rem; font-weight: 900; }
+.management-pill.is-live { background: #dff8f1; color: #00614f; }
+.management-pill.is-draft { background: #e9edf4; color: #556175; }
+.management-empty { margin-top: 30px; padding: 40px; border: 1px dashed #aebbd0; border-radius: 16px; background: white; text-align: center; }
+.management-form textarea, .management-form select, .compact-management-form input, .compact-management-form select, .management-dialog input, .management-dialog textarea { width: 100%; min-height: 48px; border: 1px solid #aab8ce; border-radius: 11px; padding: 10px 13px; background: white; color: var(--ink); font: inherit; }
+.management-form textarea { resize: vertical; }
+.management-dialog-layer { position: fixed; z-index: 120; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(2,5,48,.62); }
+.management-dialog { width: min(520px, 100%); display: grid; gap: 18px; padding: 28px; border-radius: 18px; background: white; box-shadow: 0 30px 80px rgba(2,5,48,.3); }
+.management-dialog label, .compact-management-form label { display: grid; gap: 7px; font-weight: 800; }
+.taxonomy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.compact-management-form { display: grid; gap: 14px; margin: 22px 0; }
+.management-simple-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid #dbe4f1; }
+.management-simple-list li { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #e3e9f2; }
+.management-simple-list span { color: var(--muted); font-size: .85rem; }
+@media (max-width: 768px) {
+  .management-header-actions { width: 100%; }
+  .taxonomy-grid { grid-template-columns: 1fr; }
+}
 @media (max-width: 420px) {
   .featured .section-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
   .featured .section-heading > a { min-height: 44px; align-items: center; }

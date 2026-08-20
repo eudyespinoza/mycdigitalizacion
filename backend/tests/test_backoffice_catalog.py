@@ -1,0 +1,185 @@
+import pytest
+from django.utils import timezone
+from rest_framework.test import APIClient
+
+from catalog.models import Brand, Category, ProductVariant
+from commerce.models import InventoryMovement
+
+pytestmark = pytest.mark.django_db
+
+
+def management_client(django_user_model):
+    owner = django_user_model.objects.create_superuser(
+        email="catalog-owner@example.test",
+        password="StrongPassword!2026",
+        email_verified_at=timezone.now(),
+    )
+    client = APIClient()
+    client.force_login(owner)
+    return client
+
+
+def test_management_product_creation_uses_variants_and_audited_initial_stock(
+    django_user_model,
+):
+    category = Category.objects.create(name="Librería", slug="libreria")
+    brand = Brand.objects.create(name="myc", slug="myc")
+    client = management_client(django_user_model)
+
+    response = client.post(
+        "/api/v1/management/products/",
+        {
+            "name": "Cuaderno A5",
+            "slug": "cuaderno-a5",
+            "description": "Cuaderno rayado de 80 hojas.",
+            "category_id": category.pk,
+            "brand_id": brand.pk,
+            "publish": True,
+            "variants": [
+                {
+                    "sku": "CUA-A5-AZUL",
+                    "name": "Azul",
+                    "price": "4890.00",
+                    "cost": "2600.00",
+                    "on_hand": 12,
+                    "packaged_weight_grams": 330,
+                    "length_cm": "21.00",
+                    "width_cm": "15.00",
+                    "height_cm": "2.00",
+                }
+            ],
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["is_sellable"] is True
+    assert body["variants"][0]["cost"] == "2600.00"
+    assert body["variants"][0]["on_hand"] == 12
+    variant = ProductVariant.objects.get(sku="CUA-A5-AZUL")
+    movement = InventoryMovement.objects.get(variant=variant)
+    assert movement.quantity_delta == 12
+    assert movement.source == "domain"
+    assert movement.actor.email == "catalog-owner@example.test"
+
+
+def test_management_product_list_searches_real_catalog_and_includes_cost(django_user_model):
+    category = Category.objects.create(name="Escritura", slug="escritura")
+    client = management_client(django_user_model)
+    created = client.post(
+        "/api/v1/management/products/",
+        {
+            "name": "Resaltador pastel",
+            "slug": "resaltador-pastel",
+            "category_id": category.pk,
+            "variants": [
+                {
+                    "sku": "RES-PASTEL",
+                    "name": "Set x6",
+                    "price": "6450.00",
+                    "cost": "3900.00",
+                    "on_hand": 4,
+                    "packaged_weight_grams": 160,
+                    "length_cm": "18.00",
+                    "width_cm": "10.00",
+                    "height_cm": "3.00",
+                }
+            ],
+        },
+        format="json",
+    )
+    assert created.status_code == 201
+
+    response = client.get("/api/v1/management/products/?search=resaltador")
+
+    assert response.status_code == 200
+    assert response.json()["count"] == 1
+    assert response.json()["results"][0]["variants"][0]["cost"] == "3900.00"
+
+
+def test_stock_adjustment_requires_reason_and_creates_movement(django_user_model):
+    category = Category.objects.create(name="Oficina", slug="oficina")
+    client = management_client(django_user_model)
+    created = client.post(
+        "/api/v1/management/products/",
+        {
+            "name": "Organizador",
+            "slug": "organizador",
+            "category_id": category.pk,
+            "variants": [
+                {
+                    "sku": "ORG-001",
+                    "name": "Único",
+                    "price": "12900.00",
+                    "cost": "7000.00",
+                    "on_hand": 2,
+                    "packaged_weight_grams": 800,
+                    "length_cm": "30.00",
+                    "width_cm": "20.00",
+                    "height_cm": "15.00",
+                }
+            ],
+        },
+        format="json",
+    )
+    assert created.status_code == 201
+    product = created.json()
+    variant_id = product["variants"][0]["id"]
+
+    missing_reason = client.post(
+        f"/api/v1/management/variants/{variant_id}/adjust-stock/",
+        {"new_on_hand": 7, "reason": ""},
+        format="json",
+    )
+    assert missing_reason.status_code == 400
+
+    adjusted = client.post(
+        f"/api/v1/management/variants/{variant_id}/adjust-stock/",
+        {"new_on_hand": 7, "reason": "Ingreso de mercadería"},
+        format="json",
+    )
+    assert adjusted.status_code == 200
+    assert adjusted.json()["on_hand"] == 7
+    assert InventoryMovement.objects.filter(variant_id=variant_id).count() == 2
+
+
+def test_management_category_and_brand_endpoints_are_not_django_admin(django_user_model):
+    client = management_client(django_user_model)
+    parent = client.post(
+        "/api/v1/management/categories/",
+        {"name": "Librería", "slug": "libreria", "is_active": True},
+        format="json",
+    )
+    assert parent.status_code == 201
+    child = client.post(
+        "/api/v1/management/categories/",
+        {
+            "name": "Cuadernos",
+            "slug": "cuadernos",
+            "parent_id": parent.json()["id"],
+            "is_active": True,
+        },
+        format="json",
+    )
+    brand = client.post(
+        "/api/v1/management/brands/",
+        {"name": "myc Selección", "slug": "myc-seleccion"},
+        format="json",
+    )
+
+    assert child.status_code == 201
+    assert child.json()["parent_id"] == parent.json()["id"]
+    assert brand.status_code == 201
+    assert client.get("/api/v1/management/categories/").json()["results"][1]["name"] == "Cuadernos"
+
+
+def test_customer_cannot_access_management_catalog(django_user_model):
+    customer = django_user_model.objects.create_user(
+        email="customer-catalog@example.test",
+        password="StrongPassword!2026",
+        email_verified_at=timezone.now(),
+    )
+    client = APIClient()
+    client.force_login(customer)
+    assert client.get("/api/v1/management/products/").status_code == 403
