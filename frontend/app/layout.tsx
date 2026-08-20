@@ -1,17 +1,21 @@
 import type { Metadata } from "next";
 import { Nunito_Sans, Rubik } from "next/font/google";
 import { CartProvider } from "@/components/cart/cart-provider";
+import { BrandProvider } from "@/components/layout/brand-provider";
+import { loadStorefrontBranding } from "@/lib/branding";
+import { normalizeMediaUrl } from "@/lib/api";
 import "./styles.css";
 
 const rubik = Rubik({ subsets: ["latin"], variable: "--font-display", display: "swap" });
 const nunito = Nunito_Sans({ subsets: ["latin"], variable: "--font-body", display: "swap" });
 
-export const metadata: Metadata = {
-  title: "mycdigitalizacion",
-  description: "Catálogo y compra online para Argentina.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const branding = await loadStorefrontBranding();
+  return { title: branding.public_name, description: "Catálogo y compra online para Argentina.", icons: { icon: normalizeMediaUrl(branding.favicon_url) || "/brand/mycdigitalizacion-logo.png" } };
+}
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const branding = await loadStorefrontBranding();
   return (
     <html lang="es-AR" className={`${rubik.variable} ${nunito.variable}`} data-scroll-behavior="smooth">
       <body>
@@ -25,7 +29,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           data-form="Pulso Comercial, grounded direction 3, seed db399cd4."
           data-finish="unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance"
         />
-        <CartProvider>{children}</CartProvider>
+        <BrandProvider branding={branding}><CartProvider>{children}</CartProvider></BrandProvider>
       </body>
     </html>
   );

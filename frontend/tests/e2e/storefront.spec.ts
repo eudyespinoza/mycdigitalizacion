@@ -63,9 +63,8 @@ test("login rotates CSRF and profile persists the masked DNI before checkout", a
   await page.getByLabel("DNI").fill("30.125.678");
   await page.getByRole("button", { name: "Guardar perfil" }).click();
   await expect(page.getByText("DNI guardado: ••••5678")).toBeVisible();
-  const rows = await (await request.get("http://127.0.0.1:4010/__requests")).json();
-  expect(rows).toContainEqual(expect.objectContaining({ method: "POST", path: "/api/v1/auth/login", csrf: "csrf-1" }));
-  expect(rows).toContainEqual(expect.objectContaining({ method: "PATCH", path: "/api/v1/customers/me", csrf: "csrf-2", body: expect.objectContaining({ dni: "30.125.678" }) }));
+  await expect.poll(async () => (await (await request.get("http://127.0.0.1:4010/__requests")).json()).some((row: { method: string; path: string; csrf: string | null }) => row.method === "POST" && row.path === "/api/v1/auth/login" && row.csrf === "csrf-1")).toBe(true);
+  await expect.poll(async () => (await (await request.get("http://127.0.0.1:4010/__requests")).json()).some((row: { method: string; path: string; csrf: string | null; body?: { dni?: string } }) => row.method === "PATCH" && row.path === "/api/v1/customers/me" && row.csrf === "csrf-2" && row.body?.dni === "30.125.678")).toBe(true);
 });
 
 test("address workflow supports postal lookup, near confirmation and explicit far reverse choice", async ({ page, request }, testInfo) => {

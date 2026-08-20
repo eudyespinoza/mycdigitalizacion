@@ -1,14 +1,25 @@
+export type ResponsiveMediaSource = { width: number; fallback: string; webp?: string; avif?: string };
 export type ScheduledContent = {
   id: number; title: string; body?: string; alt_text: string;
-  desktop_image_url: string; mobile_image_url: string; cta_label: string; cta_url: string;
-  focal_x: number; focal_y: number; safe_height_mobile: number; safe_height_tablet: number;
+  desktop_image_url: string; mobile_image_url: string;
+  desktop_responsive_sources: ResponsiveMediaSource[]; mobile_responsive_sources: ResponsiveMediaSource[];
+  cta_label: string; cta_url: string;
+  focal_x: string; focal_y: string; safe_height_mobile: number; safe_height_tablet: number;
   safe_height_desktop: number; starts_at: string | null; ends_at: string | null; order: number;
 };
+export type TimedCampaign = ScheduledContent & { body: string; interval_ms: number; pause_on_reduced_motion: boolean };
+export type PopupFrequency = "once_session" | "daily" | "weekly" | "always";
+export type PromotionPopupContent = ScheduledContent & { body: string; frequency: PopupFrequency; display_delay_ms: number; dismissible: boolean; version: number };
 export type LandingCollection = ScheduledContent & { product_ids: number[] };
+export type StorefrontSettings = {
+  public_name: string; announcement: string; contact_email: string;
+  pickup_enabled: boolean; pickup_label: string; pickup_address: string; pickup_hours: string;
+  logo_url: string; logo_responsive_sources: ResponsiveMediaSource[]; favicon_url: string;
+};
 export type StorefrontHome = {
-  settings: { public_name: string; announcement: string; contact_email: string; pickup_enabled?: boolean; pickup_label?: string; pickup_address?: string; pickup_hours?: string };
-  hero_slides: ScheduledContent[]; promotion_slides: ScheduledContent[];
-  collections: LandingCollection[]; promotion_popups: ScheduledContent[];
+  settings: StorefrontSettings;
+  hero_slides: TimedCampaign[]; promotion_slides: TimedCampaign[];
+  collections: LandingCollection[]; promotion_popups: PromotionPopupContent[];
 };
 
 export type Category = { id: number; name: string; slug: string; parent_id: number | null };

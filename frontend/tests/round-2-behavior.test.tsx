@@ -18,7 +18,8 @@ describe("Fix Round 2 CMS behavior", () => {
     const content: ScheduledContent = {
       id: 7, title: "Colección", body: "", alt_text: "Útiles sobre un escritorio",
       desktop_image_url: "/media/cms/desktop.png", mobile_image_url: "/media/cms/mobile.png",
-      cta_label: "Ver", cta_url: "/catalogo", focal_x: 63, focal_y: 42,
+      desktop_responsive_sources: [], mobile_responsive_sources: [],
+      cta_label: "Ver", cta_url: "/catalogo", focal_x: "63", focal_y: "42",
       safe_height_mobile: 320, safe_height_tablet: 460, safe_height_desktop: 580,
       starts_at: null, ends_at: null, order: 1,
     };

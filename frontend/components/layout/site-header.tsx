@@ -7,9 +7,27 @@ import { useState } from "react";
 import type { Category } from "@/lib/types";
 import { useCart } from "@/components/cart/cart-provider";
 import { CartDrawer } from "@/components/cart/cart-drawer";
+import { useBranding } from "@/components/layout/brand-provider";
+import { normalizeMediaUrl } from "@/lib/api";
+import type { StorefrontSettings } from "@/lib/types";
 
-export function SiteHeader({ categories }: { categories: Category[] }) {
+function BrandImage({ branding, sizes }: { branding: StorefrontSettings; sizes: string }) {
+  const logo = normalizeMediaUrl(branding.logo_url) || "/brand/mycdigitalizacion-logo.png";
+  const sources = branding.logo_responsive_sources;
+  const srcSet = (format: "avif" | "webp" | "fallback") => sources.map((source) => {
+    const value = normalizeMediaUrl(source[format]);
+    return value ? `${value} ${source.width}w` : "";
+  }).filter(Boolean).join(", ");
+  const avif = srcSet("avif");
+  const webp = srcSet("webp");
+  const fallback = srcSet("fallback");
+  return <picture style={{ position: "absolute", inset: 0 }}>{avif && <source type="image/avif" srcSet={avif} sizes={sizes} />}{webp && <source type="image/webp" srcSet={webp} sizes={sizes} />}{fallback && <source data-format="fallback" srcSet={fallback} sizes={sizes} />}<Image src={logo} alt="" fill sizes={sizes} priority /></picture>;
+}
+
+export function SiteHeader({ categories, branding: brandingOverride }: { categories: Category[]; branding?: StorefrontSettings }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const contextBranding = useBranding();
+  const branding = brandingOverride ?? contextBranding;
   const cart = useCart();
   const count = cart?.cart?.lines.reduce((sum, line) => sum + line.quantity, 0) ?? 0;
   return (
@@ -20,9 +38,9 @@ export function SiteHeader({ categories }: { categories: Category[] }) {
       </div>
       <header className="site-header">
         <div className="header-main shell">
-          <Link className="brand" href="/" aria-label="mycdigitalizacion, inicio">
-            <span className="brand-mark" aria-hidden><Image src="/brand/mycdigitalizacion-logo.png" alt="" fill sizes="64px" priority /></span>
-            <span className="brand-word" aria-hidden><Image src="/brand/mycdigitalizacion-logo.png" alt="" fill sizes="210px" priority /></span>
+          <Link className="brand" href="/" aria-label={`${branding.public_name}, inicio`}>
+            <span className="brand-mark" aria-hidden><BrandImage branding={branding} sizes="64px" /></span>
+            <span className="brand-word" aria-hidden><BrandImage branding={branding} sizes="210px" /></span>
           </Link>
           <form className="header-search" role="search" action="/catalogo">
             <label className="sr-only" htmlFor="site-search">Buscar productos</label>

@@ -2,7 +2,7 @@ import Image, { getImageProps } from "next/image";
 import { normalizeMediaUrl } from "@/lib/api";
 import type { ScheduledContent } from "@/lib/types";
 
-export function CampaignImage({ content, prefix, priority = false }: { content: ScheduledContent; prefix: "hero" | "promo" | "collection"; priority?: boolean }) {
+export function CampaignImage({ content, prefix, priority = false }: { content: ScheduledContent; prefix: "hero" | "promo" | "collection" | "popup"; priority?: boolean }) {
   const desktop = normalizeMediaUrl(content.desktop_image_url);
   const mobile = normalizeMediaUrl(content.mobile_image_url);
   const fallback = desktop || mobile;
