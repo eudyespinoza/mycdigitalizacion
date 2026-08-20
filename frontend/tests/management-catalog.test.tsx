@@ -110,25 +110,37 @@ describe("gestión de catálogo e inventario", () => {
   });
 
   test("sube y elimina imágenes del producto desde la misma edición", async () => {
-    const uploaded = {
-      id: 31,
-      file_url: "/media/catalog/cuaderno.png",
+    const uploaded = (id: number, name: string) => ({
+      id,
+      file_url: `/media/catalog/${name}`,
       responsive_sources: [],
-      alt_text: "Cuaderno azul abierto",
-      order: 0,
-    };
-    const onCreate = vi.fn().mockResolvedValue(uploaded);
-    const onUpdate = vi.fn().mockResolvedValue(uploaded);
+      alt_text: `Cuaderno azul - ${name}`,
+      order: id,
+      variant_id: 21,
+      variant_name: "Azul",
+    });
+    const onCreate = vi.fn()
+      .mockResolvedValueOnce(uploaded(31, "frente.png"))
+      .mockResolvedValueOnce(uploaded(32, "interior.png"));
+    const onUpdate = vi.fn().mockResolvedValue(uploaded(31, "frente.png"));
     const onDelete = vi.fn().mockResolvedValue(undefined);
-    render(<ProductMediaManager initialMedia={[]} onCreate={onCreate} onDelete={onDelete} onUpdate={onUpdate} />);
-    const file = new File(["image"], "cuaderno.png", { type: "image/png" });
-    fireEvent.change(screen.getByLabelText("Archivo"), { target: { files: [file] } });
-    fireEvent.change(screen.getByLabelText("Texto alternativo"), { target: { value: "Cuaderno azul abierto" } });
+    render(<ProductMediaManager initialMedia={[]} onCreate={onCreate} onDelete={onDelete} onUpdate={onUpdate} variants={product.variants} />);
+    const files = [
+      new File(["front"], "frente.png", { type: "image/png" }),
+      new File(["inside"], "interior.png", { type: "image/png" }),
+    ];
+    fireEvent.change(screen.getByLabelText("Archivos"), { target: { files } });
+    fireEvent.change(screen.getByLabelText("Texto alternativo base"), { target: { value: "Cuaderno azul" } });
+    fireEvent.change(screen.getByLabelText("Asignar imágenes a"), { target: { value: "21" } });
     fireEvent.submit(screen.getByRole("button", { name: "Subir imagen" }).closest("form")!);
 
-    await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.any(FormData)));
-    expect(await screen.findByAltText("Cuaderno azul abierto")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Eliminar" }));
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(2));
+    expect(Array.from(onCreate.mock.calls[0][0] as FormData)).toEqual(expect.arrayContaining([
+      ["variant_id", "21"],
+    ]));
+    expect(await screen.findByAltText("Cuaderno azul - frente.png")).toBeVisible();
+    expect(screen.getByAltText("Cuaderno azul - interior.png")).toBeVisible();
+    fireEvent.click(screen.getAllByRole("button", { name: "Eliminar" })[0]);
     await waitFor(() => expect(onDelete).toHaveBeenCalledWith(31));
   });
 });

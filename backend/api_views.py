@@ -243,7 +243,7 @@ class ProductDetailView(generics.RetrieveAPIView):
     queryset = (
         Product.objects.filter(is_active=True, is_sellable=True)
         .select_related("category", "brand")
-        .prefetch_related("variants", "media")
+        .prefetch_related("variants", "media__variant")
     )
 
 

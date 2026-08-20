@@ -39,7 +39,7 @@ class ProductListCreateView(generics.GenericAPIView):
 
     def get_queryset(self):
         queryset = Product.objects.select_related("category", "brand").prefetch_related(
-            "media",
+            "media__variant",
             "variants__stock_reservations",
             "variants__inventory_movements__actor",
             "variants__attribute_values__definition",
@@ -90,7 +90,7 @@ class ProductDetailView(generics.GenericAPIView):
     permission_classes = (IsManagementUser,)
     serializer_class = ManagementProductSerializer
     queryset = Product.objects.select_related("category", "brand").prefetch_related(
-        "media",
+        "media__variant",
         "variants__stock_reservations",
         "variants__inventory_movements__actor",
         "variants__attribute_values__definition",
@@ -166,7 +166,10 @@ class ProductMediaListCreateView(generics.ListCreateAPIView):
         return generics.get_object_or_404(Product, pk=self.kwargs["pk"])
 
     def get_queryset(self):
-        return ProductMedia.objects.filter(product=self.get_product())
+        return ProductMedia.objects.filter(product=self.get_product()).select_related("variant")
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), "product": self.get_product()}
 
     def perform_create(self, serializer):
         media = serializer.save(product=self.get_product())
@@ -185,7 +188,13 @@ class ProductMediaDetailView(generics.RetrieveUpdateDestroyAPIView):
     lookup_url_kwarg = "media_pk"
 
     def get_queryset(self):
-        return ProductMedia.objects.filter(product_id=self.kwargs["pk"])
+        return ProductMedia.objects.filter(product_id=self.kwargs["pk"]).select_related(
+            "variant"
+        )
+
+    def get_serializer_context(self):
+        product = generics.get_object_or_404(Product, pk=self.kwargs["pk"])
+        return {**super().get_serializer_context(), "product": product}
 
     def perform_update(self, serializer):
         media = serializer.save()

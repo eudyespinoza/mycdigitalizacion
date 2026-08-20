@@ -38,7 +38,7 @@ def product_queryset(query):
     queryset = (
         Product.objects.filter(is_active=True, is_sellable=True)
         .select_related("category", "brand")
-        .prefetch_related(Prefetch("variants", queryset=variants), "media")
+        .prefetch_related(Prefetch("variants", queryset=variants), "media__variant")
     )
     if query:
         if connection.vendor == "postgresql":

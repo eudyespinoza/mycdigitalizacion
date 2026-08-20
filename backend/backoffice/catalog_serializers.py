@@ -104,6 +104,13 @@ class ManagementProductMediaSerializer(serializers.ModelSerializer):
     file = serializers.ImageField(write_only=True)
     file_url = serializers.SerializerMethodField()
     responsive_sources = serializers.SerializerMethodField()
+    variant_id = serializers.PrimaryKeyRelatedField(
+        source="variant",
+        queryset=ProductVariant.objects.all(),
+        allow_null=True,
+        required=False,
+    )
+    variant_name = serializers.CharField(source="variant.name", read_only=True, default="")
 
     class Meta:
         model = ProductMedia
@@ -112,10 +119,22 @@ class ManagementProductMediaSerializer(serializers.ModelSerializer):
             "file",
             "file_url",
             "responsive_sources",
+            "variant_id",
+            "variant_name",
             "alt_text",
             "order",
         )
         read_only_fields = ("id", "file_url", "responsive_sources")
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        product = self.context.get("product") or getattr(self.instance, "product", None)
+        variant = attrs.get("variant", getattr(self.instance, "variant", None))
+        if product and variant and variant.product_id != product.pk:
+            raise serializers.ValidationError(
+                {"variant_id": "La variante debe pertenecer al mismo producto."}
+            )
+        return attrs
 
     @extend_schema_field(serializers.CharField())
     def get_file_url(self, instance):

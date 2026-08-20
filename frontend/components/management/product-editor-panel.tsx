@@ -45,6 +45,7 @@ export function ProductEditorPanel({
     />
     {initial && <ProductMediaManager
       initialMedia={initial.media}
+      variants={initial.variants}
       onCreate={(form) => managementRequest<ManagementProductMedia>(`/products/${initial.id}/media/`, { method: "POST", body: form })}
       onDelete={(id) => managementRequest<void>(`/products/${initial.id}/media/${id}/`, { method: "DELETE" })}
       onUpdate={(id, form) => managementRequest<ManagementProductMedia>(`/products/${initial.id}/media/${id}/`, { method: "PATCH", body: form })}

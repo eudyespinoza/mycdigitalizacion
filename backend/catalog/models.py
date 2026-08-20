@@ -154,6 +154,13 @@ class Product(models.Model):
 
 class ProductMedia(models.Model):
     product = models.ForeignKey(Product, related_name="media", on_delete=models.CASCADE)
+    variant = models.ForeignKey(
+        "ProductVariant",
+        null=True,
+        blank=True,
+        related_name="media",
+        on_delete=models.SET_NULL,
+    )
     file = models.ImageField(
         upload_to=safe_image_upload_to("catalog"), validators=[validate_image_upload]
     )
@@ -167,6 +174,8 @@ class ProductMedia(models.Model):
     def clean(self):
         if self.file and not self.alt_text.strip():
             raise ValidationError({"alt_text": "Alt text is required when an image is present"})
+        if self.variant_id and self.variant.product_id != self.product_id:
+            raise ValidationError({"variant": "Variant must belong to the same product"})
 
     def save(self, *args, **kwargs):
         previous = (

@@ -33,6 +33,8 @@ export type ManagementProductMedia = {
   responsive_sources: Array<Record<string, string | number>>;
   alt_text: string;
   order: number;
+  variant_id: number | null;
+  variant_name: string;
 };
 
 export type InventoryMovementSummary = {

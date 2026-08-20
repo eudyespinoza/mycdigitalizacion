@@ -294,27 +294,36 @@ def test_management_product_image_upload_update_and_delete(
         format="json",
     )
     product_id = created.json()["id"]
+    variant_id = created.json()["variants"][0]["id"]
     image = io.BytesIO()
     Image.new("RGB", (64, 48), "#08aecd").save(image, format="PNG")
     upload = SimpleUploadedFile("producto.png", image.getvalue(), content_type="image/png")
 
     uploaded = client.post(
         f"/api/v1/management/products/{product_id}/media/",
-        {"file": upload, "alt_text": "Set artístico abierto", "order": 1},
+        {
+            "file": upload,
+            "alt_text": "Set artístico abierto",
+            "order": 1,
+            "variant_id": variant_id,
+        },
         format="multipart",
     )
 
     assert uploaded.status_code == 201
     media_id = uploaded.json()["id"]
     assert uploaded.json()["file_url"].startswith("/media/catalog/")
+    assert uploaded.json()["variant_id"] == variant_id
+    assert uploaded.json()["variant_name"] == "Único"
     assert uploaded.json()["responsive_sources"]
     updated = client.patch(
         f"/api/v1/management/products/{product_id}/media/{media_id}/",
-        {"alt_text": "Contenido completo del set", "order": 0},
+        {"alt_text": "Contenido completo del set", "order": 0, "variant_id": None},
         format="json",
     )
     assert updated.status_code == 200
     assert updated.json()["alt_text"] == "Contenido completo del set"
+    assert updated.json()["variant_id"] is None
     deleted = client.delete(
         f"/api/v1/management/products/{product_id}/media/{media_id}/"
     )

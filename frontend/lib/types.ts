@@ -23,7 +23,13 @@ export type StorefrontHome = {
 };
 
 export type Category = { id: number; name: string; slug: string; parent_id: number | null };
-export type ProductMedia = { file: string; alt_text: string; order: number };
+export type ProductMedia = {
+  file: string;
+  alt_text: string;
+  order: number;
+  variant_id: number | null;
+  variant_name: string;
+};
 export type VariantAttribute = { name: string; slug: string; type: "text" | "integer" | "decimal" | "boolean" | "option"; value: string | number | boolean };
 export type ProductVariant = {
   id: number; sku: string; name: string; price: string; available_stock: number;

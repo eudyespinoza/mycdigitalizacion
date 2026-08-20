@@ -24,6 +24,8 @@ class BrandSerializer(serializers.ModelSerializer):
 class ProductMediaSerializer(serializers.ModelSerializer):
     file = serializers.SerializerMethodField()
     responsive_sources = serializers.SerializerMethodField()
+    variant_id = serializers.IntegerField(read_only=True, allow_null=True)
+    variant_name = serializers.CharField(source="variant.name", read_only=True, default="")
 
     @extend_schema_field(serializers.CharField())
     def get_file(self, instance):
@@ -38,7 +40,14 @@ class ProductMediaSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ProductMedia
-        fields = ("file", "responsive_sources", "alt_text", "order")
+        fields = (
+            "file",
+            "responsive_sources",
+            "alt_text",
+            "order",
+            "variant_id",
+            "variant_name",
+        )
 
 
 class PublicAttributeSerializer(serializers.Serializer):
