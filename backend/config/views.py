@@ -1,9 +1,6 @@
 from django.conf import settings
-from django.contrib import admin
 from django.db import DatabaseError, connection
 from django.http import JsonResponse
-from django.shortcuts import render
-from django.urls import reverse
 from django.views.csrf import csrf_failure as django_csrf_failure
 from redis import Redis
 from redis.exceptions import RedisError
@@ -49,27 +46,6 @@ def readyz(_: object) -> JsonResponse:
         },
         status=200 if ready else 503,
     )
-
-
-def admin_integrations(request):
-    """Show provider readiness to staff without exposing provider credentials."""
-    mercado_pago_fields = {
-        "access_token": bool(settings.MERCADOPAGO_ACCESS_TOKEN),
-        "webhook_secret": bool(settings.MERCADOPAGO_WEBHOOK_SECRET),
-        "collector_id": bool(settings.MERCADOPAGO_COLLECTOR_ID),
-    }
-    context = {
-        **admin.site.each_context(request),
-        "title": "Integraciones",
-        "mercado_pago": {
-            "configured": all(mercado_pago_fields.values()),
-            "fields": mercado_pago_fields,
-            "collector_id": settings.MERCADOPAGO_COLLECTOR_ID,
-            "mode": "Producción" if settings.MERCADOPAGO_LIVE_MODE else "Modo de pruebas",
-            "webhook_url": request.build_absolute_uri(reverse("mercadopago-webhook")),
-        },
-    }
-    return render(request, "admin/integrations.html", context)
 
 
 def csrf_failure(request, reason="", template_name="403_csrf.html"):

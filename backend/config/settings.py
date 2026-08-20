@@ -32,19 +32,6 @@ def strict_boolean(environment: Mapping[str, str], field: str, *, default: str =
     return raw_value == "true"
 
 
-def admin_cache_config(environment: Mapping[str, str]) -> dict[str, str]:
-    if environment.get("APP_ENV", "").strip().lower() == "production":
-        return {
-            "BACKEND": "django.core.cache.backends.redis.RedisCache",
-            "LOCATION": environment.get("REDIS_URL", "redis://redis:6379/0"),
-            "KEY_PREFIX": "mycd-admin",
-        }
-    return {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "mycd-admin-development-fallback",
-    }
-
-
 def validate_runtime_environment(environment: Mapping[str, str]) -> None:
     """Reject accidental production startup with development configuration."""
     app_env = environment.get("APP_ENV", "").strip().lower()
@@ -163,7 +150,6 @@ SECURE_HSTS_PRELOAD = APP_ENV == "production"
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -187,7 +173,6 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "config.admin_security.AdminTwoFactorGateMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -250,22 +235,12 @@ STORAGES = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
 
-ADMIN_LOGIN_MAX_ATTEMPTS = int(environ.get("ADMIN_LOGIN_MAX_ATTEMPTS", "5"))
-ADMIN_LOGIN_LOCK_SECONDS = int(environ.get("ADMIN_LOGIN_LOCK_SECONDS", "900"))
-ADMIN_2FA_REQUIRED = environ.get("ADMIN_2FA_REQUIRED", "false").lower() == "true"
-ADMIN_2FA_PROVIDER = environ.get("ADMIN_2FA_PROVIDER", "")
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "mycd-default",
-    },
-    "admin_login": admin_cache_config(environ),
+    }
 }
-
-if ADMIN_2FA_REQUIRED and not ADMIN_2FA_PROVIDER.strip():
-    raise ImproperlyConfigured(
-        "ADMIN_2FA_PROVIDER is required when ADMIN_2FA_REQUIRED=true"
-    )
 
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],

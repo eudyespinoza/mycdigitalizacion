@@ -511,6 +511,14 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 @media (max-width: 768px) {
   .promotion-management-grid, .branding-preview-grid { grid-template-columns: 1fr; }
 }
+.management-users-layout { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(320px, .85fr); gap: 20px; align-items: start; }
+.management-role-list { display: grid; gap: 8px; margin: 0; padding: 18px; border: 1px solid var(--line); border-radius: 12px; }
+.management-role-list legend { padding-inline: 7px; font-weight: 900; }
+.management-role-list .management-check span { display: grid; gap: 2px; }
+.management-role-list small { color: var(--muted); font-weight: 500; }
+@media (max-width: 1024px) {
+  .management-users-layout { grid-template-columns: 1fr; }
+}
 @media (max-width: 420px) {
   .featured .section-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
   .featured .section-heading > a { min-height: 44px; align-items: center; }

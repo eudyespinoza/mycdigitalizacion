@@ -43,7 +43,14 @@ LOGISTICS_ACTIONS = {
 def _permissions_for_role(role):
     permissions = Permission.objects.select_related("content_type")
     if role == "Owner":
-        app_labels = {"accounts", "catalog", "commerce", "locations", "landing"}
+        app_labels = {
+            "accounts",
+            "backoffice",
+            "catalog",
+            "commerce",
+            "locations",
+            "landing",
+        }
         domain = permissions.filter(content_type__app_label__in=app_labels)
         group_management = permissions.filter(
             content_type__app_label="auth",

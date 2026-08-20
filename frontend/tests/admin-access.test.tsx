@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { AccountDashboard } from "@/components/account/account-dashboard";
 import { apiRequest } from "@/lib/api";
@@ -22,20 +22,17 @@ const customer: Customer & { is_staff: boolean } = {
 
 describe("administrator account discovery", () => {
   beforeEach(() => {
-    vi.stubEnv("NEXT_PUBLIC_ADMIN_URL", "http://localhost:8000/admin/");
     vi.mocked(apiRequest).mockImplementation(async (path) => {
       if (path === "/customers/me/") return customer;
       return [];
     });
   });
 
-  afterEach(() => vi.unstubAllEnvs());
-
   test("a staff customer can open the operational control panel from My account", async () => {
     render(<AccountDashboard />);
 
-    const link = await screen.findByRole("link", { name: "Abrir panel de control" });
-    expect(link).toHaveAttribute("href", "http://localhost:8000/admin/");
+    const link = await screen.findByRole("link", { name: "Abrir gestión" });
+    expect(link).toHaveAttribute("href", "/gestion");
     expect(screen.getByText(/productos, contenido, pedidos e integraciones/i)).toBeVisible();
   });
 });

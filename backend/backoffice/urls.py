@@ -1,5 +1,11 @@
 from django.urls import path
 
+from backoffice.access_views import (
+    ManagementAuditListView,
+    ManagementRoleListView,
+    ManagementStaffDetailView,
+    ManagementStaffListCreateView,
+)
 from backoffice.catalog_views import (
     BrandListCreateView,
     CategoryListCreateView,
@@ -126,4 +132,12 @@ urlpatterns = [
         CouponDetailView.as_view(),
         name="management-coupon-detail",
     ),
+    path("users/", ManagementStaffListCreateView.as_view(), name="management-users"),
+    path(
+        "users/<int:pk>/",
+        ManagementStaffDetailView.as_view(),
+        name="management-user-detail",
+    ),
+    path("roles/", ManagementRoleListView.as_view(), name="management-roles"),
+    path("audit/", ManagementAuditListView.as_view(), name="management-audit"),
 ]
