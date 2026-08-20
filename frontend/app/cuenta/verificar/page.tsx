@@ -1,0 +1,2 @@
+import { VerifyForm } from "@/components/account/auth-forms";
+export default async function VerifyPage({ searchParams }: { searchParams: Promise<{ email?: string }> }) { const { email = "" } = await searchParams; return <div className="auth-page"><div><h1>Verificá tu email</h1><p>Ingresá el código numérico de seis dígitos. Si venció, la API te indicará cómo continuar.</p></div><VerifyForm initialEmail={email} /></div>; }

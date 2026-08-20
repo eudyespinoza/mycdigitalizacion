@@ -1,0 +1,1 @@
+export default function CatalogLoading() { return <main className="shell page-shell" aria-busy="true"><div className="title-skeleton" /><div className="catalog-skeleton">{Array.from({ length: 8 }, (_, index) => <div key={index} />)}</div><span className="sr-only">Cargando catálogo</span></main>; }

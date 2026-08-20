@@ -1,0 +1,19 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { apiRequest } from "@/lib/api";
+import { formatMoney } from "@/lib/format";
+import type { Order } from "@/lib/types";
+
+const statusCopy: Record<string, string> = { pending: "Pendiente", approved: "Aprobado", rejected: "No aprobado", paid: "Pagado", pending_review: "Necesita revisión", preparing: "En preparación", shipped: "En camino", delivered: "Entregado" };
+export function OrderDetail({ orderId }: { orderId: string }) {
+  const [order, setOrder] = useState<Order | null>(null); const [error, setError] = useState(""); const [resuming, setResuming] = useState(false);
+  const load = () => apiRequest<Order>(`/orders/${encodeURIComponent(orderId)}/`).then(setOrder).catch((cause) => setError(cause instanceof Error ? cause.message : "No encontramos el pedido."));
+  useEffect(() => { void load(); }, [orderId]);
+  const resume = async () => { setResuming(true); setError(""); try { const result = await apiRequest<{ checkout_url: string }>(`/checkout/${encodeURIComponent(orderId)}/resume/`, { method: "POST" }); if (result.checkout_url) window.location.assign(result.checkout_url); else await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : "No se puede retomar el pago."); } finally { setResuming(false); } };
+  if (error && !order) return <div className="empty-state"><h2>No pudimos abrir este pedido</h2><p>{error}</p><Link className="button secondary" href="/cuenta">Volver a mi cuenta</Link></div>;
+  if (!order) return <div role="status" className="account-skeleton">Consultando el pedido…</div>;
+  const canResume = ["pending", "rejected"].includes(order.payment_status);
+  return <div className="order-detail"><div className="order-status"><span>Pedido {order.public_id}</span><h2>{statusCopy[order.payment_status] ?? order.payment_status}</h2><p>Identidad: {statusCopy[order.identity_status] ?? order.identity_status}. Entrega: {statusCopy[order.fulfillment_status] ?? order.fulfillment_status}.</p></div><section><h2>Productos</h2>{order.items.map((item) => <article className="order-item" key={item.sku_snapshot}><div><strong>{item.product_name_snapshot}</strong><span>{item.variant_name_snapshot} · {item.sku_snapshot}</span></div><span>{item.quantity} unidades</span><strong>{formatMoney(item.line_total_snapshot)}</strong></article>)}</section><section className="order-totals"><h2>Totales confirmados</h2><dl><div><dt>Subtotal</dt><dd>{formatMoney(order.subtotal_snapshot)}</dd></div><div><dt>Descuento</dt><dd>{formatMoney(order.discount_snapshot)}</dd></div><div><dt>Envío</dt><dd>{formatMoney(order.shipping_amount_snapshot)}</dd></div><div><dt>Total</dt><dd>{formatMoney(order.total_snapshot)}</dd></div></dl></section><section><h2>{order.fulfillment_method === "pickup" ? "Retiro" : "Envío"}</h2><p>{order.fulfillment_method === "pickup" ? "La información de retiro se mostrará según la configuración operativa del pedido." : String(order.address_snapshot.raw_address ?? order.address_snapshot.normalized_address ?? "Dirección confirmada en el pedido")}</p></section>{error && <p className="inline-error" role="alert">{error}</p>}{canResume && <button className="button primary" disabled={resuming} onClick={() => void resume()}>{resuming ? "Consultando…" : "Retomar pago"}</button>}</div>;
+}

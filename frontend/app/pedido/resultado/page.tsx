@@ -1,0 +1,4 @@
+import { OrderResult } from "@/components/orders/order-result";
+import { SiteFooter } from "@/components/layout/site-footer";
+import { SiteHeader } from "@/components/layout/site-header";
+export default async function ResultPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) { const params = await searchParams; const search = new URLSearchParams(Object.entries(params).flatMap(([key, value]) => typeof value === "string" ? [[key, value]] : Array.isArray(value) ? value.map((item) => [key, item]) : [])).toString(); return <><SiteHeader categories={[]} /><main id="contenido" className="page-shell shell"><div className="catalog-title"><h1>Estado de tu compra</h1><p>Consultamos la confirmación segura del servidor.</p></div><OrderResult search={search} /></main><SiteFooter /></>; }
