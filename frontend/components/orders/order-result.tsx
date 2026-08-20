@@ -9,7 +9,7 @@ export async function pollPaymentStatus(request: () => Promise<string>, options:
   let status = "pending";
   for (let attempt = 1; attempt <= options.attempts; attempt += 1) {
     status = await request();
-    if (!["pending", "in_process", "checking"].includes(status)) return { status, attempts: attempt };
+    if (!["not_started", "pending"].includes(status)) return { status, attempts: attempt };
     if (attempt < options.attempts && options.intervalMs > 0) await new Promise((resolve) => setTimeout(resolve, options.intervalMs));
   }
   return { status, attempts: options.attempts };
@@ -22,7 +22,7 @@ export function OrderResult({ search }: { search: string }) {
     setPolling(true); setError(""); setExhausted(false);
     try {
       const result = await pollPaymentStatus(async () => (await apiRequest<{ status: string }>(`/payments/${encodeURIComponent(reference)}/status/`)).status, { attempts: 6, intervalMs: 1500 });
-      setState(getTrustedOrderState(new URLSearchParams(search), result.status)); setExhausted(["pending", "in_process"].includes(result.status));
+      setState(getTrustedOrderState(new URLSearchParams(search), result.status)); setExhausted(["not_started", "pending"].includes(result.status));
     } catch (cause) { setError(cause instanceof Error ? cause.message : "No pudimos consultar el pago."); }
     finally { setPolling(false); }
   }, [reference, search]);

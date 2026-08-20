@@ -67,8 +67,7 @@ async function csrf() {
 function isNamedCsrfFailure(status: number, body: unknown) {
   if (status !== 403 || !body || typeof body !== "object") return false;
   const record = body as Record<string, unknown>;
-  return record.code === "csrf_failed" || record.code === "csrf_failure" ||
-    (typeof record.detail === "string" && /csrf/i.test(record.detail));
+  return record.code === "csrf_failed";
 }
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}, cartToken?: string | null): Promise<T> {

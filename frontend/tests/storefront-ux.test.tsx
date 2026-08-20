@@ -127,7 +127,7 @@ describe("storefront behavior", () => {
 
   test("redirect query parameters never establish payment state", () => {
     expect(getTrustedOrderState(new URLSearchParams("status=approved"), null)).toBe("checking");
-    expect(getTrustedOrderState(new URLSearchParams("status=rejected"), "approved")).toBe(
+    expect(getTrustedOrderState(new URLSearchParams("status=rejected"), "paid")).toBe(
       "approved",
     );
   });

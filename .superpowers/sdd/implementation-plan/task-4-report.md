@@ -145,3 +145,45 @@ Per the explicit Task 4 boundary, the Impeccable detector was not run and `DESIG
 created. The only remaining non-failing frontend advisory is Next development mode classifying the
 mocked CMS collection image as LCP on the one-product long-page fixture; the production build is
 clean, and the media is served through the optimized same-origin Image path.
+
+## Fix Round 2 (2026-08-20)
+
+This round closes the frontend portions of the ten partial findings against backend/infra commit
+`d265ff0`. The frontend uses the finalized JSON CSRF, address-choice, pickup and checkout/provider
+contracts; no backend or infrastructure source was edited in this frontend commit.
+
+| Finding | Fix Round 2 frontend closure |
+| --- | --- |
+| F1 | The one-retry path now matches Django's real `403 {code: "csrf_failed", detail: "La sesión de seguridad venció…"}` response. Login/logout still clear the cached token, and tests prove rotated-token fetching plus no retry for unrelated 403s or provider failures. |
+| F3 | Leaflet now recenters with `useMap().setView` whenever reviewed coordinates change. Far-pin reverse review exposes both finalized successful choices, coordinate text editing remains keyboard accessible, and successful confirmation receives focus and announces readiness. |
+| F4 | Same-origin `/media` remains the only backend media topology. Docker bakes `API_INTERNAL_URL`/`API_PROXY_TARGET` into the Next build and runs the standalone server from its actual monorepo subdirectory. A production Playwright test requests `/_next/image?url=/media/...` against a faithful upstream and receives optimized image bytes with HTTP 200. |
+| F5 | Checkout fetches authoritative storefront settings before delivery, hides pickup unless enabled and configured, and presents its configured label/address/hours in shipping and review. Recovery uses only finalized domain/provider codes and returns to the originating correction step without losing review state. |
+| F7 | Hero, promotions and collections share authored desktop/mobile images, focal points and mobile/tablet/desktop safe-height variables. Collection product IDs page through the server until all requested products are found rather than dropping IDs beyond page one. CMS failure remains distinct from published-empty content. |
+| F9 | Result polling uses only `not_started`, `pending`, `paid`, `failed`, `refunded`, `needs_attention`; order identity/fulfillment copy uses the finalized vocabulary. Resume appears only for server-permitted payment states, pickup content requires `pickup_information.enabled`, and shipment/timeline/tracking remain authoritative. |
+| F10 | The cart badge now uses the accessible dark-magenta interaction token, including mobile where the cart action remains visible. Browser-computed primary/focus/badge contrast assertions run in all four projects. |
+| F11 | Map viewport updates follow coordinate changes; address success is focusable and announced. Profile validation focuses the field that is actually invalid. Existing drawer/sheet focus trap, Escape, inert background and focus-return coverage remains green. |
+| F12 | One-product merchandising is now a full-width editorial image/copy composition at tablet/desktop and a clear single card on mobile, eliminating the narrow left card/dead shell while preserving the supplied imagery and Pulso asymmetry. |
+| F13 | The mock uses exact CSRF text, finalized payment/identity/order vocabulary, pickup gating and relative media. Core registration/login/CMS/checkout/pickup/contrast scenarios run in every viewport; only map interaction, mobile-only filter sheet and viewport-independent polling are deliberately gated with inline rationale. |
+
+### Fix Round 2 TDD and final verification
+
+- Regression RED: exact recovery/status tests first failed on invented quote/payment vocabulary;
+  responsive CMS tests failed before shared campaign media and safe-height support; the map viewport
+  test failed before `setView`; Playwright then exposed the 360px sparse desktop card, inaccessible
+  raw-magenta badge and ungated pickup.
+- Component GREEN: `pnpm test:ci` → `5 passed` files, `25 passed` tests.
+- Static/build GREEN: `pnpm lint`, `pnpm typecheck` and `pnpm build` each exited `0`; Next compiled,
+  typechecked and generated the complete route set.
+- Production media GREEN: `pnpm test:e2e:production` → `1 passed`; the built production server
+  optimized a relative `/media/cms/hero.png` request through the standard proxy environment.
+- Browser GREEN: `pnpm test:e2e` → `34 passed`, `6 skipped`, `0 failed` across explicit 360, 768,
+  1024 and 1440 projects. The six skips are the documented cross-viewport reductions for the map
+  interaction (mobile + desktop), mobile/tablet filter sheet and viewport-independent polling
+  (tablet + desktop); all core contract, recovery and contrast scenarios run in every project.
+- Refreshed and visually inspected `.impeccable/review/360.png`, `768.png`, `1024.png`, `1440.png`
+  and `hero-repro.png`. The final bounded pass found no remaining visual blocker.
+
+The only non-failing advisory remains Next development mode occasionally identifying the mocked
+below-fold collection raster as LCP on the intentionally sparse fixture. It is intentionally lazy;
+the production optimizer test and build pass. The Impeccable detector was not run and `DESIGN.md`
+was not created, as required.

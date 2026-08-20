@@ -2,7 +2,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { ProfileForm } from "@/components/account/profile-form";
+import { OrderDetail } from "@/components/orders/order-detail";
 import { pollPaymentStatus } from "@/components/orders/order-result";
+import { getTrustedOrderState } from "@/components/checkout/checkout-flow";
 import {
   ApiError,
   apiRequest,
@@ -13,6 +15,7 @@ import { buildCatalogQuery } from "@/lib/catalog-query";
 import { createSerializedQueue } from "@/lib/mutation-queue";
 import { checkoutRecoveryFor } from "@/lib/checkout-recovery";
 import { buildAddressConfirmation } from "@/lib/address-confirmation";
+import { campaignHeightStyle } from "@/lib/campaign-presentation";
 import type { Customer } from "@/lib/types";
 
 const customer: Customer = {
@@ -59,7 +62,7 @@ describe("Fix Round 1 contracts", () => {
         return new Response(JSON.stringify({ csrf_token: `fresh-${csrfReads}` }), { status: 200 });
       }
       protectedCalls += 1;
-      if (protectedCalls === 1) return new Response(JSON.stringify({ code: "csrf_failed", detail: "CSRF token rotated." }), { status: 403 });
+      if (protectedCalls === 1) return new Response(JSON.stringify({ code: "csrf_failed", detail: "La sesión de seguridad venció. Actualizá la página e intentá nuevamente." }), { status: 403 });
       return new Response(undefined, { status: 204 });
     }));
     await apiRequest<void>("/billing-profiles/", { method: "POST", body: "{}" });
@@ -74,6 +77,16 @@ describe("Fix Round 1 contracts", () => {
       return new Response(JSON.stringify({ code: "provider_down", detail: "No disponible" }), { status: 403 });
     }));
     await expect(apiRequest<void>("/checkout/", { method: "POST", body: "{}" })).rejects.toBeInstanceOf(ApiError);
+    expect(protectedCalls).toBe(1);
+
+    clearCsrfToken();
+    protectedCalls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/auth/csrf/")) return new Response(JSON.stringify({ csrf_token: "one" }), { status: 200 });
+      protectedCalls += 1;
+      return new Response(JSON.stringify({ code: "csrf_failure", detail: "legacy mock fantasy" }), { status: 403 });
+    }));
+    await expect(apiRequest<void>("/billing-profiles/", { method: "POST", body: "{}" })).rejects.toBeInstanceOf(ApiError);
     expect(protectedCalls).toBe(1);
   });
 
@@ -131,18 +144,63 @@ describe("Fix Round 1 contracts", () => {
 
   test("checkout domain errors route back to the exact recoverable step", () => {
     expect(checkoutRecoveryFor("identity_missing")).toMatchObject({ step: 0, state: "idle" });
-    expect(checkoutRecoveryFor("address_unconfirmed")).toMatchObject({ step: 1, state: "idle" });
+    expect(checkoutRecoveryFor("email_not_verified")).toMatchObject({ step: 0, state: "idle" });
+    expect(checkoutRecoveryFor("identity_rejected")).toMatchObject({ step: 0, state: "rejected" });
+    expect(checkoutRecoveryFor("address_required")).toMatchObject({ step: 1, state: "idle" });
+    expect(checkoutRecoveryFor("address_review_required")).toMatchObject({ step: 1, state: "idle" });
     expect(checkoutRecoveryFor("shipping_quote_expired")).toMatchObject({ step: 2, state: "idle" });
-    expect(checkoutRecoveryFor("identity_pending_review")).toMatchObject({ step: 0, state: "pending_review" });
-    expect(checkoutRecoveryFor("provider_down")).toMatchObject({ step: 2, state: "provider_down" });
+    expect(checkoutRecoveryFor("shipping_quote_changed")).toMatchObject({ step: 2, state: "idle" });
+    expect(checkoutRecoveryFor("billing_profile_invalid")).toMatchObject({ step: 3, state: "idle" });
+    expect(checkoutRecoveryFor("pickup_unavailable")).toMatchObject({ step: 1, state: "idle" });
+    expect(checkoutRecoveryFor("invalid_fulfillment")).toMatchObject({ step: 1, state: "idle" });
+    expect(checkoutRecoveryFor("identity_consent_required")).toMatchObject({ step: 0, state: "idle" });
+    expect(checkoutRecoveryFor("invalid_email")).toMatchObject({ step: 0, state: "idle" });
+    expect(checkoutRecoveryFor("cart_owner_mismatch")).toMatchObject({ step: 0, state: "idle" });
+    expect(checkoutRecoveryFor("insufficient_stock")).toMatchObject({ step: 3, state: "idle" });
+    expect(checkoutRecoveryFor("checkout_changed")).toMatchObject({ step: 3, state: "idle" });
+    for (const code of ["not_configured", "unavailable", "timeout"]) {
+      expect(checkoutRecoveryFor(code, 2)).toMatchObject({ step: 2, state: "provider_down" });
+      expect(checkoutRecoveryFor(code, 3)).toMatchObject({ step: 3, state: "provider_down" });
+    }
+    expect(checkoutRecoveryFor("rejected", 3)).toMatchObject({ step: 3, state: "rejected" });
+    expect(checkoutRecoveryFor("invalid_response", 2)).toMatchObject({ step: 2, state: "needs_attention" });
+    expect(checkoutRecoveryFor("not_supported", 3)).toMatchObject({ step: 3, state: "needs_attention" });
+  });
+
+  test("profile validation focuses the first field that is actually invalid", async () => {
+    render(<ProfileForm customer={{ ...customer, masked_dni: "" }} onSave={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Guardar perfil" }));
+    await waitFor(() => expect(screen.getByLabelText("DNI")).toHaveFocus());
+  });
+
+  test("campaign safe heights remain authored at mobile, tablet and desktop breakpoints", () => {
+    expect(campaignHeightStyle({ safe_height_mobile: 320, safe_height_tablet: 460, safe_height_desktop: 580 })).toEqual({
+      "--campaign-mobile-height": "320px",
+      "--campaign-tablet-height": "460px",
+      "--campaign-desktop-height": "580px",
+    });
+  });
+
+  test("failed payments are presented in backend vocabulary and expose the API resume action", async () => {
+    const order = {
+      public_id: "33333333-3333-4333-8333-333333333333", identity_status: "verified", payment_status: "failed", fulfillment_status: "unfulfilled", fulfillment_method: "shipping",
+      customer_snapshot: {}, address_snapshot: { raw_address: "Av. Corrientes 1234" }, fiscal_snapshot: { id: 3, label: "Personal", legal_name: "Ana Pérez", tax_condition: "consumidor_final", is_default: true, masked_cuit: "20-********-3" }, coupon_code_snapshot: "",
+      subtotal_snapshot: "12500.00", discount_snapshot: "0.00", shipping_amount_snapshot: "4500.00", total_snapshot: "17000.00", items: [], timeline: [], shipment: null, pickup_information: null, created_at: "2026-08-20T10:00:00Z",
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(order), { status: 200 })));
+    render(<OrderDetail orderId={order.public_id} />);
+    expect(await screen.findByRole("heading", { name: "Pago no completado" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Retomar pago" })).toBeVisible();
   });
 
   test("pending payment polling is bounded and stops immediately at a terminal server state", async () => {
-    const statuses = ["pending", "pending", "approved"];
+    const statuses = ["not_started", "pending", "paid"];
     const result = await pollPaymentStatus(async () => statuses.shift() ?? "pending", { attempts: 5, intervalMs: 0 });
-    expect(result).toEqual({ status: "approved", attempts: 3 });
+    expect(result).toEqual({ status: "paid", attempts: 3 });
 
     const bounded = await pollPaymentStatus(async () => "pending", { attempts: 3, intervalMs: 0 });
     expect(bounded).toEqual({ status: "pending", attempts: 3 });
+    expect(getTrustedOrderState(new URLSearchParams("status=approved"), "failed")).toBe("rejected");
+    expect(getTrustedOrderState(new URLSearchParams("status=approved"), "refunded")).toBe("refunded");
   });
 });
