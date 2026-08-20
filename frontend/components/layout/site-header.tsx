@@ -1,7 +1,6 @@
 "use client";
 
 import { List, MagnifyingGlass, ShoppingCartSimple, UserCircle, X } from "@phosphor-icons/react";
-import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 import type { Category } from "@/lib/types";
@@ -21,7 +20,7 @@ function BrandImage({ branding, sizes }: { branding: StorefrontSettings; sizes: 
   const avif = srcSet("avif");
   const webp = srcSet("webp");
   const fallback = srcSet("fallback");
-  return <picture style={{ position: "absolute", inset: 0 }}>{avif && <source type="image/avif" srcSet={avif} sizes={sizes} />}{webp && <source type="image/webp" srcSet={webp} sizes={sizes} />}{fallback && <source data-format="fallback" srcSet={fallback} sizes={sizes} />}<Image src={logo} alt="" fill sizes={sizes} priority /></picture>;
+  return <picture className="brand-lockup-media">{avif && <source type="image/avif" srcSet={avif} sizes={sizes} />}{webp && <source type="image/webp" srcSet={webp} sizes={sizes} />}{fallback && <source data-format="fallback" srcSet={fallback} sizes={sizes} />}<img className="brand-logo" src={logo} alt="" loading="eager" decoding="async" fetchPriority="high" /></picture>;
 }
 
 export function SiteHeader({ categories, branding: brandingOverride }: { categories: Category[]; branding?: StorefrontSettings }) {
@@ -39,8 +38,7 @@ export function SiteHeader({ categories, branding: brandingOverride }: { categor
       <header className="site-header">
         <div className="header-main shell">
           <Link className="brand" href="/" aria-label={`${branding.public_name}, inicio`}>
-            <span className="brand-mark" aria-hidden><BrandImage branding={branding} sizes="64px" /></span>
-            <span className="brand-word" aria-hidden><BrandImage branding={branding} sizes="210px" /></span>
+            <BrandImage branding={branding} sizes="(max-width: 420px) 182px, (max-width: 768px) 210px, 270px" />
           </Link>
           <form className="header-search" role="search" action="/catalogo">
             <label className="sr-only" htmlFor="site-search">Buscar productos</label>

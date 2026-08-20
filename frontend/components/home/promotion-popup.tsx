@@ -2,7 +2,7 @@
 
 import { X } from "@phosphor-icons/react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { CampaignImage } from "@/components/home/campaign-image";
 import { campaignHeightStyle } from "@/lib/campaign-presentation";
 import type { PromotionPopupContent } from "@/lib/types";
@@ -17,23 +17,29 @@ const WINDOWS = { daily: 86_400_000, weekly: 604_800_000 } as const;
 export function ScheduledPromotionPopup({ popup, now = Date.now }: { popup: PromotionPopupContent; now?: () => number }) {
   const [visible, setVisible] = useState(false);
   const key = `myc-popup:${popup.id}:v${popup.version}`;
+  const recordImpression = useCallback(() => {
+    if (popup.frequency === "always") return;
+    const storage = popup.frequency === "once_session" ? window.sessionStorage : window.localStorage;
+    storage.setItem(key, String(now()));
+  }, [key, now, popup.frequency]);
   useEffect(() => {
     const storage = popup.frequency === "once_session" ? window.sessionStorage : window.localStorage;
-    const stored = Number(storage.getItem(key));
+    const storedValue = storage.getItem(key);
+    const stored = Number(storedValue);
     const elapsed = now() - stored;
-    const suppressed = popup.frequency === "once_session" ? Number.isFinite(stored) && stored > 0
-      : popup.frequency === "daily" || popup.frequency === "weekly" ? Number.isFinite(stored) && elapsed < WINDOWS[popup.frequency]
+    const suppressed = popup.frequency === "once_session" ? storedValue !== null
+      : popup.frequency === "daily" || popup.frequency === "weekly" ? storedValue !== null && Number.isFinite(stored) && elapsed < WINDOWS[popup.frequency]
       : false;
     if (suppressed) return;
     const timer = window.setTimeout(() => setVisible(true), popup.display_delay_ms);
     return () => window.clearTimeout(timer);
   }, [key, now, popup.display_delay_ms, popup.frequency]);
+  useEffect(() => {
+    if (visible) recordImpression();
+  }, [recordImpression, visible]);
 
   const dismiss = () => {
-    if (popup.frequency !== "always") {
-      const storage = popup.frequency === "once_session" ? window.sessionStorage : window.localStorage;
-      storage.setItem(key, String(now()));
-    }
+    recordImpression();
     setVisible(false);
   };
   if (!visible) return null;

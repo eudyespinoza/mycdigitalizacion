@@ -10,6 +10,7 @@ const facets = { categories: [{ name: "Papelería", slug: "papeleria", count: 1,
 const addressBase = { id: 2, label: "Casa", raw_address: "Av. Corrientes 1234, CABA", normalized_address: "Avenida Corrientes 1234", street: "Av. Corrientes", number: "1234", postal_code: "1043", cpa: "C1043", locality: "CABA", province: "CABA", latitude: "-34.6037000", longitude: "-58.3816000", floor: "", apartment: "", reference: "", notes: "", geocode_source: "georef", geocode_confidence: "0.950", geocode_summary: {}, needs_review: false, reviewed_at: "2026-08-20T00:05:00Z", created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T00:05:00Z" };
 const billing = [{ id: 3, label: "Personal", legal_name: "Cliente sintético de prueba", tax_condition: "consumidor_final", is_default: true, masked_cuit: "20-********-3" }];
 const image = readFileSync(new URL("../public/campaigns/pulso-libreria-collection.png", import.meta.url));
+const horizontalLogoImage = readFileSync(new URL("../public/campaigns/pulso-comercial-hero.png", import.meta.url));
 
 let state;
 const reset = () => { state = { csrf: "csrf-1", loggedIn: true, cmsError: false, pickupEnabled: true, checkoutRedirect: false, fastCampaigns: false, popupEnabled: false, popupFrequency: "once_session", popupDismissible: true, logoUrl: "/brand/mycdigitalizacion-logo.png", faviconUrl: "/brand/mycdigitalizacion-logo.png", address: { ...addressBase }, customer: { id: 5, email: "cliente@example.com", email_verified_at: "2026-08-20T10:00:00Z", profile: { first_name: "Ana", last_name: "Pérez", phone: "1155551234" }, masked_dni: "••••5678", masked_cuit: "" }, cart: { lines: [], subtotal: "0.00", discount: "0.00", total: "0.00", cart_token: "mock-cart-token", coupon: null }, payments: ["pending", "pending", "paid"], requests: [] }; };
@@ -24,7 +25,7 @@ const setCart = (quantity) => { state.cart = quantity > 0 ? { ...state.cart, lin
 http.createServer(async (request, response) => {
   const url = new URL(request.url, "http://127.0.0.1:4010"); const path = url.pathname.replace(/\/$/, "");
   if (path === "/mock-mercado-pago") { response.writeHead(200, { "content-type": "text/html; charset=utf-8" }); response.end(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Mercado Pago simulado</title></head><body><main><h1>Mercado Pago simulado</h1><p>Entorno determinístico de prueba. No representa un pago aprobado.</p><a href="http://127.0.0.1:3000/pedido/resultado?external_reference=33333333-3333-4333-8333-333333333333">Volver al comercio</a></main></body></html>`); return; }
-  if (path.startsWith("/media/")) { response.writeHead(200, { "content-type": "image/png", "cache-control": "public,max-age=3600" }); response.end(image); return; }
+  if (path.startsWith("/media/")) { response.writeHead(200, { "content-type": "image/png", "cache-control": "public,max-age=3600" }); response.end(path.includes("logo/horizontal") ? horizontalLogoImage : image); return; }
   if (path === "/__control") { const body = await read(request); if (body.reset) reset(); Object.assign(state, body); return json(response, 200, state); }
   if (path === "/__requests") return json(response, 200, state.requests);
   if (request.method === "OPTIONS") return json(response, 204);

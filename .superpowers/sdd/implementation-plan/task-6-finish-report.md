@@ -62,9 +62,9 @@ Final evidence is recorded after the last source change:
 | Frozen install | PASS: `pnpm install --frozen-lockfile`. |
 | Lint | PASS: `pnpm lint`. |
 | TypeScript | PASS: `pnpm typecheck`. |
-| Vitest | PASS: 6 files / 33 tests. |
-| CMS browser matrix | PASS: 12/12 at 360/768/1024/1440. |
-| Full browser matrix | PASS: 62 passed / 10 deliberate viewport reductions / 0 failed at 360/768/1024/1440. |
+| Vitest | PASS: 6 files / 38 tests after the final Round 2 popup change. |
+| CMS browser matrix | PASS: 36/36 at 360/768/1024/1440 after Fix Round 2. |
+| Full browser baseline | PASS: 62 passed / 10 deliberate viewport reductions / 0 failed at 360/768/1024/1440 before the narrow Round 2 repair; the affected CMS paths were then re-run 36/36. |
 | Axe matrix after final logo positioning | PASS: 12/12; serious/critical 0 in every viewport. |
 | Production standalone | PASS: 3/3; same-origin optimizer 200, one priority responsive hero/no duplicate preload, local performance budgets. |
 
@@ -86,3 +86,35 @@ the warning absent.
   authority or success was fabricated.
 - The mechanical Impeccable detector and `DESIGN.md` remain intentionally outside this fix.
 - Review screenshots are local evidence, not shipping application assets.
+
+## Fix Round 2: independent re-review closure
+
+The three partial REQUIRED findings from review commit `2523528` are now closed without changing
+the backend contract or the accepted visual direction.
+
+| Finding | Final repair |
+| --- | --- |
+| R1 | At 360 px the promotions heading and controls now form two bounded rows, so `documentElement.scrollWidth <= clientWidth` and both 44 px controls remain inside the viewport. The track listens for settled scroll/snap input, resolves the nearest authored slide, and updates the polite `Promoción X de N` state. Programmatic reduced-motion movement remains instant. |
+| R2 | `once_session`, `daily`, and `weekly` record the impression in the effect that follows the visible render; dismissing is idempotent and records immediately as well. Non-dismissible campaigns therefore suppress remount/reload inside their window, while `always` writes no frequency key and recurs. The elapsed-window browser test now waits for a real hydrated client interaction before mutating its clock, avoiding the prior false pass on server HTML. |
+| R3 | The header renders one complete CMS logo asset, not two private crops. A responsive `picture` retains authored AVIF/WebP/fallback sources; its single image uses intrinsic auto dimensions constrained by `max-width`/`max-height` and `object-fit: contain`, preserving square and horizontal proportions, clear space, the active URL, favicon and accessible public home name. |
+
+### Round 2 RED to GREEN
+
+- Unit RED: `tests/cms-campaigns.test.tsx` ran 13 tests, 8 passed and 5 failed exactly on touch
+  state, three non-dismissible impression policies, and the duplicated logo. Final GREEN: 13/13.
+- Browser RED at 360: 0/3; it measured `scrollWidth 387 > clientWidth 360`, no persisted
+  non-dismissible impression, and two logo images. The adversarial GREEN is 6/6 at 360.
+- Cross-viewport CMS GREEN: 36/36 across 360/768/1024/1440, including square/horizontal logos,
+  each non-dismissible policy, `always`, legacy elapsed-window recovery and touch snap.
+- Axe GREEN: 12/12, with zero serious or critical findings across the four viewports.
+- Production standalone GREEN: 3/3; optimizer `/media` returned 200, hero HTML retained one
+  responsive priority resource, and local performance proxies stayed within budget.
+- Bounded visual capture GREEN: the responsive landing test passed 2/2 at 360 and 1440. Both
+  refreshed captures were opened once; Pulso composition, search hierarchy, product editorial
+  scale, contained logo, control bounds and mobile discovery hierarchy remained coherent. No
+  second correction round was needed.
+
+Final source gates after the last edit: lint PASS, TypeScript PASS, Vitest 38/38, production build
+PASS, and CMS Playwright 36/36. One interrupted dev server had truncated ignored
+`.next/dev/types`; removing only generated files restored a clean typecheck without touching
+source. The detector remained unrun and `DESIGN.md` remained absent, as required.

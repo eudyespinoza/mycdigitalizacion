@@ -119,6 +119,20 @@ describe("CMS campaign behavior", () => {
     expect(scrollTo).toHaveBeenCalledWith({ left: 700, behavior: "auto" });
   });
 
+  test("promotion state follows the slide selected by touch scrolling", () => {
+    render(<PromotionCarousel slides={[campaign(1, "Promo uno", 30_000), campaign(2, "Promo dos", 30_000)]} />);
+    const track = screen.getByRole("group", { name: "Promociones" });
+    const [first, second] = [...track.children] as HTMLElement[];
+    Object.defineProperty(first, "offsetLeft", { configurable: true, value: 0 });
+    Object.defineProperty(second, "offsetLeft", { configurable: true, value: 330 });
+    Object.defineProperty(track, "scrollLeft", { configurable: true, writable: true, value: 330 });
+
+    fireEvent.scroll(track);
+    act(() => vi.advanceTimersByTime(80));
+
+    expect(screen.getByText("Promoción 2 de 2")).toBeVisible();
+  });
+
   test("popup honors authored delay and a non-dismissible responsive image without stealing focus", () => {
     render(<ScheduledPromotionPopup popup={popup({ dismissible: false })} now={() => Date.UTC(2026, 7, 20)} />);
     expect(screen.queryByRole("complementary", { name: "Promoción" })).not.toBeInTheDocument();
@@ -130,6 +144,34 @@ describe("CMS campaign behavior", () => {
     expect(screen.getByRole("img", { name: "Imagen Beneficio vigente" })).toHaveStyle({ objectPosition: "63% 42%" });
     expect(screen.queryByRole("button", { name: "Cerrar promoción" })).not.toBeInTheDocument();
     expect(document.activeElement).toBe(document.body);
+  });
+
+  test.each(["once_session", "daily", "weekly"] as const)("non-dismissible popup records its %s impression and stays suppressed on remount", (frequency) => {
+    const now = Date.UTC(2026, 7, 20);
+    const content = popup({ frequency, display_delay_ms: 0, dismissible: false });
+    const first = render(<ScheduledPromotionPopup popup={content} now={() => now} />);
+    act(() => vi.runOnlyPendingTimers());
+    expect(screen.getByRole("complementary", { name: "Promoción" })).toBeVisible();
+    const storage = frequency === "once_session" ? window.sessionStorage : window.localStorage;
+    expect(storage.getItem("myc-popup:9:v1")).toBe(String(now));
+    first.unmount();
+
+    render(<ScheduledPromotionPopup popup={content} now={() => now + 1} />);
+    act(() => vi.runOnlyPendingTimers());
+    expect(screen.queryByRole("complementary", { name: "Promoción" })).not.toBeInTheDocument();
+  });
+
+  test("non-dismissible always popup recurs without writing a frequency key", () => {
+    const content = popup({ frequency: "always", display_delay_ms: 0, dismissible: false });
+    const first = render(<ScheduledPromotionPopup popup={content} />);
+    act(() => vi.runOnlyPendingTimers());
+    expect(screen.getByRole("complementary", { name: "Promoción" })).toBeVisible();
+    expect(window.localStorage.getItem("myc-popup:9:v1")).toBeNull();
+    first.unmount();
+
+    render(<ScheduledPromotionPopup popup={content} />);
+    act(() => vi.runOnlyPendingTimers());
+    expect(screen.getByRole("complementary", { name: "Promoción" })).toBeVisible();
   });
 
   test.each([
@@ -181,7 +223,7 @@ describe("CMS campaign behavior", () => {
     expect(screen.getByRole("complementary", { name: "Promoción" })).toBeVisible();
   });
 
-  test("header uses the active CMS logo while preserving its accessible home name", () => {
+  test("header renders the active CMS logo once with preserved proportions and responsive sources", () => {
     const branding = {
       public_name: "Tienda dinámica",
       announcement: "",
@@ -197,10 +239,10 @@ describe("CMS campaign behavior", () => {
     const { container } = render(<SiteHeader categories={[]} branding={branding} />);
 
     expect(screen.getByRole("link", { name: "Tienda dinámica, inicio" })).toBeVisible();
-    expect([...container.querySelectorAll(".brand img")]).toHaveLength(2);
-    expect([...container.querySelectorAll(".brand img")].every((image) => image.getAttribute("src")?.includes("%2Fmedia%2Fbranding%2Flogo%2Fnueva.png"))).toBe(true);
+    expect([...container.querySelectorAll(".brand img")]).toHaveLength(1);
+    expect(container.querySelector(".brand img")?.getAttribute("src")).toBe("/media/branding/logo/nueva.png");
+    expect(container.querySelector(".brand img")).toHaveClass("brand-logo");
     expect(container.querySelector('.brand source[type="image/avif"]')).toHaveAttribute("srcset", "/media/branding/logo/nueva-320.avif 320w");
     expect(container.querySelector('.brand source[data-format="fallback"]')).toHaveAttribute("srcset", "/media/branding/logo/nueva-320.png 320w");
-    expect(container.querySelector(".brand picture")).toHaveStyle({ position: "absolute", inset: "0" });
   });
 });
