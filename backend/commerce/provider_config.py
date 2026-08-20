@@ -8,6 +8,12 @@ from commerce.shipping import CorreoArgentinoAdapter, DisabledCarrierAdapter, Sh
 from providers import ProviderNotConfigured
 
 
+def _stored(provider):
+    from backoffice.integrations import resolved_configuration
+
+    return resolved_configuration(provider)
+
+
 class UnconfiguredPaymentAdapter:
     live_mode = False
     collector_id = ""
@@ -30,12 +36,36 @@ class UnconfiguredPaymentAdapter:
 
 
 def get_sid_adapter():
+    stored = _stored("sid_renaper")
+    if stored is not None:
+        if not stored["enabled"]:
+            return DisabledSIDAdapter()
+        return SIDAdapter(
+            base_url=stored["public_config"].get("base_url", ""),
+            token=stored["secrets"].get("access_token", ""),
+        )
     if settings.SID_MODE == "disabled":
         return DisabledSIDAdapter()
     return SIDAdapter(base_url=settings.SID_BASE_URL, token=settings.SID_ACCESS_TOKEN)
 
 
 def get_payment_adapter():
+    stored = _stored("mercadopago")
+    if stored is not None:
+        public = stored["public_config"]
+        secrets = stored["secrets"]
+        if not stored["enabled"] or not secrets.get("access_token") or not secrets.get(
+            "webhook_secret"
+        ):
+            return UnconfiguredPaymentAdapter()
+        adapter = MercadoPagoAdapter(
+            access_token=secrets["access_token"],
+            webhook_secret=secrets["webhook_secret"],
+            back_url_base=settings.PUBLIC_BACKEND_URL,
+            live_mode=bool(public.get("live_mode", stored["environment"] == "production")),
+        )
+        adapter.collector_id = str(public.get("collector_id", ""))
+        return adapter
     if not settings.MERCADOPAGO_ACCESS_TOKEN or not settings.MERCADOPAGO_WEBHOOK_SECRET:
         return UnconfiguredPaymentAdapter()
     adapter = MercadoPagoAdapter(
@@ -49,6 +79,19 @@ def get_payment_adapter():
 
 
 def get_carrier_adapter():
+    stored = _stored("correo_argentino")
+    if stored is not None:
+        public = stored["public_config"]
+        secrets = stored["secrets"]
+        if not stored["enabled"]:
+            return DisabledCarrierAdapter()
+        return CorreoArgentinoAdapter(
+            base_url=public.get("base_url", ""),
+            username=secrets.get("username", ""),
+            password=secrets.get("password", ""),
+            customer_id=public.get("customer_id", ""),
+            origin_postal_code=public.get("origin_postal_code", ""),
+        )
     if not settings.CORREO_ARGENTINO_ENABLED:
         return DisabledCarrierAdapter()
     base_url = (
@@ -66,6 +109,15 @@ def get_carrier_adapter():
 
 
 def get_shipping_policy():
+    stored = _stored("correo_argentino")
+    if stored is not None:
+        public = stored["public_config"]
+        threshold = public.get("free_shipping_threshold", "")
+        return ShippingPolicy(
+            surcharge_type=public.get("surcharge_type", "exact"),
+            surcharge_value=Decimal(str(public.get("surcharge_value", "0"))),
+            free_shipping_threshold=Decimal(str(threshold)) if threshold else None,
+        )
     threshold = settings.SHIPPING_FREE_THRESHOLD
     return ShippingPolicy(
         surcharge_type=settings.SHIPPING_SURCHARGE_TYPE,

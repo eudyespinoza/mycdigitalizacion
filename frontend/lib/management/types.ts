@@ -18,3 +18,47 @@ export type ManagementDashboard = {
     integration_incidents: number;
   };
 };
+
+export type IntegrationProvider =
+  | "mercadopago"
+  | "correo_argentino"
+  | "sid_renaper"
+  | "smtp"
+  | "geolocation"
+  | "backups";
+
+export type IntegrationStatus = "configured" | "incomplete" | "error" | "disabled";
+
+export type IntegrationConfiguration = {
+  provider: IntegrationProvider;
+  label: string;
+  enabled: boolean;
+  environment: "sandbox" | "qa" | "production";
+  status: IntegrationStatus;
+  public_config: Record<string, string | number | boolean>;
+  secret_fields: Record<string, boolean>;
+  version: number;
+  updated_at: string | null;
+  updated_by: string;
+  last_test_status: string;
+  last_tested_at: string | null;
+  last_test_message: string;
+};
+
+export type IntegrationUpdate = {
+  enabled?: boolean;
+  environment?: "sandbox" | "qa" | "production";
+  public_config?: Record<string, string | number | boolean>;
+  secrets?: Record<string, string>;
+  clear_secret_fields?: string[];
+};
+
+export type GeneralSettings = {
+  public_name: string;
+  announcement: string;
+  contact_email: string;
+  pickup_enabled: boolean;
+  pickup_label: string;
+  pickup_address: string;
+  pickup_hours: string;
+};
