@@ -16,9 +16,6 @@ const paymentCopy: Record<string, string> = {
   needs_attention: "En revisión",
 };
 
-const getAdminPanelUrl = () => process.env.NEXT_PUBLIC_ADMIN_URL
-  ?? (process.env.NODE_ENV === "development" ? "http://localhost:8000/admin/" : "/admin/");
-
 export function AccountDashboard() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -68,7 +65,7 @@ export function AccountDashboard() {
     <div className="account-grid">
       {customer.is_staff && <section className="account-panel account-admin-access">
         <div><span>Administración</span><h2>Panel de control</h2><p>Gestioná productos, contenido, pedidos e integraciones.</p></div>
-        <a className="button primary" href={getAdminPanelUrl()}>Abrir panel de control</a>
+        <Link className="button primary" href="/gestion">Abrir gestión</Link>
       </section>}
       <section className="account-panel">
         <div className="section-heading">

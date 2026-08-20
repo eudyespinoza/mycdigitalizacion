@@ -458,3 +458,54 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 1ms !important; }
 }
+
+/* Backoffice propio */
+.management-app { min-height: 100dvh; display: grid; grid-template-columns: 272px minmax(0, 1fr); background: #f5f8fd; color: var(--ink); }
+.management-sidebar { position: sticky; top: 0; height: 100dvh; display: flex; flex-direction: column; padding: 26px 20px 22px; background: var(--ink); color: white; }
+.management-brand { min-height: 52px; display: flex; align-items: center; gap: 7px; padding: 0 12px; color: white; font: 700 1.22rem var(--font-display); text-decoration: none; }
+.management-brand span { color: var(--cyan); font-size: 1.65rem; font-weight: 850; }
+.management-nav { display: grid; gap: 4px; margin-top: 28px; overflow-y: auto; }
+.management-nav a { min-height: 44px; display: flex; align-items: center; padding: 0 14px; border-radius: 11px; color: #dce6ff; font-weight: 720; text-decoration: none; }
+.management-nav a:hover, .management-nav a:focus-visible { background: rgba(8,174,205,.17); color: white; }
+.management-user { display: grid; gap: 4px; margin-top: auto; padding: 18px 12px 0; border-top: 1px solid rgba(255,255,255,.15); }
+.management-user span { overflow: hidden; color: #aebdde; font-size: .82rem; text-overflow: ellipsis; }
+.management-user a { width: fit-content; min-height: 36px; display: flex; align-items: center; margin-top: 6px; color: #8feafa; font-weight: 800; }
+.management-main { min-width: 0; padding: clamp(28px, 4vw, 58px); }
+.management-page { width: min(1280px, 100%); margin-inline: auto; }
+.management-page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; }
+.management-page-header h1 { max-width: 17ch; margin: 5px 0 10px; font-size: clamp(2.4rem, 4vw, 4.1rem); line-height: 1.02; }
+.management-page-header p { max-width: 62ch; color: var(--muted); }
+.management-kicker { margin: 0; color: var(--cyan-action) !important; font-size: .78rem; font-weight: 900; letter-spacing: .07em; text-transform: uppercase; }
+.management-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 44px; }
+.management-metrics a { min-height: 174px; display: flex; flex-direction: column; padding: 24px; border: 1px solid #dce4f1; border-radius: 16px; background: white; box-shadow: 0 12px 36px rgba(2,5,48,.06); text-decoration: none; }
+.management-metrics span { color: var(--muted); font-weight: 800; }
+.management-metrics strong { margin-top: 12px; color: var(--blue); font: 780 2.8rem var(--font-display); }
+.management-metrics small { margin-top: auto; color: var(--cyan-action); font-weight: 850; }
+.management-welcome { display: flex; align-items: center; justify-content: space-between; gap: 28px; margin-top: 24px; padding: 30px; border-radius: 18px; background: linear-gradient(120deg, #e7f8fc, #eef3fd); }
+.management-welcome h2 { margin: 5px 0 8px; font-size: 1.8rem; }
+.management-welcome p { max-width: 65ch; color: var(--muted); }
+.management-access-state { width: min(720px, calc(100% - 32px)); min-height: 70dvh; display: grid; place-content: center; justify-items: start; margin: auto; }
+.management-access-state h1 { max-width: 13ch; margin: 8px 0 12px; font-size: clamp(2.7rem, 6vw, 5rem); line-height: 1; }
+.management-access-state > p:not(.management-kicker) { max-width: 50ch; color: var(--muted); }
+.management-access-state .button { margin-top: 18px; }
+@media (max-width: 1024px) {
+  .management-app { grid-template-columns: 220px minmax(0, 1fr); }
+  .management-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 768px) {
+  .management-app { display: block; }
+  .management-sidebar { position: static; height: auto; padding: 14px; }
+  .management-brand { min-height: 44px; }
+  .management-nav { display: flex; gap: 6px; margin-top: 10px; padding-bottom: 6px; overflow-x: auto; }
+  .management-nav a { flex: 0 0 auto; padding-inline: 13px; background: rgba(255,255,255,.06); }
+  .management-user { display: none; }
+  .management-main { padding: 26px 16px 56px; }
+  .management-page-header, .management-welcome { align-items: flex-start; flex-direction: column; }
+  .management-page-header h1 { font-size: 2.65rem; }
+  .management-metrics { grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 30px; }
+  .management-metrics a { min-height: 148px; padding: 18px; }
+}
+@media (max-width: 420px) {
+  .management-metrics { grid-template-columns: 1fr; }
+  .management-metrics a { min-height: 128px; }
+}

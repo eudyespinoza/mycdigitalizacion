@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from api_views import (
@@ -36,6 +36,7 @@ router.register("addresses", AddressViewSet, basename="address")
 router.register("orders", OrderViewSet, basename="order")
 
 urlpatterns = [
+    path("management/", include("backoffice.urls")),
     path("storefront/home/", StorefrontHomeView.as_view(), name="storefront-home"),
     path("categories/", CategoryListView.as_view(), name="category-list"),
     path("products/", ProductListView.as_view(), name="product-list"),
