@@ -66,7 +66,7 @@ def test_unverified_user_cannot_mutate_customer_pii_but_verified_user_can():
     user.email_verified_at = timezone.now()
     user.save(update_fields=["email_verified_at"])
     assert client.post("/api/v1/addresses/", payload).status_code == 201
-    assert client.post("/api/v1/checkout/", {}).status_code == 503
+    assert client.post("/api/v1/checkout/", {}).status_code == 400
 
 
 @pytest.mark.django_db

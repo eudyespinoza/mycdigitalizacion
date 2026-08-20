@@ -4,11 +4,20 @@ from commerce.models import (
     Cart,
     CartLine,
     Coupon,
+    ExternalProviderFailure,
+    IdentityVerification,
     InventoryMovement,
+    NotificationAttempt,
     Order,
     OrderAuditEvent,
     OrderItem,
+    PackageBox,
+    PaymentTransaction,
+    PaymentWebhookEvent,
     PromotionRule,
+    Refund,
+    Shipment,
+    ShippingQuote,
     StockReservation,
 )
 
@@ -54,6 +63,8 @@ class OrderAdmin(admin.ModelAdmin):
         "coupon_code_snapshot",
         "subtotal_snapshot",
         "discount_snapshot",
+        "shipping_amount_snapshot",
+        "shipping_quote",
         "total_snapshot",
         "created_at",
         "identity_status",
@@ -101,3 +112,12 @@ admin.site.register(PromotionRule)
 admin.site.register(Coupon)
 admin.site.register(Cart)
 admin.site.register(CartLine)
+admin.site.register(IdentityVerification)
+admin.site.register(PackageBox)
+admin.site.register(ShippingQuote)
+admin.site.register(PaymentTransaction)
+admin.site.register(PaymentWebhookEvent)
+admin.site.register(Shipment)
+admin.site.register(Refund)
+admin.site.register(NotificationAttempt)
+admin.site.register(ExternalProviderFailure)

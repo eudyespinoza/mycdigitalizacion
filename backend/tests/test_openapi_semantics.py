@@ -116,7 +116,20 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
         "/api/v1/orders/",
         "/api/v1/orders/{public_id}/",
         "/api/v1/identity/status/",
+        "/api/v1/identity/validate/",
+        "/api/v1/identity/manual-review/{id}/",
+        "/api/v1/locations/postal-lookup/",
+        "/api/v1/locations/geocode/",
+        "/api/v1/locations/reverse-geocode/",
+        "/api/v1/shipping/quote/",
         "/api/v1/checkout/",
+        "/api/v1/checkout/{public_id}/resume/",
+        "/api/v1/payments/mercadopago/webhook/",
+        "/api/v1/payments/{external_reference}/status/",
+        "/api/v1/orders/{public_id}/shipment/",
+        "/api/v1/orders/{public_id}/label/",
+        "/api/v1/orders/{public_id}/tracking/",
+        "/api/v1/orders/{public_id}/refund/",
     }
     assert expected_paths <= paths.keys()
     for path in expected_paths:
@@ -153,9 +166,10 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
     assert set(paths["/api/v1/auth/csrf/"]["get"]["responses"]) == {"200"}
     assert set(paths["/api/v1/auth/logout/"]["post"]["responses"]) == {"204", "403"}
     checkout = paths["/api/v1/checkout/"]["post"]
-    assert "requestBody" not in checkout
-    assert "503" in checkout["responses"]
-    assert "200" not in checkout["responses"]
+    checkout_request = request_schema(checkout, components)
+    assert set(checkout_request["required"]) == {"fulfillment_method"}
+    assert {"address_id", "shipping_quote_id"} <= checkout_request["properties"].keys()
+    assert {"201", "202", "400", "403", "503"} == set(checkout["responses"])
 
     cart_post = request_schema(paths["/api/v1/cart/"]["post"], components)
     assert {"variant_id", "quantity", "coupon"} <= cart_post["properties"].keys()
@@ -187,7 +201,7 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
         ("/api/v1/orders/", "get"): {"200", "403"},
         ("/api/v1/orders/{public_id}/", "get"): {"200", "403", "404"},
         ("/api/v1/identity/status/", "get"): {"200", "403"},
-        ("/api/v1/checkout/", "post"): {"403", "503"},
+        ("/api/v1/checkout/", "post"): {"201", "202", "400", "403", "503"},
     }
     for (path, method), expected_statuses in protected_contracts.items():
         operation = paths[path][method]
@@ -227,7 +241,7 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
     assert_error_schema(paths["/api/v1/auth/register/"]["post"], "409")
     checkout_error = paths["/api/v1/checkout/"]["post"]["responses"]["503"]
     checkout_schema = checkout_error["content"]["application/json"]["schema"]
-    assert checkout_schema["$ref"].endswith("/Code")
+    assert checkout_schema["$ref"].endswith("/Error")
 
 
 @pytest.mark.django_db

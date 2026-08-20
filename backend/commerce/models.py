@@ -60,10 +60,7 @@ class ScheduledDiscount(models.Model):
                     models.Q(value__gt=0)
                     & (
                         models.Q(discount_type="fixed")
-                        | (
-                            models.Q(discount_type="percentage")
-                            & models.Q(value__lte=100)
-                        )
+                        | (models.Q(discount_type="percentage") & models.Q(value__lte=100))
                     )
                 ),
                 name="%(class)s_discount_valid",
@@ -194,6 +191,7 @@ class InventoryMovement(AppendOnlyModel):
         RESERVATION = "reservation", "Reservation"
         SALE = "sale", "Sale"
         RELEASE = "release", "Release"
+        REFUND = "refund", "Refund"
 
     variant = models.ForeignKey(
         ProductVariant, related_name="inventory_movements", on_delete=models.PROTECT
@@ -229,8 +227,11 @@ class Order(models.Model):
         "coupon_code_snapshot",
         "subtotal_snapshot",
         "discount_snapshot",
+        "shipping_amount_snapshot",
+        "shipping_quote_id",
         "total_snapshot",
     )
+
     class IdentityStatus(models.TextChoices):
         PENDING = "pending_identity", "Pending identity"
         VERIFIED = "verified", "Verified"
@@ -242,6 +243,7 @@ class Order(models.Model):
         PAID = "paid", "Paid"
         FAILED = "failed", "Failed"
         REFUNDED = "refunded", "Refunded"
+        NEEDS_ATTENTION = "needs_attention", "Needs attention"
 
     class FulfillmentStatus(models.TextChoices):
         UNFULFILLED = "unfulfilled", "Unfulfilled"
@@ -274,7 +276,11 @@ class Order(models.Model):
     coupon_code_snapshot = models.CharField(max_length=64, blank=True)
     subtotal_snapshot = models.DecimalField(max_digits=12, decimal_places=2)
     discount_snapshot = models.DecimalField(max_digits=12, decimal_places=2)
+    shipping_amount_snapshot = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     total_snapshot = models.DecimalField(max_digits=12, decimal_places=2)
+    shipping_quote = models.ForeignKey(
+        "ShippingQuote", null=True, blank=True, on_delete=models.PROTECT
+    )
     reservations = models.ManyToManyField(StockReservation, related_name="orders", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     objects = OrderQuerySet.as_manager()
@@ -282,10 +288,7 @@ class Order(models.Model):
     def save(self, *args, **kwargs):
         if self.pk:
             original = (
-                type(self)
-                ._base_manager.filter(pk=self.pk)
-                .values(*self.IMMUTABLE_FIELDS)
-                .get()
+                type(self)._base_manager.filter(pk=self.pk).values(*self.IMMUTABLE_FIELDS).get()
             )
             if any(getattr(self, field) != original[field] for field in self.IMMUTABLE_FIELDS):
                 raise ValidationError("Order snapshots are immutable")
@@ -326,4 +329,157 @@ class OrderAuditEvent(AppendOnlyModel):
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL
     )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class IdentityVerification(models.Model):
+    class Status(models.TextChoices):
+        PENDING_REVIEW = "pending_review", "Pending review"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="identity_verifications", on_delete=models.PROTECT
+    )
+    consent_version = models.CharField(max_length=64)
+    consented_at = models.DateTimeField()
+    attempt_number = models.PositiveIntegerField(default=1)
+    status = models.CharField(max_length=24, choices=Status.choices)
+    provider_reference = models.CharField(max_length=160, blank=True)
+    masked_audit = models.JSONField(default=dict)
+    staff_diagnostics = models.TextField(blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        related_name="identity_reviews",
+        on_delete=models.PROTECT,
+    )
+    review_reason = models.TextField(blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class PackageBox(models.Model):
+    code = models.CharField(max_length=64, unique=True)
+    inner_length_cm = models.DecimalField(max_digits=9, decimal_places=2)
+    inner_width_cm = models.DecimalField(max_digits=9, decimal_places=2)
+    inner_height_cm = models.DecimalField(max_digits=9, decimal_places=2)
+    tare_weight_grams = models.PositiveIntegerField()
+    max_weight_grams = models.PositiveIntegerField()
+    enabled = models.BooleanField(default=True)
+
+
+class ShippingQuote(models.Model):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="shipping_quotes", on_delete=models.CASCADE
+    )
+    provider = models.CharField(max_length=32, default="correo_argentino")
+    service = models.CharField(max_length=64)
+    postal_code = models.CharField(max_length=8)
+    parcels = models.JSONField(default=list)
+    base_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    surcharge_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=3, default="ARS")
+    cart_fingerprint = models.CharField(max_length=64)
+    provider_summary = models.JSONField(default=dict)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class PaymentTransaction(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        NEEDS_ATTENTION = "needs_attention", "Needs attention"
+        REFUNDED = "refunded", "Refunded"
+
+    order = models.ForeignKey(Order, related_name="payment_transactions", on_delete=models.PROTECT)
+    provider = models.CharField(max_length=32, default="mercadopago")
+    external_reference = models.UUIDField(unique=True, default=uuid.uuid4)
+    idempotency_key = models.UUIDField(unique=True, default=uuid.uuid4)
+    preference_id = models.CharField(max_length=160, unique=True, null=True, blank=True)
+    payment_id = models.CharField(max_length=160, unique=True, null=True, blank=True)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=3, default="ARS")
+    expected_collector_id = models.CharField(max_length=160, blank=True)
+    live_mode = models.BooleanField(default=False)
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.PENDING)
+    provider_status = models.CharField(max_length=64, blank=True)
+    checkout_url = models.URLField(max_length=500, blank=True)
+    provider_summary = models.JSONField(default=dict)
+    staff_diagnostics = models.TextField(blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class PaymentWebhookEvent(models.Model):
+    provider = models.CharField(max_length=32, default="mercadopago")
+    event_id = models.CharField(max_length=160)
+    request_id = models.CharField(max_length=160, blank=True)
+    payment_id = models.CharField(max_length=160, blank=True)
+    raw_body_hash = models.CharField(max_length=64)
+    signature_valid = models.BooleanField(default=False)
+    status = models.CharField(max_length=24, default="received")
+    staff_diagnostics = models.TextField(blank=True)
+    received_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("provider", "event_id"), name="unique_payment_provider_event"
+            )
+        ]
+
+
+class Shipment(models.Model):
+    order = models.OneToOneField(Order, related_name="shipment", on_delete=models.PROTECT)
+    provider = models.CharField(max_length=32, default="correo_argentino")
+    provider_id = models.CharField(max_length=160, unique=True)
+    idempotency_key = models.UUIDField(unique=True, default=uuid.uuid4)
+    tracking_number = models.CharField(max_length=160, blank=True)
+    status = models.CharField(max_length=64, default="created")
+    label_url = models.URLField(max_length=500, blank=True)
+    provider_summary = models.JSONField(default=dict)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class Refund(models.Model):
+    order = models.ForeignKey(Order, related_name="refunds", on_delete=models.PROTECT)
+    transaction = models.ForeignKey(
+        PaymentTransaction, related_name="refunds", on_delete=models.PROTECT
+    )
+    idempotency_key = models.UUIDField(unique=True, default=uuid.uuid4)
+    provider_refund_id = models.CharField(max_length=160, blank=True)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    status = models.CharField(max_length=32, default="pending")
+    stock_restored = models.BooleanField(default=False)
+    return_required = models.BooleanField(default=False)
+    staff_diagnostics = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class NotificationAttempt(models.Model):
+    kind = models.CharField(max_length=64)
+    reference = models.CharField(max_length=160)
+    payload = models.JSONField(default=dict)
+    status = models.CharField(max_length=24, default="pending")
+    attempts = models.PositiveIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now)
+    last_error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ExternalProviderFailure(models.Model):
+    correlation_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    operation = models.CharField(max_length=80)
+    code = models.CharField(max_length=32)
+    staff_diagnostics = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

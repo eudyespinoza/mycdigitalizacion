@@ -1,6 +1,13 @@
 from rest_framework import serializers
 
-from commerce.models import CartLine, Order, OrderItem
+from commerce.models import (
+    CartLine,
+    IdentityVerification,
+    Order,
+    OrderItem,
+    PaymentTransaction,
+    ShippingQuote,
+)
 from commerce.services import calculate_cart_totals
 
 
@@ -92,7 +99,80 @@ class OrderSerializer(serializers.ModelSerializer):
             "coupon_code_snapshot",
             "subtotal_snapshot",
             "discount_snapshot",
+            "shipping_amount_snapshot",
             "total_snapshot",
             "items",
             "created_at",
         )
+
+
+class CheckoutRequestSerializer(serializers.Serializer):
+    fulfillment_method = serializers.ChoiceField(choices=Order.FulfillmentMethod.choices)
+    address_id = serializers.IntegerField(required=False)
+    shipping_quote_id = serializers.UUIDField(required=False)
+
+
+class CheckoutResponseSerializer(serializers.Serializer):
+    order_id = serializers.UUIDField()
+    identity_status = serializers.CharField()
+    payment_status = serializers.CharField()
+    checkout_url = serializers.URLField(allow_blank=True)
+
+
+class IdentityValidationRequestSerializer(serializers.Serializer):
+    consent = serializers.BooleanField(default=True)
+
+
+class ManualIdentityReviewSerializer(serializers.Serializer):
+    reason = serializers.CharField(min_length=1, max_length=1000)
+
+
+class IdentityVerificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = IdentityVerification
+        fields = ("id", "status", "masked_audit", "created_at", "reviewed_at")
+
+
+class ShippingQuoteRequestSerializer(serializers.Serializer):
+    address_id = serializers.IntegerField()
+
+
+class ShippingQuoteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShippingQuote
+        fields = (
+            "public_id",
+            "service",
+            "parcels",
+            "base_amount",
+            "surcharge_amount",
+            "total_amount",
+            "currency",
+            "expires_at",
+        )
+
+
+class PaymentStatusSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaymentTransaction
+        fields = ("external_reference", "status", "payment_id", "amount", "currency")
+
+
+class RefundRequestSerializer(serializers.Serializer):
+    idempotency_key = serializers.UUIDField()
+
+
+class ShipmentResponseSerializer(serializers.Serializer):
+    provider_id = serializers.CharField()
+    tracking_number = serializers.CharField(allow_blank=True)
+    status = serializers.CharField()
+
+
+class LabelResponseSerializer(serializers.Serializer):
+    label_url = serializers.URLField(allow_blank=True)
+
+
+class RefundResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    stock_restored = serializers.BooleanField()
+    return_required = serializers.BooleanField()

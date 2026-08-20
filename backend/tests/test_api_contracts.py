@@ -1,4 +1,3 @@
-
 import pytest
 from django.urls import reverse
 from django.utils import timezone
@@ -94,7 +93,7 @@ def test_address_crud_is_scoped_to_authenticated_owner(client, django_user_model
 
 
 @pytest.mark.django_db
-def test_identity_and_checkout_boundaries_report_not_configured(client, django_user_model):
+def test_identity_and_checkout_boundaries_require_checkout_input(client, django_user_model):
     user = django_user_model.objects.create_user(
         email="boundary@example.test", email_verified_at=timezone.now()
     )
@@ -104,9 +103,9 @@ def test_identity_and_checkout_boundaries_report_not_configured(client, django_u
     checkout = client.post("/api/v1/checkout/", {}, content_type="application/json")
 
     assert identity.status_code == 200
-    assert identity.json() == {"status": "not_configured"}
-    assert checkout.status_code == 503
-    assert checkout.json() == {"code": "not_configured"}
+    assert identity.json() == {"status": "not_started"}
+    assert checkout.status_code == 400
+    assert checkout.json() == {"fulfillment_method": ["Este campo es requerido."]}
 
 
 @pytest.mark.django_db

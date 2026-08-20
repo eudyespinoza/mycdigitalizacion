@@ -29,10 +29,22 @@ class Address(models.Model):
     geocode_source = models.CharField(
         max_length=24, choices=GeocodeSource.choices, default=GeocodeSource.NONE, blank=True
     )
-    geocode_confidence = models.DecimalField(
-        max_digits=4, decimal_places=3, null=True, blank=True
-    )
+    geocode_confidence = models.DecimalField(max_digits=4, decimal_places=3, null=True, blank=True)
+    geocode_summary = models.JSONField(default=dict, blank=True)
     needs_review = models.BooleanField(default=True)
     reviewed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class PostalLocality(models.Model):
+    provider_id = models.CharField(max_length=120, unique=True)
+    postal_code = models.CharField(max_length=4, db_index=True)
+    cpa = models.CharField(max_length=8, blank=True, db_index=True)
+    locality = models.CharField(max_length=160)
+    province = models.CharField(max_length=160)
+    provider_summary = models.JSONField(default=dict)
+    synced_at = models.DateTimeField()
+
+    class Meta:
+        indexes = [models.Index(fields=("postal_code", "locality"))]

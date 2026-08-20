@@ -43,8 +43,7 @@ def best_automatic_discount(*, variant, quantity, at=None):
         ends_at__gte=checked_at,
     ).filter(Q(products=variant.product) | Q(categories=variant.product.category))
     discounts = [
-        discount_amount(rule.discount_type, rule.value, line_amount)
-        for rule in rules.distinct()
+        discount_amount(rule.discount_type, rule.value, line_amount) for rule in rules.distinct()
     ]
     return max(discounts, default=Decimal("0.00"))
 
@@ -108,8 +107,7 @@ def price_cart_lines(lines, *, coupon=None, at=None):
             base_discounts = [Decimal("0.00") for _ in ordered_lines]
             coupon_to_allocate = coupon_discount
     capacities = [
-        money(value - discount)
-        for value, discount in zip(subtotals, base_discounts, strict=False)
+        money(value - discount) for value, discount in zip(subtotals, base_discounts, strict=False)
     ]
     coupon_allocations = _allocate_discount(coupon_to_allocate, capacities)
     priced = []
@@ -186,9 +184,7 @@ def add_cart_line(*, cart, variant, quantity):
         quantity=F("quantity") + quantity
     )
     if not updated:
-        CartLine.objects.create(
-            cart=locked_cart, variant=available_variant, quantity=quantity
-        )
+        CartLine.objects.create(cart=locked_cart, variant=available_variant, quantity=quantity)
     return locked_cart.lines.get(variant=available_variant)
 
 
@@ -341,7 +337,14 @@ def release_reservation(reservation):
 
 @transaction.atomic
 def create_pending_identity_order(
-    *, cart, customer_snapshot, address_snapshot, fiscal_snapshot, fulfillment_method, at=None
+    *,
+    cart,
+    customer_snapshot,
+    address_snapshot,
+    fiscal_snapshot,
+    fulfillment_method,
+    shipping_quote=None,
+    at=None,
 ):
     checked_at = at or timezone.now()
     locked_cart = Cart.objects.select_for_update().get(pk=cart.pk)
@@ -373,7 +376,9 @@ def create_pending_identity_order(
     priced_lines = price_cart_lines(lines, coupon=locked_cart.coupon, at=checked_at)
     subtotal = money(sum((line.subtotal for line in priced_lines), Decimal("0")))
     discount = money(sum((line.discount for line in priced_lines), Decimal("0")))
-    total = money(sum((line.total for line in priced_lines), Decimal("0")))
+    merchandise_total = money(sum((line.total for line in priced_lines), Decimal("0")))
+    shipping_amount = money(shipping_quote.total_amount if shipping_quote else 0)
+    total = money(merchandise_total + shipping_amount)
     order = Order.objects.create(
         user=locked_cart.user,
         customer_snapshot=customer_snapshot,
@@ -381,8 +386,10 @@ def create_pending_identity_order(
         fiscal_snapshot=fiscal_snapshot,
         coupon_code_snapshot=locked_cart.coupon.code if locked_cart.coupon_id else "",
         fulfillment_method=fulfillment_method,
+        shipping_quote=shipping_quote,
         subtotal_snapshot=subtotal,
         discount_snapshot=discount,
+        shipping_amount_snapshot=shipping_amount,
         total_snapshot=total,
     )
     for priced in priced_lines:
@@ -398,7 +405,11 @@ def create_pending_identity_order(
             discount_snapshot=priced.discount,
             line_total_snapshot=priced.total,
         )
-    if sum((item.line_total_snapshot for item in order.items.all()), Decimal("0")) != total:
+    if (
+        sum((item.line_total_snapshot for item in order.items.all()), Decimal("0"))
+        + shipping_amount
+        != total
+    ):
         raise ValidationError("Order item snapshots do not reconcile with order total")
     OrderAuditEvent.objects.create(order=order, kind="created_pending_identity")
     return order

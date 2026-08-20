@@ -131,7 +131,7 @@ STORAGES = {
     },
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
-    }
+    },
 }
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
@@ -162,3 +162,57 @@ PERSONAL_DATA_ENCRYPTION_KEY = environ.get(
 )
 CELERY_BROKER_URL = environ.get("REDIS_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
+
+PUBLIC_BACKEND_URL = environ.get(
+    "PUBLIC_BACKEND_URL", f"https://{environ.get('SITE_ADDRESS', 'localhost')}"
+).rstrip("/")
+SID_MODE = environ.get("SID_MODE", "disabled").lower()
+SID_BASE_URL = environ.get("SID_BASE_URL", "")
+SID_ACCESS_TOKEN = environ.get("SID_ACCESS_TOKEN", "")
+MERCADOPAGO_ACCESS_TOKEN = environ.get("MERCADOPAGO_ACCESS_TOKEN", "")
+MERCADOPAGO_WEBHOOK_SECRET = environ.get("MERCADOPAGO_WEBHOOK_SECRET", "")
+MERCADOPAGO_COLLECTOR_ID = environ.get("MERCADOPAGO_COLLECTOR_ID", "")
+MERCADOPAGO_LIVE_MODE = environ.get("MERCADOPAGO_LIVE_MODE", "false").lower() == "true"
+MERCADOPAGO_WEBHOOK_TOLERANCE_SECONDS = int(
+    environ.get("MERCADOPAGO_WEBHOOK_TOLERANCE_SECONDS", "300")
+)
+CORREO_ARGENTINO_ENABLED = environ.get("CORREO_ARGENTINO_ENABLED", "false").lower() == "true"
+CORREO_ARGENTINO_ENVIRONMENT = environ.get("CORREO_ARGENTINO_ENVIRONMENT", "qa").lower()
+CORREO_ARGENTINO_QA_BASE_URL = environ.get(
+    "CORREO_ARGENTINO_QA_BASE_URL", "https://api.correoargentino.com.ar/micorreo/v1"
+)
+CORREO_ARGENTINO_PRODUCTION_BASE_URL = environ.get(
+    "CORREO_ARGENTINO_PRODUCTION_BASE_URL", "https://api.correoargentino.com.ar/micorreo/v1"
+)
+CORREO_ARGENTINO_USERNAME = environ.get("CORREO_ARGENTINO_USERNAME", "")
+CORREO_ARGENTINO_PASSWORD = environ.get("CORREO_ARGENTINO_PASSWORD", "")
+SHIPPING_SURCHARGE_TYPE = environ.get("SHIPPING_SURCHARGE_TYPE", "exact")
+SHIPPING_SURCHARGE_VALUE = environ.get("SHIPPING_SURCHARGE_VALUE", "0")
+SHIPPING_FREE_THRESHOLD = environ.get("SHIPPING_FREE_THRESHOLD", "")
+
+CELERY_BEAT_SCHEDULE = {
+    "sync-andreani-localities": {
+        "task": "locations.tasks.sync_andreani_localities",
+        "schedule": 86_400,
+    },
+    "release-expired-reservations": {
+        "task": "commerce.tasks.release_expired_reservations",
+        "schedule": 60,
+    },
+    "reconcile-pending-payments": {
+        "task": "commerce.tasks.reconcile_pending_payments",
+        "schedule": 300,
+    },
+    "reconcile-tracking": {
+        "task": "commerce.tasks.reconcile_tracking",
+        "schedule": 900,
+    },
+    "retry-safe-notifications": {
+        "task": "commerce.tasks.retry_safe_notifications",
+        "schedule": 300,
+    },
+    "expire-verification-challenges": {
+        "task": "commerce.tasks.expire_verification_challenges",
+        "schedule": 300,
+    },
+}
