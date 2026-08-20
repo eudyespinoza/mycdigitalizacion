@@ -130,3 +130,74 @@ The implementation has a correct PostgreSQL row-locking basis for last-unit rese
 ## Final assessment
 
 Task 3 should not be accepted or deployed against real providers in its current form. The reservation row-locking core is promising, but payment recovery, identity auditability, shipping quote binding, refund finality, and the complete MiCorreo integration need correction plus faithful boundary tests before the spec can pass.
+
+---
+
+## Fix Round 1 verdict — 2026-08-19
+
+Fix reviewed: `5d7f070..ad9c5fd162b35293418db19510075d7f7ee044b6`
+
+This round independently rechecked every REQUIRED finding above against the implementation, the new regression tests, `task-3-brief.md`, `PRODUCT.md`, and Correo Argentino's published [MiCorreo v1 contract](https://www.correoargentino.com.ar/MiCorreo/public/img/pag/apiMiCorreo.pdf). The regression work repairs most direct happy-path defects, but eight findings are only partial because failure recovery and public data/error contracts still have deploy-blocking gaps.
+
+### Resolution of F1–F19
+
+1. **F1 — RESOLVED.** `backend/commerce/shipping.py:104-235` now uses the documented QA/production base shape, HTTP Basic `POST /token` and response `token`, the required `/rates` customer/origin/destination/dimension payload and `rates` response, `POST /shipping/import`, and JSON-body `shippingId` on `GET /shipping/tracking`. `shipping.py:225-227` safely raises typed `not_supported` for the undocumented label route, mapped to HTTP 501 at `backend/api_views.py:775-798`. The faithful boundary assertions are at `backend/tests/test_task3_round1_regressions.py:71-194`. This matches the published v1 PDF pp. 1-2 and 8-18.
+
+2. **F2 — PARTIAL (REQUIRED).** Normal and concurrent retries now have a client UUID and database uniqueness (`backend/commerce/serializers.py:109-115`, `backend/commerce/models.py:260-297`), and resume locks/reuses the original order (`backend/commerce/checkout.py:286-377`). However, preference creation still occurs inside the database transaction with provider idempotency generated on the transactional `PaymentTransaction` (`checkout.py:244-268`, similarly resume at `352-376`). If Mercado Pago succeeds and a later database step/commit fails, the order, transaction, and provider key roll back. A retry with the same checkout key generates a different provider key. A focused injected post-provider failure produced **2 provider calls, two different idempotency keys, 1 local order/transaction, and 1 orphan unbound identity attempt**. This violates recoverability/idempotency across the exact provider-success/DB-failure window; the new sequential/concurrency tests (`test_task3_round1_regressions.py:278-320`, `test_postgres_checkout.py:59-106`) do not assert it.
+
+3. **F3 — RESOLVED.** `backend/commerce/checkout.py:53-87` binds price, active promotion/coupon-derived totals, product dimensions/weight, address, and final parcels; `checkout.py:101-108` rechecks it at confirmation. The regression varies price, coupon, address, and parcel fields at `backend/tests/test_task3_round1_regressions.py:218-275`.
+
+4. **F4 — RESOLVED.** `backend/commerce/packing.py:57-72,94-141` canonicalizes rotations, unit tie-breaks, boxes, and free spaces. `backend/commerce/shipping.py:258-282` orders cart lines and persists box dimensions. The former equal-volume permutation now produces the same one-parcel result (`backend/tests/test_task3_round1_regressions.py:197-215`).
+
+5. **F5 — RESOLVED.** `backend/api_views.py:1131-1175` passes signed query `data.id` and configured tolerance. `backend/commerce/payments.py:81-150` validates before accepting a duplicate and lets a valid delivery replace a prior rejected collision, then queues on commit. The poisoning reproduction is covered faithfully at `backend/tests/test_task3_round1_regressions.py:557-608`.
+
+6. **F6 — PARTIAL (REQUIRED).** Provider failures now have bounded Celery autoretry and unexpected failures are returned to queued state (`backend/commerce/tasks.py:35-60`); a beat sweep exists (`tasks.py:63-81`, `backend/config/settings.py:274-277`). But claiming an event saves only `status` (`backend/commerce/payments.py:278-285`), so Django does **not** refresh the `auto_now` `updated_at` field. The sweep treats `updated_at` as the claim clock (`tasks.py:65-76`). A queued event older than five minutes was requeued by the sweep while its active worker was inside `fetch_payment`, producing a duplicate enqueue. The new test manually sets timestamps but never asserts that a real claim refreshes them (`backend/tests/test_task3_round1_regressions.py:612-655`). The implementation report's claim that the sweeper “refreshes their claim timestamp” is false.
+
+7. **F7 — RESOLVED.** `backend/commerce/tasks.py:84-112` includes null-payment-ID pending rows and uses `find_payment(external_reference, preference_id)`; Mercado Pago implements server-side search at `backend/commerce/mercadopago.py:116-127`. The regression at `backend/tests/test_task3_round1_regressions.py:658-679` exercises the previously excluded row.
+
+8. **F8 — RESOLVED.** Preferences now send independently returned order metadata (`backend/commerce/mercadopago.py:53-99`), and payment application requires it to equal the local public order UUID (`backend/commerce/payments.py:163-180`). Expired payments fail and refunded/chargeback states become `needs_attention` (`payments.py:252-265`). Amount, currency, configured collector, live mode, and external reference checks remain server-side.
+
+9. **F9 — PARTIAL (REQUIRED).** Total refunds now send an empty body, wait for provider `approved`, lock the order, and reuse an existing same-key row before changing stock/status (`backend/commerce/payments.py:313-386`); pending-to-approved replay tests are faithful at `backend/tests/test_task3_round1_regressions.py:749-821`. The global idempotency-key race is not fully closed: two concurrent requests using one new key for **different orders** lock different orders, can both observe no `Refund` at line 316, then race the unique insert at lines 333-338. The loser gets an uncaught `IntegrityError`, not the intended stable `refund_idempotency_conflict`. The regression tests cover sequential same-order replay only.
+
+10. **F10 — RESOLVED.** Checkout/direct validation require explicit affirmative consent (`backend/commerce/serializers.py:109-126`, `backend/commerce/checkout.py:133-136`, `backend/commerce/identity_service.py:18-29`), and timeout joins unavailable/not-configured in pending review (`identity_service.py:30-37`).
+
+11. **F11 — RESOLVED.** Identity attempts are order-bound (`backend/commerce/models.py:346-378`, migration `0010_checkout_recovery_and_identity_binding.py:15-25`); manual approval requires a bound pending attempt and records actor/reason/time (`backend/commerce/identity_service.py:53-68`); resume queries only that order (`backend/commerce/checkout.py:286-291`). Explicit rejection cannot be overridden.
+
+12. **F12 — RESOLVED.** `backend/locations/services.py:58-60` uses exact `cpa` for CPA8 and CP-only lookup for CP4. The two-row same-CP reproduction is now asserted at `backend/tests/test_task3_round1_regressions.py:465-481`.
+
+13. **F13 — PARTIAL (REQUIRED).** Separate socket connect/read timeouts and complete disabled interfaces are present (`backend/providers.py:80-100`, `backend/commerce/provider_config.py:11-29`, `backend/commerce/shipping.py:86-101`). The transport still catches only `TimeoutError`/`OSError`; standard `http.client` protocol failures such as `RemoteDisconnected`, `BadStatusLine`, or `IncompleteRead` can escape without a typed provider error (`backend/providers.py:88-100`). Status classification also treats provider-declared request rejection 400 and MiCorreo's documented 402 validation errors as `unavailable`, because only 401/403/404/409/422 map to `ProviderRejected` (`providers.py:148-156`). This can yield unstable 500s for protocol failures and misleading retries/503s for bad customer payloads.
+
+14. **F14 — PARTIAL (REQUIRED).** The order lock and eligibility checks close the original simultaneous-call race (`backend/commerce/shipping.py:323-342`), and deterministic per-parcel identifiers are used. Remote import still occurs before any durable local shipment/outbox row and inside the order transaction (`shipping.py:343-401`). If parcel 1 imports and parcel 2/provider or the final DB insert fails, no local row records the partial remote success; retry begins with parcel 1. MiCorreo documents an already-imported order as an error, so a partial multi-parcel import can remain unrecoverable despite deterministic IDs. The new SQLite/PostgreSQL tests cover simultaneous successful single-parcel calls, not provider-success/DB-failure or partial multi-parcel replay (`backend/tests/test_task3_round1_regressions.py:824-889`, `backend/tests/test_postgres_checkout.py:108-177`).
+
+15. **F15 — PARTIAL (REQUIRED).** Missing staff targets, provider errors, refund domain failures, and unsupported labels now have stable mappings. Explicit SID rejection during **checkout** remains uncaught: `validate_identity()` raises `IdentityRejected` before the checkout transaction (`backend/commerce/checkout.py:147-156`), while `CheckoutView` catches only `CheckoutError` and `ProviderError` (`backend/api_views.py:1053-1073`). A focused API request returned **HTTP 500, `text/html`**. OpenAPI likewise omits that real outcome and documents only query `data.id`, not the required `x-signature` and `x-request-id` headers (`api_views.py:1136-1153`). The new tests cover typed invalid-response SID failure and missing staff rows, but not rejected checkout or those signature headers.
+
+16. **F16 — PARTIAL (REQUIRED).** Production Compose now passes the missing controls, and startup validates SID mode/credentials, carrier credentials/base URL, webhook tolerance, and pricing numbers (`compose.prod.yaml:23-139`, `backend/config/settings.py:28-110`). Boolean controls are still parsed permissively rather than validated: `CORREO_ARGENTINO_ENABLED` accepts any typo as disabled (`settings.py:76`) and `MERCADOPAGO_LIVE_MODE` later accepts anything other than literal `true` as false. A focused call accepted `MERCADOPAGO_LIVE_MODE=definitely-not-a-boolean` and `CORREO_ARGENTINO_ENABLED=definitely-not-a-boolean`. Payment credentials may also be enabled with an empty collector ID (`settings.py:67-74`, `backend/commerce/provider_config.py:38-48`), silently disabling collector comparison. These are production fail-closed gaps.
+
+17. **F17 — PARTIAL (REQUIRED).** Checkout now requires, locks, owns, snapshots, and resume-revalidates a billing profile (`backend/commerce/checkout.py:41-50,153-173,222-229,300-311`). However, the snapshot includes internal encrypted CUIT ciphertext and deterministic hash (`checkout.py:41-50`), and `OrderSerializer` returns the entire snapshot to the customer API (`backend/commerce/serializers.py:85-106`). A focused owner GET returned both non-empty `cuit_encrypted` and `cuit_hash`; only the masked CUIT should cross that API boundary under `PRODUCT.md:32`. The new tests inspect the model snapshot but do not inspect the public order payload.
+
+18. **F18 — RESOLVED.** All named operational/audit models are registered with `AppendOnlyAdmin`, whose fields are read-only and whose add/change/delete permissions are false (`backend/commerce/admin.py:45-60,133-141`). The regression checks each registration at `backend/tests/test_task3_round1_regressions.py:959-988`.
+
+19. **F19 — RESOLVED.** `ruff check .` now exits 0 with “All checks passed!”.
+
+### Fix Round 1 counts and verdict
+
+- **Resolved:** 11 (`F1`, `F3`, `F4`, `F5`, `F7`, `F8`, `F10`, `F11`, `F12`, `F18`, `F19`)
+- **Partial:** 8 (`F2`, `F6`, `F9`, `F13`, `F14`, `F15`, `F16`, `F17`)
+- **Unresolved:** 0
+- **Remaining REQUIRED issues:** 8
+- **SPEC COMPLIANCE: FAIL**
+- **CODE QUALITY: FAIL**
+
+The implementation should not be accepted yet. Normal-flow coverage is substantially improved, MiCorreo v1 is now faithful (with a safe typed 501 for labels), and the original quote/packing/identity/order-binding defects are repaired. Acceptance remains blocked by durable provider/DB idempotency, webhook claim safety, multi-parcel shipment recovery, stable rejected-checkout errors, strict startup configuration, typed HTTP failures, refund collision handling, and masked fiscal API output.
+
+### Fix Round 1 verification performed
+
+- `APP_ENV=test python -m pytest -q` -> **128 passed, 11 skipped**.
+- Focused Task 3/provider/API/OpenAPI suites -> **52 passed**.
+- PostgreSQL-only tests were inspected but not rerun locally because the configured PostgreSQL credentials were unavailable; the implementation report records 12 passing cases, but neither new PostgreSQL case covers provider-success/DB-failure recovery.
+- `ruff check .` -> **pass**.
+- `python manage.py check` -> **pass**.
+- `python manage.py spectacular --validate --file NUL` -> **exit 0**.
+- `python manage.py makemigrations --check --dry-run` -> **No changes detected**, with the expected local PostgreSQL authentication warning.
+- `git diff --check 5d7f070 ad9c5fd` -> **pass**.
+- Focused live reproductions confirmed: distinct provider keys after checkout rollback; orphan unbound identity audit row; an active stale webhook claim swept/requeued; HTML 500 on explicit SID checkout rejection; public fiscal ciphertext/hash exposure; and permissive invalid production booleans.
