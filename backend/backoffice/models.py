@@ -49,6 +49,13 @@ class ManagementAuditEvent(models.Model):
 
     class Meta:
         ordering = ("-created_at", "-id")
+        indexes = [
+            models.Index(
+                fields=("resource", "action", "-created_at", "-id"),
+                name="bo_audit_resource_idx",
+            ),
+            models.Index(fields=("actor", "-created_at", "-id"), name="bo_audit_actor_idx"),
+        ]
 
     def save(self, *args, **kwargs):
         if self.pk:

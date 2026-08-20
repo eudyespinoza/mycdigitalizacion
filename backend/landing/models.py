@@ -235,6 +235,14 @@ class HeroSlide(ScheduledContent):
     )
     pause_on_reduced_motion = models.BooleanField(default=True)
 
+    class Meta(ScheduledContent.Meta):
+        indexes = [
+            models.Index(
+                fields=("enabled", "order", "starts_at", "ends_at"),
+                name="land_hero_schedule_idx",
+            )
+        ]
+
 
 class PromotionSlide(ScheduledContent):
     title = models.CharField(max_length=160)
@@ -243,6 +251,14 @@ class PromotionSlide(ScheduledContent):
         default=6000, validators=[MinValueValidator(1000), MaxValueValidator(30000)]
     )
     pause_on_reduced_motion = models.BooleanField(default=True)
+
+    class Meta(ScheduledContent.Meta):
+        indexes = [
+            models.Index(
+                fields=("enabled", "order", "starts_at", "ends_at"),
+                name="land_promo_schedule_idx",
+            )
+        ]
 
 
 class LandingCollection(ScheduledContent):
@@ -279,3 +295,11 @@ class PromotionPopup(ScheduledContent):
     )
     dismissible = models.BooleanField(default=True)
     version = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
+
+    class Meta(ScheduledContent.Meta):
+        indexes = [
+            models.Index(
+                fields=("enabled", "order", "starts_at", "ends_at"),
+                name="land_popup_schedule_idx",
+            )
+        ]

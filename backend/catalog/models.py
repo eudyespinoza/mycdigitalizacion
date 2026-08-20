@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVector
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models, transaction
@@ -120,6 +122,24 @@ class Product(models.Model):
             ("import_product", "Can import products with validation"),
             ("export_product", "Can export product administration data"),
         )
+        indexes = [
+            models.Index(
+                fields=("category", "-created_at", "-id"),
+                condition=Q(is_active=True, is_sellable=True),
+                name="cat_prod_live_cat_idx",
+            ),
+            models.Index(
+                fields=("brand", "-created_at", "-id"),
+                condition=Q(is_active=True, is_sellable=True),
+                name="cat_prod_live_brand_idx",
+            ),
+            models.Index(fields=("-created_at", "-id"), name="cat_prod_created_idx"),
+            GinIndex(
+                SearchVector("name", "description", config="spanish"),
+                name="cat_prod_search_gin",
+            ),
+            GinIndex(fields=("name",), opclasses=("gin_trgm_ops",), name="cat_prod_name_trgm"),
+        ]
 
     def clean(self):
         if self.is_sellable and (
@@ -290,6 +310,14 @@ class ProductVariant(models.Model):
             models.CheckConstraint(condition=Q(width_cm__gt=0), name="variant_width_positive"),
             models.CheckConstraint(condition=Q(height_cm__gt=0), name="variant_height_positive"),
         ]
+        indexes = [
+            models.Index(
+                fields=("product", "is_active"),
+                include=("price", "on_hand"),
+                name="cat_variant_active_idx",
+            ),
+            GinIndex(fields=("sku",), opclasses=("gin_trgm_ops",), name="cat_variant_sku_trgm"),
+        ]
 
     def save(self, *args, **kwargs):
         if self.pk and not getattr(self, "_allow_state_change", False):
@@ -410,6 +438,31 @@ class AttributeValue(models.Model):
                     )
                 ),
                 name="attribute_value_exactly_one_storage",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=("definition", "option", "variant"), name="cat_attr_option_idx"
+            ),
+            models.Index(
+                fields=("definition", "text_value", "variant"),
+                condition=Q(text_value__gt=""),
+                name="cat_attr_text_idx",
+            ),
+            models.Index(
+                fields=("definition", "integer_value", "variant"),
+                condition=Q(integer_value__isnull=False),
+                name="cat_attr_integer_idx",
+            ),
+            models.Index(
+                fields=("definition", "decimal_value", "variant"),
+                condition=Q(decimal_value__isnull=False),
+                name="cat_attr_decimal_idx",
+            ),
+            models.Index(
+                fields=("definition", "boolean_value", "variant"),
+                condition=Q(boolean_value__isnull=False),
+                name="cat_attr_boolean_idx",
             ),
         ]
 

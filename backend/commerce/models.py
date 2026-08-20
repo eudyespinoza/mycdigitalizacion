@@ -87,6 +87,13 @@ class PromotionRule(ScheduledDiscount):
     products = models.ManyToManyField(Product, related_name="promotion_rules", blank=True)
     categories = models.ManyToManyField(Category, related_name="promotion_rules", blank=True)
 
+    class Meta(ScheduledDiscount.Meta):
+        indexes = [
+            models.Index(
+                fields=("enabled", "starts_at", "ends_at"), name="comm_promo_schedule_idx"
+            )
+        ]
+
 
 class Coupon(ScheduledDiscount):
     code = models.CharField(max_length=64, unique=True)
@@ -172,6 +179,13 @@ class StockReservation(models.Model):
     consumed_at = models.DateTimeField(null=True, blank=True)
     released_at = models.DateTimeField(null=True, blank=True)
     objects = StockReservationQuerySet.as_manager()
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=("variant", "status", "expires_at"), name="comm_res_active_idx"
+            )
+        ]
 
     def save(self, *args, **kwargs):
         if self.pk and not getattr(self, "_allow_lifecycle_transition", False):
@@ -317,6 +331,16 @@ class Order(models.Model):
                 condition=models.Q(checkout_idempotency_key__isnull=False),
                 name="unique_user_checkout_idempotency_key",
             )
+        ]
+        indexes = [
+            models.Index(
+                fields=("payment_status", "fulfillment_status", "-created_at", "-id"),
+                name="comm_order_mgmt_idx",
+            ),
+            models.Index(
+                fields=("identity_status", "-created_at", "-id"),
+                name="comm_order_identity_idx",
+            ),
         ]
 
     def save(self, *args, **kwargs):

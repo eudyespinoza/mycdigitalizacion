@@ -7,6 +7,7 @@ from cryptography.fernet import Fernet
 from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.functions import Lower
@@ -43,6 +44,9 @@ class User(AbstractUser):
         constraints = [
             models.UniqueConstraint(Lower("email"), name="unique_user_email_casefold")
         ]
+        indexes = [
+            GinIndex(fields=("email",), opclasses=("gin_trgm_ops",), name="acct_user_email_trgm")
+        ]
 
 
 class Profile(models.Model):
@@ -52,6 +56,23 @@ class Profile(models.Model):
     first_name = models.CharField(max_length=120, blank=True)
     last_name = models.CharField(max_length=120, blank=True)
     phone = models.CharField(max_length=32, blank=True)
+
+    class Meta:
+        indexes = [
+            GinIndex(
+                fields=("first_name",),
+                opclasses=("gin_trgm_ops",),
+                name="acct_prof_first_trgm",
+            ),
+            GinIndex(
+                fields=("last_name",),
+                opclasses=("gin_trgm_ops",),
+                name="acct_prof_last_trgm",
+            ),
+            GinIndex(
+                fields=("phone",), opclasses=("gin_trgm_ops",), name="acct_prof_phone_trgm"
+            ),
+        ]
 
 
 class EmailVerificationChallenge(models.Model):
