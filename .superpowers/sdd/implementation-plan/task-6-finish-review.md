@@ -134,3 +134,148 @@ checkout/payment copy becomes deliberately sober at the highest-stakes moment.
 5. Re-run the existing axe/Playwright/production-media gates. A new visual comp is unnecessary; one
    bounded desktop/mobile regression capture is sufficient because the accepted layout should not
    change.
+
+---
+
+## Re-revisión final de las reparaciones
+
+Fecha: 2026-08-20
+
+Commits revisados:
+
+- Backend: `b1b5ad904270a6676a949d94d83c4488b91bcdb1`.
+- Frontend: `721c1cffe7d53f5d27589a0786971924306f79ed`.
+
+Método: revisor independiente fresco. Se volvieron a leer y aplicar completamente, en este orden,
+`design-taste-frontend`, `ui-ux-pro-max`, `emil-design-eng` e `impeccable`, además del informe
+original y los informes de reparación backend/frontend. El detector Impeccable no se volvió a
+ejecutar; se conservó el resultado autorizado `[]`. No se modificó producto, infraestructura,
+capturas ni `DESIGN.md`.
+
+### Veredicto final
+
+- **SPEC: CHANGES REQUIRED.** R1, R2 y R3 avanzaron, pero los tres siguen parcialmente abiertos
+  con reproducciones determinísticas que contradicen los criterios de aceptación originales.
+- **QUALITY: CHANGES REQUIRED.** La dirección visual aceptada permanece fuerte, pero una anchura
+  real de 360 px tiene desborde horizontal y un logo reemplazado desde CMS pierde su proporción.
+- **Resultado agregado, sobre los cinco hallazgos originales:** `resolved 2`, `partial 3`,
+  `unresolved 0`.
+- **REQUIRED restantes:** 3 parciales. **OPTIONAL restantes:** 0.
+
+La conclusión no pide rediseñar la tienda. Requiere tres correcciones acotadas de comportamiento y
+presentación que preserven Pulso Comercial.
+
+### Disposición de R1-R3 y O1-O2
+
+| Hallazgo | Estado | Before | After requerido | Why / evidencia exacta |
+| --- | --- | --- | --- | --- |
+| R1 | **PARTIAL, P1** | Los dos carruseles ahora consumen todas las filas, el intervalo activo, pausa por hover/foco/visibilidad, controles manuales y reduced motion. Sin embargo, la cabecera de promociones conserva la fila horizontal genérica de `.section-heading` en 360 px; sólo `.featured .section-heading` cambia a columna bajo 420 px (`frontend/app/styles.css:105`, `frontend/app/styles.css:133`, `frontend/app/styles.css:430-431`). La pista también admite scroll táctil, pero no escucha `scroll`, por lo que el indicador sólo cambia por `carousel.go` (`frontend/components/home/promotion-carousel.tsx:15-18`). | Hacer que la cabecera de promociones se recomponga dentro de 360 px, sin recortar controles ni ampliar el documento. Sincronizar el índice con el slide que queda visible tras scroll/snap táctil, o impedir ese camino y conservar controles equivalentes. Mantener los intervalos, pausas y reduced motion ya correctos. | Runtime a 360 px: `innerWidth=360`, `document.documentElement.scrollWidth=387`; `.carousel-control-row` termina en `x=387.375` y el botón siguiente ocupa `343.375..387.375`, 27.375 px fuera del viewport. Tras mover la pista al final, `scrollLeft=330` pero el estado sigue siendo `Promoción 1 de 2`. La captura real `360.png` muestra el mismo control cortado. Esto incumple el checkpoint responsive de 360 y hace falsa la posición anunciada después de un gesto disponible. |
+| R2 | **PARTIAL, P1** | Delay, imagen responsive, focal, versión, `always` y ventanas daily/weekly después de cerrar están implementados. La marca de frecuencia se escribe únicamente dentro de `dismiss()` (`frontend/components/home/promotion-popup.tsx:32-37`), y `dismiss()` sólo es alcanzable desde el botón condicionado por `popup.dismissible` (`frontend/components/home/promotion-popup.tsx:41`). | Registrar la impresión al hacerse visible para `once_session`, `daily` y `weekly`, o definir otra política equivalente que también funcione para campañas no descartables. Añadir un test de remount/reload del caso `dismissible=false`; conservar `always` sin supresión. | Runtime con `{ popupEnabled:true, popupFrequency:"once_session", popupDismissible:false }`: al mostrarse, `sessionStorage.getItem("myc-popup:8:v1") === null`; después de `reload`, el popup vuelve a estar visible y la clave sigue siendo `null`. La prueba actual sólo verifica que no exista el botón (`cms-campaigns.test.tsx:122-132`) y no remonta ese caso. La frecuencia de aparición configurada por el editor queda inoperante precisamente cuando el aviso no se puede cerrar. |
+| R3 | **PARTIAL, P1** | El backend/admin/API ya publican logo y favicon, el layout genera metadata de favicon y todos los headers reciben el branding activo. No obstante, el mismo logo completo se dibuja dos veces (`frontend/components/layout/site-header.tsx:14-24`, `42-43`) y se corta con tamaños independientes que fuerzan ancho y alto (`frontend/app/styles.css:63`, `65`). | Mostrar el logo administrado sin depender de las coordenadas internas del raster entregado. Preservar su relación de aspecto y clear space con una sola cerradura visual, o modelar mark y wordmark como activos separados con previews/validación explícitos. `object-fit: contain` es un fallback seguro para un único logo. | Runtime con un reemplazo CMS cuadrado: el mark tiene natural `64x64` y render `108x87.83`; el word tiene natural `209x209` y render `151.03x145.8`; ambos reportan `object-fit: fill`. La sustitución cambia la URL, pero distorsiona y recorta cualquier activo que no replique exactamente la geometría privada del raster original. Esto no satisface el requisito original de preservar proporción y permitir reemplazo sin código. |
+| O1 | **RESOLVED** | A 375 px el enlace competía con el título y se partía en tres líneas. | Bajo 420 px, el título ocupa su fila y el enlace pasa a una segunda fila de 44 px (`frontend/app/styles.css:430-431`). | La captura real de 360 px y el browser test confirman una jerarquía limpia; el enlace ya no compite con el título. |
+| O2 | **RESOLVED** | Los chips tenían `min-height: 38px`. | Los chips tienen `min-height: 44px` (`frontend/app/styles.css:188`). | El test de navegador mide al menos 44 px en los cuatro proyectos. El objetivo motor se cumple sin engrosar visualmente la píldora. |
+
+### Reproducción exacta de los REQUIRED restantes
+
+Levantar el mismo runtime usado por Playwright:
+
+```powershell
+# Terminal 1
+cd D:\mycdigitalizaciones\frontend
+node tests/mock-api.mjs
+
+# Terminal 2
+cd D:\mycdigitalizaciones\frontend
+$env:API_INTERNAL_URL='http://127.0.0.1:4010/api/v1'
+$env:API_PROXY_TARGET='http://127.0.0.1:4010'
+pnpm dev
+```
+
+R1, en Chromium con viewport `360x800`, abrir `/` y ejecutar:
+
+```js
+const controls = document.querySelector('.carousel-control-row').getBoundingClientRect();
+const track = document.querySelector('.promo-track');
+track.scrollLeft = track.scrollWidth - track.clientWidth;
+track.dispatchEvent(new Event('scroll', { bubbles: true }));
+({
+  viewport: innerWidth,
+  pageWidth: document.documentElement.scrollWidth,
+  controlsRight: controls.right,
+  scrollLeft: track.scrollLeft,
+  announced: document.querySelector('.carousel-control-row span').textContent,
+});
+// { viewport: 360, pageWidth: 387, controlsRight: 387.375,
+//   scrollLeft: 330, announced: "Promoción 1 de 2" }
+```
+
+R2, configurar el mock y recargar:
+
+```js
+await fetch('http://127.0.0.1:4010/__control', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ reset: true, popupEnabled: true,
+    popupFrequency: 'once_session', popupDismissible: false }),
+});
+location.href = 'http://127.0.0.1:3000/';
+// Cuando aparezca el aviso:
+sessionStorage.getItem('myc-popup:8:v1'); // null
+location.reload();
+// El aviso reaparece y la clave continúa null.
+```
+
+R3, configurar `logoUrl: "/media/branding/logo/active.png"`, abrir `/` y ejecutar:
+
+```js
+[...document.querySelectorAll('.brand img')].map((img) => {
+  const rect = img.getBoundingClientRect();
+  return {
+    natural: [img.naturalWidth, img.naturalHeight],
+    rendered: [rect.width, rect.height],
+    objectFit: getComputedStyle(img).objectFit,
+  };
+});
+// [{ natural:[64,64], rendered:[108,87.83], objectFit:'fill' },
+//  { natural:[209,209], rendered:[151.03,145.8], objectFit:'fill' }]
+```
+
+### Inspección visual acotada
+
+Se abrieron una sola vez las capturas finales solicitadas:
+
+- `.impeccable/review/360.png`.
+- `.impeccable/review/1440.png`.
+- `.impeccable/review/hero-repro.png`.
+
+Pulso Comercial conserva su especificidad: buscador protagonista, hero asimétrico, logo original
+legible, jerarquía navy/cyan/magenta, densidad comercial media y tratamiento editorial honesto para
+un catálogo sintético de un producto. Los datos marcados como sintéticos siguen siendo evidencia de
+fixture y no defectos. La captura 360 confirma la mejora O1 y también el recorte del control R1; 1440
+y el hero 1536 conservan la composición aprobada sin regresión visible.
+
+### Verificación independiente
+
+| Gate | Resultado |
+| --- | --- |
+| Frontend unitario focalizado | PASS: `pnpm exec vitest run tests/cms-campaigns.test.tsx`, 8/8. |
+| Backend focalizado | PASS: `APP_ENV=test ... pytest tests/test_task6_finish_cms_contracts.py -q`, 4/4. Un primer intento sin `APP_ENV=test` fue rechazado por el guard de entorno antes de recolectar tests; no fue un fallo de producto. |
+| Browser CMS, cuatro viewports | PASS: `pnpm exec playwright test tests/e2e/cms-finish.spec.ts`, 12/12. |
+| Runtime adversarial | FAIL esperado: reprodujo R1, R2 y R3 con las métricas anteriores, casos que la suite verde no afirma cubrir. |
+| Detector Impeccable | No ejecutado por instrucción; resultado heredado `[]`. |
+
+Los gates existentes son válidos para lo que ejercitan. No invalidan los tres REQUIRED porque sus
+assertions actuales no miden anchura total de documento/scroll táctil, remount no descartable ni
+proporción renderizada de un logo reemplazado.
+
+### Criterio de cierre actualizado
+
+1. En 360 px, `documentElement.scrollWidth` no debe superar `clientWidth`; ambos controles de
+   promociones deben quedar completamente dentro del viewport y el indicador debe seguir el snap
+   visible después de touch/scroll.
+2. Un popup `once_session`, `daily` o `weekly` no descartable debe registrar su impresión y no
+   reaparecer antes de su ventana; `always` debe seguir reapareciendo.
+3. Un logo CMS de relación 1:1 y otro horizontal deben conservar sus proporciones en header desktop
+   y móvil. El favicon y el nombre accesible ya correctos no deben regresar.
+4. Repetir los 8 unitarios, 4 contratos backend y 12 browser CMS, añadiendo los tres casos
+   adversariales anteriores. No hace falta una nueva dirección visual ni ejecutar el detector.
