@@ -2,7 +2,7 @@ from urllib.parse import urlsplit
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 from config.media import (
@@ -110,29 +110,53 @@ class ScheduledContent(models.Model):
                 "mobile_derivatives",
             ).first() or {}
         self.full_clean()
-        result = super().save(*args, **kwargs)
-        derivative_updates = {}
-        for field_name in ("desktop_image", "mobile_image"):
-            field = getattr(self, field_name)
-            derivatives_name = f"{field_name.replace('_image', '')}_derivatives"
-            old_name = previous.get(field_name, "")
-            old_derivatives = previous.get(derivatives_name, {})
-            changed = old_name != field.name
-            if field and (changed or not getattr(self, derivatives_name)):
-                derivatives = generate_image_derivatives(storage=field.storage, name=field.name)
-                derivative_updates[derivatives_name] = derivatives
-                setattr(self, derivatives_name, derivatives)
-            elif not field and getattr(self, derivatives_name):
-                derivative_updates[derivatives_name] = {}
-                setattr(self, derivatives_name, {})
-            if changed and old_name:
-                delete_image_assets(
-                    storage=field.storage,
-                    source_name=old_name,
-                    derivatives=old_derivatives,
-                )
-        if derivative_updates:
-            type(self).objects.filter(pk=self.pk).update(**derivative_updates)
+        new_assets = []
+        superseded_assets = []
+        try:
+            with transaction.atomic():
+                result = super().save(*args, **kwargs)
+                derivative_updates = {}
+                for field_name in ("desktop_image", "mobile_image"):
+                    field = getattr(self, field_name)
+                    derivatives_name = f"{field_name.replace('_image', '')}_derivatives"
+                    old_name = previous.get(field_name, "")
+                    old_derivatives = previous.get(derivatives_name, {})
+                    changed = old_name != field.name
+                    new_asset = None
+                    if changed and field.name:
+                        new_asset = {
+                            "storage": field.storage,
+                            "source_name": field.name,
+                            "derivatives": {},
+                        }
+                        new_assets.append(new_asset)
+                    if field and (changed or not getattr(self, derivatives_name)):
+                        derivatives = generate_image_derivatives(
+                            storage=field.storage, name=field.name
+                        )
+                        if new_asset is not None:
+                            new_asset["derivatives"] = derivatives
+                        derivative_updates[derivatives_name] = derivatives
+                        setattr(self, derivatives_name, derivatives)
+                    elif not field and getattr(self, derivatives_name):
+                        derivative_updates[derivatives_name] = {}
+                        setattr(self, derivatives_name, {})
+                    if changed and old_name:
+                        superseded_assets.append(
+                            {
+                                "storage": field.storage,
+                                "source_name": old_name,
+                                "derivatives": old_derivatives,
+                            }
+                        )
+                if derivative_updates:
+                    type(self).objects.filter(pk=self.pk).update(**derivative_updates)
+        except Exception:
+            for assets in new_assets:
+                delete_image_assets(**assets)
+            raise
+        for assets in superseded_assets:
+            delete_image_assets(**assets)
         return result
 
 

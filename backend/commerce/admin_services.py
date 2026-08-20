@@ -20,6 +20,13 @@ ACTION_PERMISSIONS = {
 }
 
 
+def admin_refund_idempotency_key(order):
+    return uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        f"mycdigitalizacion:admin-refund:{order.public_id}",
+    )
+
+
 @transaction.atomic
 def perform_order_admin_action(*, action, order, actor, reason, adapters=None, context=None):
     permission = ACTION_PERMISSIONS.get(action)
@@ -51,7 +58,9 @@ def perform_order_admin_action(*, action, order, actor, reason, adapters=None, c
         refund_order(
             order=order,
             adapter=adapters["payment"],
-            idempotency_key=context.get("idempotency_key", uuid.uuid4()),
+            idempotency_key=(
+                context.get("idempotency_key") or admin_refund_idempotency_key(order)
+            ),
         )
         result = order
     elif action == "create_shipment":
@@ -68,10 +77,18 @@ def perform_order_admin_action(*, action, order, actor, reason, adapters=None, c
         shipment.save(update_fields=("status", "provider_summary", "updated_at"))
         result = order
     if action != "cancel":
-        OrderAuditEvent.objects.create(
-            order=order,
-            kind=f"admin_{action}_completed",
-            data={"reason": normalized_reason},
-            actor=actor,
-        )
+        audit = {
+            "order": order,
+            "kind": f"admin_{action}_completed",
+            "data": {"reason": normalized_reason},
+            "actor": actor,
+        }
+        if action == "refund":
+            OrderAuditEvent.objects.get_or_create(
+                order=order,
+                kind=audit["kind"],
+                defaults={"data": audit["data"], "actor": actor},
+            )
+        else:
+            OrderAuditEvent.objects.create(**audit)
     return result

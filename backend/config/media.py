@@ -102,38 +102,54 @@ def generate_image_derivatives(*, storage, name, supported_formats=None):
                 image.load()
     except (FileNotFoundError, OSError):
         return {}
-    requested = tuple(getattr(settings, "MEDIA_RESPONSIVE_WIDTHS", (320, 640, 960, 1440)))
-    widths = sorted({width for width in requested if 0 < width <= image.width} | {image.width})
+    requested = {
+        int(width)
+        for width in getattr(settings, "MEDIA_RESPONSIVE_WIDTHS", (320, 640, 960, 1440))
+        if int(width) > 0
+    }
+    width_cap = min(image.width, max(requested, default=image.width))
+    widths = sorted({width for width in requested if width <= width_cap} | {width_cap})
     stem = posixpath.splitext(name)[0]
     sources = []
+    created_paths = []
     extensions = {"AVIF": "avif", "WEBP": "webp"}
-    for width in widths:
-        height = max(1, round(image.height * width / image.width))
-        resized = (
-            image
-            if width == image.width
-            else image.resize((width, height), Image.Resampling.LANCZOS)
-        )
-        entry = {"width": width}
-        for image_format in configured:
-            normalized = image_format.upper()
-            if normalized not in supported or normalized not in extensions:
-                continue
-            output = io.BytesIO()
-            try:
-                resized.save(output, format=normalized, quality=82, optimize=True)
-            except (KeyError, OSError, ValueError):
-                continue
-            extension = extensions[normalized]
-            entry[extension] = storage.save(
-                f"{stem}-{width}.{extension}", ContentFile(output.getvalue())
+    try:
+        for width in widths:
+            height = max(1, round(image.height * width / image.width))
+            resized = (
+                image
+                if width == image.width
+                else image.resize((width, height), Image.Resampling.LANCZOS)
             )
-        fallback = io.BytesIO()
-        resized.save(fallback, format="JPEG", quality=82, optimize=True)
-        entry["fallback"] = storage.save(
-            f"{stem}-{width}.optimized.jpg", ContentFile(fallback.getvalue())
-        )
-        sources.append(entry)
+            entry = {"width": width}
+            for image_format in configured:
+                normalized = image_format.upper()
+                if normalized not in supported or normalized not in extensions:
+                    continue
+                output = io.BytesIO()
+                try:
+                    resized.save(output, format=normalized, quality=82, optimize=True)
+                except (KeyError, OSError, ValueError):
+                    continue
+                extension = extensions[normalized]
+                saved_path = storage.save(
+                    f"{stem}-{width}.{extension}", ContentFile(output.getvalue())
+                )
+                created_paths.append(saved_path)
+                entry[extension] = saved_path
+            fallback = io.BytesIO()
+            resized.save(fallback, format="JPEG", quality=82, optimize=True)
+            saved_path = storage.save(
+                f"{stem}-{width}.optimized.jpg", ContentFile(fallback.getvalue())
+            )
+            created_paths.append(saved_path)
+            entry["fallback"] = saved_path
+            sources.append(entry)
+    except Exception:
+        for path in reversed(created_paths):
+            if storage.exists(path):
+                storage.delete(path)
+        raise
     return {"widths": sources}
 
 

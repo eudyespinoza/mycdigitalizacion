@@ -191,3 +191,28 @@ Review source: `task-5a-admin-review.md` at commit `5214afd` (11 REQUIRED, 4 OPT
 - Playwright keyboard reorder: row ID changed and live status was `Elemento movido a la posición visible 2; orden global guardado.`
 - Playwright responsive assertions at 360/768/1024/1440 showed document widths exactly matching each viewport, header bottom equal to content top (`254.97`, `114.58`, `114.58`, `65.78` px), and minimum interactive header control height `44` px.
 - Playwright screenshots were written only to `%TEMP%`; no generated media/schema/browser artifact is committed.
+
+## Fix Round 2 — residual boundary closure
+
+Review source: appended **Fix Round 1 independent verdict** in `task-5a-admin-review.md` for commit `b1ded28`.
+
+### RED/GREEN evidence
+
+- **R3 compact mobile Admin:** rendered Admin RED exposed no semantic session/link groups and retained punctuation text nodes that became anonymous grid rows. GREEN overrides the user-tools block with semantic groups and no standalone `.` or `/`. Real Playwright at 360 px reduced header height from `254.97` to `165.97` px, found zero orphan direct text nodes, exact document width, no content overlap, and minimum control height `44` px. The 768/1024/1440 px metrics remain `114.58`, `114.58`, and `65.78` px with no overflow or overlap.
+- **R4 global ordering bypass:** real page-2 Admin POST RED changed the record at global order `100` to `0`, leaving two records at order zero. GREEN removes `list_editable`; the locked stable-ID reorder endpoint is now the only mutation path. A real page-2 browser had zero numeric order inputs and keyboard reorder still moved ID `1` after ID `2` with the `aria-live` confirmation.
+- **R5 preview media fallback:** the three-shape table test reproduced mobile-only as RED: a mobile `<source>` existed but there was no visible `<img>`. GREEN uses desktop as the default `<img>` when present and mobile otherwise, preserving the mobile `<source>`, focal coordinates and all three safe heights for desktop-only, mobile-only and both-image records.
+- **R6 bounded/atomic derivatives:** four RED outcomes were captured: a 2000 px source emitted an unwanted 2000 px derivative above configured cap; second-write failure left `source-320.webp`; and landing/catalog replacement failures persisted the new DB source and leaked the uploaded source. GREEN caps output at the largest configured responsive width while retaining the original separately, cleans all partial derivative writes on any publication exception, wraps DB publication in a savepoint, removes new assets on rollback, and preserves prior source/manifests for both models.
+- **O2 deterministic refund recovery:** local-loss RED sent two different provider idempotency keys and left zero local refunds after the first rollback. PostgreSQL concurrency RED correctly reused the provider operation after the initial key repair but wrote two completion audits. GREEN derives a stable UUIDv5 from the order public ID, reconciles the repeated approved response into one local Refund, and serializes concurrent retries to one provider operation, one Refund and one completion audit.
+- **O4 negative coverage:** `test_task5a_fix_round2.py` contains the exact R3/R4/R5/R6/O2 negative boundaries, and `test_postgres_task5a_admin.py` contains the real concurrent refund regression.
+
+### Final Fix Round 2 verification
+
+- Focused Task 5A contracts: `47 passed in 32.06s`.
+- Full shared SQLite-compatible suite: `219 passed, 18 skipped in 122.67s`.
+- PostgreSQL/Redis relevant suite: `64 passed in 134.87s`.
+- Ruff: `All checks passed`.
+- Django check under PostgreSQL Docker: `0 issues`.
+- Migration drift under PostgreSQL Docker: `No changes detected`; no migration is required for this round.
+- OpenAPI JSON validation: exit `0`; the existing responsive-source schema is unchanged.
+- Isolated collectstatic: `166 static files copied`, `478 post-processed`.
+- Browser and schema outputs used temporary storage only; the temporary Playwright PostgreSQL database and server were removed after verification.

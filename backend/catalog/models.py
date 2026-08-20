@@ -175,16 +175,31 @@ class ProductMedia(models.Model):
             else None
         ) or {}
         self.full_clean()
-        result = super().save(*args, **kwargs)
         old_name = previous.get("file", "")
         old_derivatives = previous.get("derivatives", {})
-        changed = old_name != self.file.name
-        if self.file and (changed or not self.derivatives):
-            derivatives = generate_image_derivatives(
-                storage=self.file.storage, name=self.file.name
-            )
-            type(self).objects.filter(pk=self.pk).update(derivatives=derivatives)
-            self.derivatives = derivatives
+        new_assets = None
+        try:
+            with transaction.atomic():
+                result = super().save(*args, **kwargs)
+                changed = old_name != self.file.name
+                if changed:
+                    new_assets = {
+                        "storage": self.file.storage,
+                        "source_name": self.file.name,
+                        "derivatives": {},
+                    }
+                if self.file and (changed or not self.derivatives):
+                    derivatives = generate_image_derivatives(
+                        storage=self.file.storage, name=self.file.name
+                    )
+                    if new_assets is not None:
+                        new_assets["derivatives"] = derivatives
+                    type(self).objects.filter(pk=self.pk).update(derivatives=derivatives)
+                    self.derivatives = derivatives
+        except Exception:
+            if new_assets is not None:
+                delete_image_assets(**new_assets)
+            raise
         if changed and old_name:
             delete_image_assets(
                 storage=self.file.storage,

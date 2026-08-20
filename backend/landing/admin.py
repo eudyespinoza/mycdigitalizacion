@@ -24,7 +24,6 @@ class ScheduledContentAdmin(admin.ModelAdmin):
     list_filter = ("enabled",)
     search_fields = ("title", "alt_text", "cta_label")
     ordering = ("order",)
-    list_editable = ("order",)
     actions = ("duplicate_selected",)
     readonly_fields = ("thumbnail", "public_preview", "desktop_derivatives", "mobile_derivatives")
     change_list_template = "admin/landing/scheduledcontent/change_list.html"

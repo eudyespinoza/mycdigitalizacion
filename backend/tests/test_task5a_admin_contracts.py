@@ -268,7 +268,7 @@ def test_cms_admin_duplicates_content_and_renders_safe_thumbnail(rf):
     assert duplicate.order == 4
     assert "<img" in str(model_admin.thumbnail(slide))
     assert "Vista previa" in str(model_admin.thumbnail(slide))
-    assert model_admin.list_editable == ("order",)
+    assert model_admin.list_editable == ()
     assert "admin/js/mycd-sortable.js" in model_admin.media._js
 
 
@@ -438,7 +438,7 @@ def test_product_media_derives_extension_from_content_and_serializes_responsive_
             alt_text="Producto responsive",
         )
         assert media.file.name.endswith(".png")
-        assert [source["width"] for source in media.derivatives["widths"]] == [320, 640, 800]
+        assert [source["width"] for source in media.derivatives["widths"]] == [320, 640]
         payload = ProductMediaSerializer(media).data
         assert payload["responsive_sources"][0]["width"] == 320
         assert payload["responsive_sources"][0]["fallback"].startswith("/media/")
