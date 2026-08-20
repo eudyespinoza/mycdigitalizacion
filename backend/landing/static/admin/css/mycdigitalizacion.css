@@ -21,6 +21,23 @@
 .myc-shortcuts h2 { margin-top: 0; }
 .myc-shortcuts ul { display: flex; flex-wrap: wrap; gap: .75rem; list-style: none; margin: 0; padding: 0; }
 .myc-shortcuts a { display: inline-block; min-height: 44px; padding: .7rem .9rem; }
+.myc-integration-grid { max-width: 920px; }
+.myc-integration-card { border: 1px solid #cbd8e5; border-radius: .75rem; overflow: hidden; padding: 1.25rem; }
+.myc-integration-heading { align-items: flex-start; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; }
+.myc-integration-heading h2 { margin: 0; }
+.myc-eyebrow { color: #49647e; font-size: .8rem; font-weight: 700; letter-spacing: .06em; margin: 0 0 .25rem; text-transform: uppercase; }
+.myc-status { border-radius: 999px; padding: .55rem .8rem; }
+.myc-status.is-ready { background: #dff5e8; color: #165c36; }
+.myc-status.is-pending { background: #fff0d5; color: #704700; }
+.myc-integration-details { display: grid; gap: 1px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 1.25rem 0; }
+.myc-integration-details div { background: var(--myc-surface); padding: .9rem; }
+.myc-integration-details dt { color: #49647e; font-size: .82rem; }
+.myc-integration-details dd { font-weight: 700; margin: .3rem 0 0; }
+.myc-webhook label { display: block; font-weight: 700; margin-bottom: .4rem; }
+.myc-webhook input { box-sizing: border-box; width: 100%; }
+.myc-security-note { margin: 1.25rem 0 0; padding: 1rem 1rem 1rem 2rem; }
+.myc-security-note p:first-child { margin-top: 0; }
+.myc-security-note p:last-child { margin-bottom: 0; }
 a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid #ffbf47; outline-offset: 2px; }
 #result_list tbody tr[data-mycd-sortable="true"] { cursor: grab; }
 #result_list tbody tr[data-mycd-sortable="true"]:focus-visible { outline: 3px solid #ffbf47; outline-offset: -3px; }
@@ -39,6 +56,7 @@ a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid 
   .theme-toggle { position: absolute; right: .75rem; top: .65rem; }
   .myc-shortcuts ul { display: grid; grid-template-columns: 1fr; }
   .myc-shortcuts a { width: 100%; }
+  .myc-integration-details { grid-template-columns: 1fr; }
   .results { overflow-x: auto; }
 }
 

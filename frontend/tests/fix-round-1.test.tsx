@@ -22,6 +22,7 @@ const customer: Customer = {
   id: 5,
   email: "cliente@example.com",
   email_verified_at: "2026-08-20T10:00:00Z",
+  is_staff: false,
   profile: { first_name: "Ana", last_name: "Pérez", phone: "1155551234" },
   masked_dni: "••••5678",
   masked_cuit: "",

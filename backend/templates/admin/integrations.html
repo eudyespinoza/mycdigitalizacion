@@ -1,0 +1,44 @@
+{% extends "admin/base_site.html" %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Inicio</a> &rsaquo; Integraciones</div>
+{% endblock %}
+
+{% block content %}
+<div class="myc-integration-grid">
+  <section class="module myc-integration-card" aria-labelledby="mercadopago-title">
+    <div class="myc-integration-heading">
+      <div>
+        <p class="myc-eyebrow">Pagos</p>
+        <h2 id="mercadopago-title">Mercado Pago</h2>
+      </div>
+      <strong class="myc-status {% if mercado_pago.configured %}is-ready{% else %}is-pending{% endif %}">
+        {% if mercado_pago.configured %}Configurado{% else %}Pendiente de configuración{% endif %}
+      </strong>
+    </div>
+
+    <dl class="myc-integration-details">
+      <div><dt>Entorno</dt><dd>{{ mercado_pago.mode }}</dd></div>
+      <div><dt>Access token</dt><dd>{% if mercado_pago.fields.access_token %}Cargado{% else %}Falta cargar{% endif %}</dd></div>
+      <div><dt>Firma de webhook</dt><dd>{% if mercado_pago.fields.webhook_secret %}Cargada{% else %}Falta cargar{% endif %}</dd></div>
+      <div><dt>Collector ID</dt><dd>{% if mercado_pago.collector_id %}{{ mercado_pago.collector_id }}{% else %}Falta cargar{% endif %}</dd></div>
+    </dl>
+
+    <div class="myc-webhook">
+      <label for="mercadopago-webhook">URL para notificaciones</label>
+      <input id="mercadopago-webhook" type="text" value="{{ mercado_pago.webhook_url }}" readonly>
+    </div>
+
+    <div class="messagelist myc-security-note">
+      <p>Por seguridad, las credenciales no se guardan ni se muestran en este panel. Se cargan en el archivo privado de producción de la VPS con:</p>
+      <ul>
+        <li><code>MERCADOPAGO_ACCESS_TOKEN</code></li>
+        <li><code>MERCADOPAGO_WEBHOOK_SECRET</code></li>
+        <li><code>MERCADOPAGO_COLLECTOR_ID</code></li>
+        <li><code>MERCADOPAGO_LIVE_MODE</code></li>
+      </ul>
+      <p>Después de guardar los valores, reiniciá los servicios para que este estado se actualice.</p>
+    </div>
+  </section>
+</div>
+{% endblock %}

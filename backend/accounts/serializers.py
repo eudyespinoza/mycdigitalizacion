@@ -98,7 +98,16 @@ class CustomerSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = get_user_model()
-        fields = ("id", "email", "email_verified_at", "profile", "masked_dni", "masked_cuit")
+        fields = (
+            "id",
+            "email",
+            "email_verified_at",
+            "is_staff",
+            "profile",
+            "masked_dni",
+            "masked_cuit",
+        )
+        read_only_fields = ("is_staff",)
 
 
 class BillingProfileSerializer(serializers.ModelSerializer):

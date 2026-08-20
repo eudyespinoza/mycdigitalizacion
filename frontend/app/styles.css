@@ -296,6 +296,11 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .account-panel dl div { display: grid; grid-template-columns: 120px 1fr; gap: 12px; margin: 11px 0; }
 .account-panel dt { color: var(--muted); }
 .account-panel dd { margin: 0; font-weight: 750; }
+.account-admin-access { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 28px; border: 1px solid rgba(0,39,136,.12); background: linear-gradient(110deg, var(--surface-cyan), var(--surface-cold)); }
+.account-admin-access span { color: var(--cyan-action); font-size: .78rem; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
+.account-admin-access h2 { margin-top: 4px; }
+.account-admin-access p { margin: 6px 0 0; color: var(--muted); }
+.account-admin-access .button { flex: 0 0 auto; }
 .account-orders { grid-column: 1 / -1; }
 .order-row { min-height: 58px; display: grid; grid-template-columns: 1fr 160px 150px; align-items: center; gap: 20px; border-bottom: 1px solid var(--line); text-decoration: none; }
 .order-row strong { text-align: right; font-variant-numeric: tabular-nums; }
@@ -423,6 +428,7 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
   .auth-page { padding-block: 16px 50px; }
   .auth-page h1 { font-size: 3rem; }
   .account-grid { grid-template-columns: 1fr; }
+  .account-admin-access { grid-column: auto; align-items: flex-start; flex-direction: column; gap: 18px; }
   .account-orders { grid-column: auto; }
   .order-row { grid-template-columns: 1fr auto; padding: 12px 0; }
   .order-row strong { grid-column: 1 / -1; text-align: left; }

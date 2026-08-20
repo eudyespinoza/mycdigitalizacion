@@ -7,6 +7,7 @@
     {% if perms.catalog.view_product %}<li><a href="{% url 'admin:catalog_product_changelist' %}">Catálogo</a></li>{% endif %}
     {% if perms.commerce.view_order %}<li><a href="{% url 'admin:commerce_order_changelist' %}">Pedidos y logística</a></li>{% endif %}
     {% if perms.landing.view_heroslide %}<li><a href="{% url 'admin:landing_heroslide_changelist' %}">Contenido</a></li>{% endif %}
+    {% if user.is_superuser %}<li><a href="{% url 'admin-integrations' %}">Integraciones</a></li>{% endif %}
   </ul>
 </nav>
 {{ block.super }}

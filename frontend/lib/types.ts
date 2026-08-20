@@ -59,7 +59,7 @@ export type Cart = {
   cart_token: string | null; coupon: string | null;
 };
 export type Customer = {
-  id: number; email: string; email_verified_at: string | null;
+  id: number; email: string; email_verified_at: string | null; is_staff: boolean;
   profile: { first_name: string; last_name: string; phone: string };
   masked_dni: string; masked_cuit: string;
 };
