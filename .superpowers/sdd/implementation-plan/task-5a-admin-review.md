@@ -382,3 +382,83 @@ The report also records `219 passed, 18 skipped` for the full shared suite, whil
 ### Final Fix Round 2 assessment
 
 Fix Round 2 resolves mobile-only preview and the payment-safety retry blocker, and it makes media publication cleanup recoverable. Task 5A is still not acceptable: the 360 px theme toggle intercepts the brand, editors can create duplicate global order values through the individual change form, and intermediate-width images still receive redundant full-size derivatives. The remaining failures are localized but user-visible or data-integrity relevant; SPEC remains **FAIL** and QUALITY remains **NEEDS WORK**.
+
+## Fix Round 3 independent verdict
+
+Review target: `a46ebe85d8f66404e5c9dc6e483d039c0647db8e`, limited to the four Fix Round 2 partials R3, R4, R6 and O4. The commit was exported to an isolated archive. Concurrent dirty Task 5B Fix Round 2 files in the shared checkout were not loaded into the application, modified or staged.
+
+### Verdict
+
+- **RESOLVED: 3** — R3, R4 and R6.
+- **PARTIAL: 1** — O4.
+- **UNRESOLVED: 0**.
+- **SPEC COMPLIANCE: PASS.** Every remaining REQUIRED Admin/CMS/media behavior now meets its acceptance boundary.
+- **CODE QUALITY: NEEDS WORK.** The implementation and regression coverage close the behavioral gaps, but the committed evidence still reports results that do not match an isolated run of the target and includes an inaccurate hit-test description.
+
+### Independent verification
+
+- Focused Task 5A contracts, exact commit: `49 passed in 12.32s` for `test_task5a_admin_contracts.py` plus `test_task5a_fix_round2.py`.
+- Full SQLite-compatible exact-commit suite: **`224 passed, 16 skipped in 61.69s`** across 240 collected cases.
+- Focused Admin/order regressions: **4 passed** (semantic header, actual later-page POST, change-form bypass and global reorder endpoint).
+- Focused media width/lifecycle regressions: **5 passed in SQLite** and the same **5 passed against isolated PostgreSQL 17**. The parameterized publication rollback exercised both landing and catalog models.
+- Real PostgreSQL-backed Django Admin with 205 records plus Playwright Chromium at 360, 768, 1024 and 1440 px exercised the CSS hit targets, real `?p=2`, Alt+Arrow reorder and the former direct change-form bypass.
+- `ruff check .`, `manage.py check`, PostgreSQL-backed migration drift, OpenAPI 3.0.3 JSON generation and 35-path JSON parse: all passed.
+- Isolated `collectstatic --clear`: **166 copied, 792 post-processed** in this Windows/Python 3.13 review environment.
+- Temporary browser screenshots, database, server and generated media/schema artifacts were removed after verification.
+
+### R3 — RESOLVED: the mobile theme target no longer covers the brand
+
+**Files:** `backend/landing/static/admin/css/mycdigitalizacion.css:31-43`, `backend/templates/admin/base_site.html:11-40`.
+
+The full-width mobile button rule now excludes `.theme-toggle`, which has an explicit 44 px width. At 360 px the real brand link occupied `x=58.39..255.78` and the theme control `x=304..348`; their rectangles did not overlap, and `elementFromPoint()` at the brand-link center returned the brand `A`, not the theme button. At all four required widths:
+
+- document width exactly matched viewport width;
+- brand and theme rectangles did not intersect;
+- the brand center hit remained inside the brand link;
+- theme and session controls were at least 44 px tall;
+- header bottom equaled content top; and
+- `#user-tools` contained no punctuation-only text nodes.
+
+Measured header heights were `165.97`, `114.58`, `114.58` and `65.78` px at 360/768/1024/1440. The 360 screenshot showed a compact two-row control group without the prior orphan `.` or `/` rows. R3 is resolved.
+
+### R4 — RESOLVED: the locked global endpoint is the only order mutation path
+
+**Files:** `backend/landing/admin.py:22-91`, `backend/landing/static/admin/js/mycd-sortable.js:8-64`, `backend/tests/test_task5a_fix_round2.py:49-125`.
+
+`order` is now part of the shared scheduled-content Admin's `readonly_fields`, closing every individual change form as well as the already-closed list-form path. In the real PostgreSQL browser flow:
+
+- `/admin/landing/heroslide/?p=2` rendered 100 records beginning with IDs `101, 102, 103` and zero order inputs;
+- Alt+ArrowDown changed the visible/global start to `102, 101, 103`, kept keyboard focus on a sortable row and announced `Elemento movido a la posición visible 2; orden global guardado.`;
+- the endpoint normalized the complete 205-record order with no duplicate values;
+- the ID 102 change page rendered order `100` as readonly and no `#id_order`; and
+- a forged POST adding `order=0` completed the normal save redirect but left ID 102 at `100` and left the global order unique.
+
+The new tests use the actual `?p=2` result list rather than the prior mislabeled `?p=1`, and cover both former bypasses. R4 is resolved.
+
+### R6 — RESOLVED: derivatives are configured widths strictly below the retained source
+
+**Files:** `backend/config/media.py:95-152`, `backend/tests/test_task5a_fix_round2.py:181-296`, `backend/tests/test_task5a_admin_contracts.py:389-500`.
+
+Width selection is now exactly the positive configured widths smaller than `image.width` (`backend/config/media.py:105-110`). A 1000 px source with `(320, 640, 960, 1440)` generated **`[320, 640, 960]`** and no `-1000.webp` or `-1000.optimized.jpg`; the separately retained original remained present. A source wider than the configured maximum remains capped to configured widths, and smaller/intermediate originals are no longer re-encoded at their original width.
+
+The neighboring lifecycle guarantees did not regress. The focused suite proved partial derivative writes are deleted, landing and catalog source/publication failures roll back database and new storage assets, the old asset set survives, successful replacement removes superseded files, removal cleans current assets, and converter fallback still returns usable WebP/JPEG entries. The same five high-risk width/cleanup/rollback cases passed on SQLite and real PostgreSQL. R6 is resolved.
+
+### O4 — PARTIAL: the regression boundaries are covered, but the committed evidence is still not exact
+
+**Files:** `backend/tests/test_task5a_fix_round2.py:21-296`, `backend/tests/test_task5a_admin_contracts.py:276-500`, `.superpowers/sdd/implementation-plan/task-5a-admin-report.md:219-241`.
+
+Coverage now reaches every boundary that escaped Fix Round 2: real CSS hit testing was executed at four widths; committed tests use actual `?p=2`, reject the change-form bypass, exercise a 1000 px intermediate source, and retain storage/database failure coverage. The focused contract count of 49 is correct.
+
+The closure evidence is nevertheless not reproducible as written:
+
+1. It reports `222 passed, 18 skipped` for a “current shared” suite, while the isolated exact target collected the same 240 cases and completed **`224 passed, 16 skipped`**.
+2. It reports `166 static files copied, 478 post-processed` without the command/environment needed to reproduce that platform-sensitive figure; isolated `collectstatic --clear` produced **166/792**.
+3. It says the repaired brand hit returned `IMG`, but the mark image is a sibling of `#site-name`; the actual clickable brand/home target correctly returned `A`. This does not reopen R3, but it makes the claimed evidence inaccurate.
+
+O4 therefore remains partial. Record exact-commit commands, environment/skip reasons and literal outputs instead of results from a changing shared tree.
+
+### Final Fix Round 3 assessment
+
+Task 5A now meets the remaining functional specification. Mobile staff can reach both brand and theme controls, CMS ordering has one locked global mutation path across real pagination and forged Admin posts, and responsive generation no longer duplicates the retained source at intermediate widths while preserving rollback and cleanup behavior.
+
+Acceptance is **SPEC PASS**. Quality remains **NEEDS WORK** only because O4's implementation evidence is not exact or fully reproducible; no REQUIRED defect remains in this review scope.
