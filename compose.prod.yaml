@@ -32,6 +32,7 @@ services:
       PERSONAL_DATA_ENCRYPTION_KEY: ${PERSONAL_DATA_ENCRYPTION_KEY:?set PERSONAL_DATA_ENCRYPTION_KEY in .env}
       DJANGO_DEBUG: "false"
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?set DJANGO_ALLOWED_HOSTS in .env}
+      MEDIA_ROOT: /app/media
       SID_MODE: ${SID_MODE:-disabled}
       SID_BASE_URL: ${SID_BASE_URL:-}
       SID_ACCESS_TOKEN: ${SID_ACCESS_TOKEN:-}
@@ -54,6 +55,8 @@ services:
     depends_on:
       - postgres
       - redis
+    volumes:
+      - media_data:/app/media
 
   worker:
     image: mycdigitalizaciones-worker-prod
@@ -161,6 +164,7 @@ services:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      - media_data:/srv/media:ro
     depends_on:
       - frontend
       - backend
@@ -169,3 +173,4 @@ volumes:
   postgres_data:
   caddy_data:
   caddy_config:
+  media_data:

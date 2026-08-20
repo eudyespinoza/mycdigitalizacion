@@ -10,6 +10,10 @@ class SiteSettings(models.Model):
     public_name = models.CharField(max_length=120, default="mycdigitalizacion")
     announcement = models.CharField(max_length=240, blank=True)
     contact_email = models.EmailField(blank=True)
+    pickup_enabled = models.BooleanField(default=False)
+    pickup_label = models.CharField(max_length=120, default="Retiro en tienda")
+    pickup_address = models.CharField(max_length=240, blank=True)
+    pickup_hours = models.CharField(max_length=240, blank=True)
 
     def save(self, *args, **kwargs):
         self.pk = 1

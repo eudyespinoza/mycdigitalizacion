@@ -133,6 +133,10 @@ class CartLine(models.Model):
     cart = models.ForeignKey(Cart, related_name="lines", on_delete=models.CASCADE)
     variant = models.ForeignKey(ProductVariant, related_name="cart_lines", on_delete=models.CASCADE)
     quantity = models.PositiveIntegerField()
+    unit_price_snapshot = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True, editable=False
+    )
+    available_stock_snapshot = models.IntegerField(null=True, blank=True, editable=False)
 
     class Meta:
         constraints = [

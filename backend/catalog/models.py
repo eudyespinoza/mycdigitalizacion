@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models, transaction
 from django.db.models import Q, Sum
+from django.db.models.functions import Now
 from django.utils import timezone
 
 
@@ -102,6 +103,7 @@ class Product(models.Model):
     name = models.CharField(max_length=200)
     slug = models.SlugField(unique=True)
     description = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now, db_default=Now(), editable=False)
     is_active = models.BooleanField(default=True)
     is_sellable = models.BooleanField(default=False)
     objects = ProductQuerySet.as_manager()

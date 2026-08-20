@@ -1,11 +1,11 @@
 import secrets
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Q
 from django.middleware.csrf import get_token
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -27,14 +27,21 @@ from accounts.permissions import IsVerifiedEmail
 from accounts.serializers import (
     BillingProfileSerializer,
     CustomerSerializer,
+    CustomerUpdateRequestSerializer,
     LoginRequestSerializer,
     RegistrationRequestSerializer,
     VerifyEmailRequestSerializer,
 )
 from accounts.services import consume_email_verification_challenge
 from accounts.throttles import VerificationEmailThrottle, VerificationIPThrottle
-from catalog.models import Category, Product, ProductVariant
-from catalog.serializers import CategorySerializer, ProductSerializer
+from catalog.models import AttributeDefinition, Category, Product, ProductVariant
+from catalog.serializers import (
+    CatalogQuerySerializer,
+    CatalogResponseSerializer,
+    CategorySerializer,
+    ProductSerializer,
+)
+from catalog.storefront import build_facets, filter_products, page_url
 from commerce.checkout import CheckoutError, confirm_checkout, resume_checkout
 from commerce.identity_service import IdentityRejected, approve_identity_manually, validate_identity
 from commerce.models import (
@@ -92,6 +99,7 @@ from landing.serializers import (
 from locations.models import Address
 from locations.providers import GeoRefAdapter
 from locations.serializers import (
+    AddressConfirmRequestSerializer,
     AddressSerializer,
     GeocodeRequestSerializer,
     PostalLocalitySerializer,
@@ -99,7 +107,12 @@ from locations.serializers import (
     ReverseGeocodeRequestSerializer,
     ReverseGeocodeResponseSerializer,
 )
-from locations.services import geocode_address, lookup_localities, reverse_geocode_pin
+from locations.services import (
+    confirm_address,
+    geocode_address,
+    lookup_localities,
+    reverse_geocode_pin,
+)
 from providers import ProviderError
 
 
@@ -109,18 +122,112 @@ class CategoryListView(generics.ListAPIView):
     queryset = Category.objects.filter(is_active=True).select_related("parent")
 
 
-class ProductListView(generics.ListAPIView):
-    permission_classes = (permissions.AllowAny,)
-    serializer_class = ProductSerializer
+CATALOG_PARAMETERS = [
+    OpenApiParameter(name="q", type=str, description="Full-text catalog query."),
+    OpenApiParameter(name="search", type=str, description="Alias for q; q takes precedence."),
+    OpenApiParameter(
+        name="category", type=str, description="Category slug, including descendants."
+    ),
+    OpenApiParameter(name="brand", type=str, description="Brand slug or comma-separated slugs."),
+    OpenApiParameter(name="min_price", type=float, description="Minimum effective variant price."),
+    OpenApiParameter(name="max_price", type=float, description="Maximum effective variant price."),
+    OpenApiParameter(
+        name="availability", type=str, enum=("in_stock", "out_of_stock")
+    ),
+    OpenApiParameter(name="offer", type=bool),
+    OpenApiParameter(
+        name="attribute_<slug>",
+        type=str,
+        description="Exact typed value of a filterable variant attribute.",
+    ),
+    OpenApiParameter(
+        name="ordering",
+        type=str,
+        enum=("relevance", "newest", "price_asc", "price_desc", "discount_desc"),
+    ),
+    OpenApiParameter(name="page", type=int),
+    OpenApiParameter(name="page_size", type=int, description="1 through 100; default 24."),
+]
 
-    def get_queryset(self):
-        queryset = Product.objects.filter(is_active=True, is_sellable=True).select_related(
-            "category", "brand"
+
+class ProductListView(generics.GenericAPIView):
+    permission_classes = (permissions.AllowAny,)
+    serializer_class = CatalogResponseSerializer
+    search_requires_query = False
+
+    @extend_schema(
+        operation_id="api_v1_products_list",
+        parameters=CATALOG_PARAMETERS,
+        responses={200: CatalogResponseSerializer},
+    )
+    def get(self, request):
+        query_serializer = CatalogQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        attribute_filters = {
+            key.removeprefix("attribute_"): value
+            for key, value in request.query_params.items()
+            if key.startswith("attribute_") and key != "attribute_<slug>"
+        }
+        if attribute_filters:
+            definitions = {
+                definition.slug: definition
+                for definition in AttributeDefinition.objects.filter(
+                    slug__in=attribute_filters, is_filterable=True
+                )
+            }
+            unknown = set(attribute_filters) - definitions.keys()
+            if unknown:
+                raise serializers.ValidationError(
+                    {
+                        f"attribute_{slug}": ["Unknown filterable attribute"]
+                        for slug in sorted(unknown)
+                    }
+                )
+            converted = {}
+            for slug, raw_value in attribute_filters.items():
+                value_type = definitions[slug].value_type
+                try:
+                    if value_type == "integer":
+                        value = int(raw_value)
+                        if str(value) != raw_value.strip():
+                            raise ValueError
+                    elif value_type == "decimal":
+                        value = Decimal(raw_value)
+                        if not value.is_finite():
+                            raise ValueError
+                    elif value_type == "boolean":
+                        normalized = raw_value.strip().casefold()
+                        if normalized not in {"true", "false", "1", "0"}:
+                            raise ValueError
+                        value = normalized in {"true", "1"}
+                    else:
+                        value = raw_value
+                except (InvalidOperation, ValueError):
+                    raise serializers.ValidationError(
+                        {f"attribute_{slug}": [f"Expected a {value_type} value"]}
+                    ) from None
+                converted[slug] = value
+            attribute_filters = converted
+        params = query_serializer.validated_data
+        products, snapshots = filter_products(
+            params=params,
+            attribute_filters=attribute_filters,
+            search_requires_query=self.search_requires_query,
         )
-        category = self.request.query_params.get("category")
-        if category:
-            queryset = queryset.filter(category__slug=category)
-        return queryset.prefetch_related("variants", "media")
+        facets = build_facets(products, snapshots)
+        count = len(products)
+        page = params["page"]
+        page_size = params["page_size"]
+        start = (page - 1) * page_size
+        results = products[start : start + page_size]
+        payload = {
+            "count": count,
+            "next": page_url(request, page + 1) if start + page_size < count else None,
+            "previous": page_url(request, page - 1) if page > 1 and start < count else None,
+            "results": ProductSerializer(results, many=True).data,
+            "facets": facets,
+        }
+        return Response(payload)
 
 
 class ProductDetailView(generics.RetrieveAPIView):
@@ -135,12 +242,15 @@ class ProductDetailView(generics.RetrieveAPIView):
 
 
 class SearchView(ProductListView):
-    def get_queryset(self):
-        query = self.request.query_params.get("q", "").strip()
-        queryset = super().get_queryset()
-        if not query:
-            return queryset.none()
-        return queryset.filter(Q(name__icontains=query) | Q(description__icontains=query))
+    search_requires_query = True
+
+    @extend_schema(
+        operation_id="api_v1_search_list",
+        parameters=CATALOG_PARAMETERS,
+        responses={200: CatalogResponseSerializer},
+    )
+    def get(self, request):
+        return super().get(request)
 
 
 class EmptySerializer(serializers.Serializer):
@@ -212,6 +322,10 @@ class StorefrontHomeView(generics.GenericAPIView):
                     "public_name": settings.public_name if settings else "mycdigitalizacion",
                     "announcement": settings.announcement if settings else "",
                     "contact_email": settings.contact_email if settings else "",
+                    "pickup_enabled": settings.pickup_enabled if settings else False,
+                    "pickup_label": settings.pickup_label if settings else "Retiro en tienda",
+                    "pickup_address": settings.pickup_address if settings else "",
+                    "pickup_hours": settings.pickup_hours if settings else "",
                 },
                 "hero_slides": scheduled(HeroSlide, HeroSlideSerializer),
                 "promotion_slides": scheduled(PromotionSlide, PromotionSlideSerializer),
@@ -268,7 +382,12 @@ class RegisterView(generics.GenericAPIView):
                 user = get_user_model().objects.create_user(
                     email=data["email"], password=data["password"]
                 )
-                Profile.objects.create(user=user)
+                Profile.objects.create(
+                    user=user,
+                    first_name=data["first_name"],
+                    last_name=data["last_name"],
+                    phone=data["phone"],
+                )
                 CustomerProfile.objects.create(
                     user=user, consent_version=settings.CURRENT_CONSENT_VERSION
                 )
@@ -358,12 +477,41 @@ class LogoutView(generics.GenericAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+@method_decorator(csrf_protect, name="dispatch")
 class CustomerMeView(generics.GenericAPIView):
     permission_classes = (permissions.IsAuthenticated, IsVerifiedEmail)
     serializer_class = CustomerSerializer
 
     @extend_schema(responses={200: CustomerSerializer, 403: ErrorSerializer})
     def get(self, request):
+        return Response(CustomerSerializer(request.user).data)
+
+    @extend_schema(
+        request=CustomerUpdateRequestSerializer,
+        responses={
+            200: CustomerSerializer,
+            400: VALIDATION_ERROR_SCHEMA,
+            403: ErrorSerializer,
+        },
+    )
+    def patch(self, request):
+        serializer = CustomerUpdateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        with transaction.atomic():
+            profile, _ = Profile.objects.select_for_update().get_or_create(user=request.user)
+            for field in ("first_name", "last_name", "phone"):
+                if field in data:
+                    setattr(profile, field, data[field])
+            profile.save(update_fields=("first_name", "last_name", "phone"))
+            customer, _ = CustomerProfile.objects.select_for_update().get_or_create(
+                user=request.user,
+                defaults={"consent_version": settings.CURRENT_CONSENT_VERSION},
+            )
+            if "dni" in data:
+                customer.set_dni(data["dni"])
+                customer.save(update_fields=("dni_encrypted", "dni_hash"))
+        request.user.refresh_from_db()
         return Response(CustomerSerializer(request.user).data)
 
 
@@ -597,6 +745,46 @@ class AddressViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
+    @extend_schema(
+        request=AddressConfirmRequestSerializer,
+        responses={
+            200: AddressSerializer,
+            400: VALIDATION_ERROR_SCHEMA,
+            403: ErrorSerializer,
+            404: ErrorSerializer,
+            409: ErrorSerializer,
+        },
+    )
+    @action(detail=True, methods=("post",), url_path="confirm")
+    def confirm(self, request, pk=None):
+        address = self.get_object()
+        request_serializer = AddressConfirmRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        try:
+            address = confirm_address(address=address, **request_serializer.validated_data)
+        except ValueError as exc:
+            code = str(exc)
+            details = {
+                "address_not_geocoded": (
+                    "La dirección todavía no pasó por una búsqueda de ubicación."
+                ),
+                "address_coordinates_missing": "La dirección todavía no tiene coordenadas.",
+                "address_coordinates_changed": (
+                    "Las coordenadas no coinciden con el último resultado guardado."
+                ),
+                "address_choice_mismatch": (
+                    "La opción elegida no coincide con el último resultado de ubicación."
+                ),
+            }
+            if code not in details:
+                raise
+            raise DomainError(
+                code=code,
+                detail=details[code],
+                status_code=status.HTTP_409_CONFLICT,
+            ) from exc
+        return Response(AddressSerializer(address).data)
+
 
 @extend_schema_view(
     list=extend_schema(
@@ -620,7 +808,11 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_field = "public_id"
 
     def get_queryset(self):
-        return Order.objects.filter(user=self.request.user).prefetch_related("items")
+        return (
+            Order.objects.filter(user=self.request.user)
+            .select_related("shipment")
+            .prefetch_related("items", "audit_events")
+        )
 
     def _staff_order(self):
         if not self.request.user.is_staff:

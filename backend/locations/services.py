@@ -67,9 +67,6 @@ def geocode_address(*, address, adapter):
         number=address.number,
         locality=address.locality,
         province=address.province,
-        floor=address.floor,
-        apartment=address.apartment,
-        notes=address.notes,
     )
     address.normalized_address = result.normalized_address
     address.latitude = result.latitude
@@ -118,3 +115,41 @@ def reverse_geocode_pin(*, address, latitude, longitude, adapter):
         )
     )
     return address, result
+
+
+@transaction.atomic
+def confirm_address(*, address, latitude, longitude, address_choice, tolerance_meters=2):
+    locked = type(address).objects.select_for_update().get(pk=address.pk)
+    if locked.geocode_source not in {
+        locked.GeocodeSource.GEOREF,
+        locked.GeocodeSource.MANUAL,
+    }:
+        raise ValueError("address_not_geocoded")
+    if locked.latitude is None or locked.longitude is None:
+        raise ValueError("address_coordinates_missing")
+    if not is_within_distance(
+        locked.latitude,
+        locked.longitude,
+        latitude,
+        longitude,
+        tolerance_meters,
+    ):
+        raise ValueError("address_coordinates_changed")
+    expected_choice = (
+        "reverse" if locked.geocode_source == locked.GeocodeSource.MANUAL else "written"
+    )
+    if address_choice != expected_choice:
+        raise ValueError("address_choice_mismatch")
+    reviewed_at = timezone.now()
+    summary = dict(locked.geocode_summary or {})
+    summary["confirmation"] = {
+        "address_choice": address_choice,
+        "confirmed_at": reviewed_at.isoformat(),
+    }
+    locked.geocode_summary = summary
+    locked.needs_review = False
+    locked.reviewed_at = reviewed_at
+    locked.save(
+        update_fields=("geocode_summary", "needs_review", "reviewed_at", "updated_at")
+    )
+    return locked

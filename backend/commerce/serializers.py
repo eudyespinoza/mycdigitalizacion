@@ -1,14 +1,18 @@
+from decimal import Decimal
+
+from django.core.exceptions import ObjectDoesNotExist
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from commerce.models import (
-    CartLine,
     IdentityVerification,
     Order,
     OrderItem,
     PaymentTransaction,
     ShippingQuote,
 )
-from commerce.services import calculate_cart_totals
+from commerce.services import money, price_cart_lines
+from landing.models import SiteSettings
 
 
 class CartPostRequestSerializer(serializers.Serializer):
@@ -31,38 +35,117 @@ class CartDeleteRequestSerializer(serializers.Serializer):
     variant_id = serializers.IntegerField(required=False)
 
 
-class CartLineSerializer(serializers.ModelSerializer):
-    sku = serializers.CharField(source="variant.sku", read_only=True)
-    unit_price = serializers.DecimalField(
-        source="variant.price", max_digits=12, decimal_places=2, read_only=True
-    )
+class CartLineNoticeSerializer(serializers.Serializer):
+    code = serializers.ChoiceField(choices=("price_changed", "stock_changed"))
+    previous = serializers.JSONField()
+    current = serializers.JSONField()
 
-    class Meta:
-        model = CartLine
-        fields = ("id", "variant_id", "sku", "quantity", "unit_price")
+
+class CartLineSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    variant_id = serializers.IntegerField()
+    sku = serializers.CharField()
+    quantity = serializers.IntegerField()
+    unit_price = serializers.DecimalField(max_digits=12, decimal_places=2)
+    line_subtotal = serializers.DecimalField(max_digits=12, decimal_places=2)
+    line_discount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    line_total = serializers.DecimalField(max_digits=12, decimal_places=2)
+    availability = serializers.ChoiceField(
+        choices=("available", "insufficient_stock", "unavailable")
+    )
+    available_stock = serializers.IntegerField()
+    notices = CartLineNoticeSerializer(many=True)
 
 
 class CartSerializer(serializers.Serializer):
-    lines = CartLineSerializer(many=True, read_only=True)
+    lines = serializers.SerializerMethodField()
     subtotal = serializers.SerializerMethodField()
     discount = serializers.SerializerMethodField()
     total = serializers.SerializerMethodField()
     cart_token = serializers.SerializerMethodField()
     coupon = serializers.CharField(source="coupon.code", allow_null=True, read_only=True)
 
+    def _priced(self, cart):
+        if not hasattr(self, "_priced_lines"):
+            lines = list(
+                cart.lines.select_related("variant__product__category").order_by("pk")
+            )
+            self._priced_lines = price_cart_lines(lines, coupon=cart.coupon)
+        return self._priced_lines
+
+    @extend_schema_field(CartLineSerializer(many=True))
+    def get_lines(self, cart):
+        payload = []
+        for priced in self._priced(cart):
+            line = priced.cart_line
+            variant = line.variant
+            stock = variant.available_stock
+            available = (
+                variant.is_active
+                and variant.product.is_active
+                and variant.product.is_sellable
+            )
+            availability = (
+                "unavailable"
+                if not available
+                else "insufficient_stock"
+                if stock < line.quantity
+                else "available"
+            )
+            notices = []
+            if (
+                line.unit_price_snapshot is not None
+                and line.unit_price_snapshot != variant.price
+            ):
+                notices.append(
+                    {
+                        "code": "price_changed",
+                        "previous": f"{line.unit_price_snapshot:.2f}",
+                        "current": f"{variant.price:.2f}",
+                    }
+                )
+            if (
+                line.available_stock_snapshot is not None
+                and line.available_stock_snapshot != stock
+            ):
+                notices.append(
+                    {
+                        "code": "stock_changed",
+                        "previous": line.available_stock_snapshot,
+                        "current": stock,
+                    }
+                )
+            payload.append(
+                {
+                    "id": line.pk,
+                    "variant_id": line.variant_id,
+                    "sku": variant.sku,
+                    "quantity": line.quantity,
+                    "unit_price": f"{variant.price:.2f}",
+                    "line_subtotal": f"{priced.subtotal:.2f}",
+                    "line_discount": f"{priced.discount:.2f}",
+                    "line_total": f"{priced.total:.2f}",
+                    "availability": availability,
+                    "available_stock": stock,
+                    "notices": notices,
+                }
+            )
+        return payload
+
     def _totals(self, cart):
-        if not hasattr(self, "_calculated_totals"):
-            self._calculated_totals = calculate_cart_totals(cart)
-        return self._calculated_totals
+        priced = self._priced(cart)
+        subtotal = money(sum((line.subtotal for line in priced), Decimal("0")))
+        discount = money(sum((line.discount for line in priced), Decimal("0")))
+        return subtotal, discount, money(subtotal - discount)
 
     def get_subtotal(self, cart) -> str:
-        return f"{self._totals(cart).subtotal:.2f}"
+        return f"{self._totals(cart)[0]:.2f}"
 
     def get_discount(self, cart) -> str:
-        return f"{self._totals(cart).discount:.2f}"
+        return f"{self._totals(cart)[1]:.2f}"
 
     def get_total(self, cart) -> str:
-        return f"{self._totals(cart).total:.2f}"
+        return f"{self._totals(cart)[2]:.2f}"
 
     def get_cart_token(self, cart) -> str | None:
         return None if cart.user_id else cart.signed_token
@@ -89,9 +172,32 @@ class PublicFiscalSnapshotSerializer(serializers.Serializer):
     masked_cuit = serializers.CharField(read_only=True)
 
 
+class PublicTimelineEventSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    label = serializers.CharField()
+    occurred_at = serializers.DateTimeField()
+
+
+class PublicShipmentSerializer(serializers.Serializer):
+    carrier = serializers.CharField()
+    tracking_number = serializers.CharField(allow_blank=True)
+    status = serializers.CharField()
+    updated_at = serializers.DateTimeField()
+
+
+class PublicPickupInformationSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField()
+    label = serializers.CharField()
+    address = serializers.CharField(allow_blank=True)
+    hours = serializers.CharField(allow_blank=True)
+
+
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     fiscal_snapshot = PublicFiscalSnapshotSerializer(read_only=True)
+    timeline = serializers.SerializerMethodField()
+    shipment = serializers.SerializerMethodField()
+    pickup_information = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -110,8 +216,82 @@ class OrderSerializer(serializers.ModelSerializer):
             "shipping_amount_snapshot",
             "total_snapshot",
             "items",
+            "timeline",
+            "shipment",
+            "pickup_information",
             "created_at",
         )
+
+    @extend_schema_field(PublicTimelineEventSerializer(many=True))
+    def get_timeline(self, order):
+        labels = {
+            "order_created": "Pedido creado",
+            "identity_pending_identity": "Identidad pendiente",
+            "identity_verified": "Identidad verificada",
+            "identity_manual_review": "Identidad en revisión",
+            "payment_not_started": "Pago no iniciado",
+            "payment_pending": "Pago pendiente",
+            "payment_paid": "Pago acreditado",
+            "payment_failed": "Pago rechazado",
+            "payment_refunded": "Pago reintegrado",
+            "payment_needs_attention": "Pago requiere atención",
+            "fulfillment_unfulfilled": "Preparación pendiente",
+            "fulfillment_preparing": "Pedido en preparación",
+            "fulfillment_shipped": "Pedido despachado",
+            "fulfillment_ready_for_pickup": "Listo para retirar",
+            "fulfillment_fulfilled": "Pedido entregado",
+        }
+        events = []
+        for event in order.audit_events.order_by("created_at", "pk"):
+            if event.kind == "created_pending_identity":
+                public_status = "order_created"
+            elif event.kind in {
+                "identity_status_changed",
+                "payment_status_changed",
+                "fulfillment_status_changed",
+            }:
+                prefix = event.kind.removesuffix("_status_changed")
+                value = event.data.get("to")
+                public_status = f"{prefix}_{value}"
+            else:
+                continue
+            if public_status not in labels:
+                continue
+            events.append(
+                {
+                    "status": public_status,
+                    "label": labels[public_status],
+                    "occurred_at": event.created_at,
+                }
+            )
+            if len(events) == 50:
+                break
+        return events
+
+    @extend_schema_field(PublicShipmentSerializer(allow_null=True))
+    def get_shipment(self, order):
+        try:
+            shipment = order.shipment
+        except ObjectDoesNotExist:
+            return None
+        return {
+            "carrier": shipment.provider,
+            "tracking_number": shipment.tracking_number,
+            "status": shipment.status,
+            "updated_at": shipment.updated_at,
+        }
+
+    @extend_schema_field(PublicPickupInformationSerializer(allow_null=True))
+    def get_pickup_information(self, order):
+        if order.fulfillment_method != Order.FulfillmentMethod.PICKUP:
+            return None
+        settings = SiteSettings.objects.first()
+        return {
+            "enabled": settings.pickup_enabled if settings else False,
+            "label": settings.pickup_label if settings else "Retiro en tienda",
+            "address": settings.pickup_address if settings else "",
+            "hours": settings.pickup_hours if settings else "",
+        }
 
 
 class CheckoutRequestSerializer(serializers.Serializer):

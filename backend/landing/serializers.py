@@ -12,7 +12,15 @@ from landing.models import (
 class SiteSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = SiteSettings
-        fields = ("public_name", "announcement", "contact_email")
+        fields = (
+            "public_name",
+            "announcement",
+            "contact_email",
+            "pickup_enabled",
+            "pickup_label",
+            "pickup_address",
+            "pickup_hours",
+        )
 
 
 class ScheduledContentSerializer(serializers.ModelSerializer):
@@ -20,10 +28,7 @@ class ScheduledContentSerializer(serializers.ModelSerializer):
     mobile_image_url = serializers.SerializerMethodField()
 
     def _media_url(self, file):
-        if not file:
-            return ""
-        request = self.context.get("request")
-        return request.build_absolute_uri(file.url) if request else file.url
+        return file.url if file else ""
 
     def get_desktop_image_url(self, instance) -> str:
         return self._media_url(instance.desktop_image)

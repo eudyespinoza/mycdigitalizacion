@@ -41,3 +41,9 @@ class ReverseGeocodeRequestSerializer(serializers.Serializer):
 class ReverseGeocodeResponseSerializer(serializers.Serializer):
     address = AddressSerializer()
     location = serializers.JSONField()
+
+
+class AddressConfirmRequestSerializer(serializers.Serializer):
+    latitude = serializers.DecimalField(max_digits=10, decimal_places=7)
+    longitude = serializers.DecimalField(max_digits=10, decimal_places=7)
+    address_choice = serializers.ChoiceField(choices=("written", "reverse"))

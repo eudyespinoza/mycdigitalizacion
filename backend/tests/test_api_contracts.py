@@ -13,8 +13,8 @@ def test_public_product_api_never_exposes_cost(client):
     response = client.get("/api/v1/products/")
 
     assert response.status_code == 200
-    assert response.json()[0]["variants"][0]["price"] == "120.00"
-    assert "cost" not in response.json()[0]["variants"][0]
+    assert response.json()["results"][0]["variants"][0]["price"] == "120.00"
+    assert "cost" not in response.json()["results"][0]["variants"][0]
     assert "17.50" not in response.content.decode()
 
 

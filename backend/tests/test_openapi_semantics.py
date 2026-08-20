@@ -111,6 +111,7 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
         "/api/v1/cart/",
         "/api/v1/addresses/",
         "/api/v1/addresses/{id}/",
+        "/api/v1/addresses/{id}/confirm/",
         "/api/v1/billing-profiles/",
         "/api/v1/billing-profiles/{id}/",
         "/api/v1/orders/",
@@ -139,6 +140,7 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
     components = schema["components"]
     register = request_schema(paths["/api/v1/auth/register/"]["post"], components)
     assert set(register["required"]) == {"email", "password", "consent_version"}
+    assert {"first_name", "last_name", "phone"} <= set(register["properties"])
     assert register["properties"]["email"]["format"] == "email"
     assert set(paths["/api/v1/auth/register/"]["post"]["responses"]) == {
         "201",
@@ -191,6 +193,7 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
 
     protected_contracts = {
         ("/api/v1/customers/me/", "get"): {"200", "403"},
+        ("/api/v1/customers/me/", "patch"): {"200", "400", "403"},
         ("/api/v1/billing-profiles/", "get"): {"200", "403"},
         ("/api/v1/billing-profiles/", "post"): {"201", "400", "403"},
         ("/api/v1/billing-profiles/{id}/", "get"): {"200", "403", "404"},
@@ -213,6 +216,13 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
         ("/api/v1/addresses/{id}/", "put"): {"200", "400", "403", "404"},
         ("/api/v1/addresses/{id}/", "patch"): {"200", "400", "403", "404"},
         ("/api/v1/addresses/{id}/", "delete"): {"204", "403", "404"},
+        ("/api/v1/addresses/{id}/confirm/", "post"): {
+            "200",
+            "400",
+            "403",
+            "404",
+            "409",
+        },
         ("/api/v1/orders/", "get"): {"200", "403"},
         ("/api/v1/orders/{public_id}/", "get"): {"200", "403", "404"},
         ("/api/v1/identity/status/", "get"): {"200", "403"},

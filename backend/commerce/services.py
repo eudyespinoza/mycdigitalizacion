@@ -185,7 +185,13 @@ def add_cart_line(*, cart, variant, quantity):
         quantity=F("quantity") + quantity
     )
     if not updated:
-        CartLine.objects.create(cart=locked_cart, variant=available_variant, quantity=quantity)
+        CartLine.objects.create(
+            cart=locked_cart,
+            variant=available_variant,
+            quantity=quantity,
+            unit_price_snapshot=available_variant.price,
+            available_stock_snapshot=available_variant.available_stock,
+        )
     return locked_cart.lines.get(variant=available_variant)
 
 
@@ -211,6 +217,8 @@ def merge_carts(*, anonymous_cart, user):
                     cart=target,
                     variant_id=source_line.variant_id,
                     quantity=source_line.quantity,
+                    unit_price_snapshot=source_line.unit_price_snapshot,
+                    available_stock_snapshot=source_line.available_stock_snapshot,
                 )
         if not target.coupon_id and source.coupon_id:
             target.coupon_id = source.coupon_id
