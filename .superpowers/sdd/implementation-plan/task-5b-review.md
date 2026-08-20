@@ -273,3 +273,87 @@ Verification now runs the actual config-check container (`scripts/verify-product
 This round closes the dangerous first-deploy and recovery failures: application media is writable with least privilege, static publication is release-safe, Admin is actually CIDR-gated, Next optimization works with a bounded writable cache, killed backups recover, numeric/Restic mistakes fail fast, and restore cannot overwrite existing targets. Those fixes are backed by meaningful live-container and real-PostgreSQL tests.
 
 Task 5B is still not fully compliant. Caddy suppresses rather than sanitizes its diagnostic error stream, native backup/restore commands can emit plain PII-bearing lines outside the JSON contract, and the 4 GB promise is supported by arithmetic rather than the specified simultaneous capacity test. Resolve those three REQUIRED partials before acceptance.
+
+## Fix Round 2 independent verdict
+
+Review target: `9601061b7b8b4609f6f813c6d50c3375d1a11e35`, against the remaining REQUIRED R3, R9 and R10 plus regression of R1–R10 and the existing O1–O5 quality disposition. The commit was exported to an isolated archive; this pass made no product fix and did not run the detector or create `DESIGN.md`.
+
+### Outcome
+
+- **Fix Round 2 target:** 0 RESOLVED, 3 PARTIAL, 0 UNRESOLVED.
+- **REQUIRED R1–R10 overall:** 7 RESOLVED, 3 PARTIAL, 0 UNRESOLVED.
+- **OPTIONAL O1–O5:** 2 RESOLVED, 1 PARTIAL, 2 UNRESOLVED.
+- **All prior findings:** 9 RESOLVED, 4 PARTIAL, 2 UNRESOLVED.
+- **SPEC COMPLIANCE: FAIL.** R3, R9 and R10 improve but still miss their explicit correlation/capacity acceptance boundaries.
+- **CODE QUALITY: NEEDS WORK.** Runtime coverage remains valuable and no R1–R8 regression appeared, but the new tests assert field presence and cgroup declarations rather than the end-to-end semantics claimed by the implementation report.
+
+### Independent verification evidence
+
+- `python -m unittest infra.tests.test_task5b_operations -v`: **22 tests, OK**.
+- `TASK5B_DOCKER_RUNTIME=1 python -m unittest infra.tests.test_task5b_caddy_runtime -v`: **2 tests, OK** in 59.64 s.
+- The four runtime-boundary cases were exercised from the exact commit: media/derivative/static release plus Caddy recreation, cold/warm Next cache, killed-backup recovery, and the nine-cgroup budget test all passed. Combined with Caddy, the committed Docker matrix is **6/6 green**.
+- Focused backend observability/health/media: **8 passed**; Ruff and `manage.py check` passed.
+- Compose rendered successfully. Declared limits are exactly **2816 MiB steady-state** and **3072 MiB with `assets-init`**.
+- A real PostgreSQL 17 backup/restore using the rebuilt exact ops image restored `review_probe.id=7` and `media/probe.txt=media-ok` into new targets with only JSON output. This confirms the `common.run` refactor did not regress R8.
+- Temporary Caddy, PostgreSQL, runtime, network and volume resources were removed. No `task5b-*` review resource remained.
+
+### R1, R2, R4–R8 — RESOLVED, no regression
+
+The prior fixes remain operational:
+
+- the real media/derivative/static two-release lifecycle and Caddy recreation passed (R1/R4);
+- real denied and allowed Admin routing passed (R2);
+- read-only Next cold/warm optimization passed (R5);
+- killed OS-lock owner followed by a successful 320 MiB backup passed (R6);
+- the complete config/retention/password-file unit matrix passed (R7); and
+- real PostgreSQL/media new-target backup/restore passed after the new subprocess wrapper (R8).
+
+No new REQUIRED regression was found outside R3/R9/R10.
+
+### R3 — PARTIAL: both logs are private and useful, but they do not share a request identity
+
+**Files:** `infra/caddy/Caddyfile:6-18,37`, `infra/tests/test_task5b_caddy_runtime.py:86-115`.
+
+This round restores the Caddy error event and removes its complete header map, query and referrer. A real upstream 502 produced both required records with no probe email/query secret:
+
+| Logger | Method | Path | Status | `request_id` |
+|---|---:|---|---:|---|
+| `http.log.error.log0` | GET | `/api/v1/probe` | 502 | `cm13vnz9n` |
+| `http.log.access.log0` | GET | `/api/v1/probe` | 502 | `ca2ae186-8582-4b40-a071-c62c7abe1c64` |
+
+The error value is Caddy's `err_id` renamed to `request_id` (`infra/caddy/Caddyfile:15`), while access uses `{http.request.uuid}` (`infra/caddy/Caddyfile:37`). They identify different things and cannot correlate the two events for the same request. The test codifies that mismatch by asserting separate formats instead of equality (`infra/tests/test_task5b_caddy_runtime.py:114-115`). R3 required a request ID retained across both diagnostic streams, not two unrelated non-empty identifiers. Privacy and fields are resolved; request correlation remains partial.
+
+### R9 — PARTIAL: child output is JSON/redacted, but one scheduled job has two job IDs
+
+**Files:** `infra/ops/common.py:23,36-73,85-109`, `infra/ops/scheduler.py:25-34`, `infra/tests/test_task5b_operations.py:331-351`.
+
+`common.run` now captures child streams and re-emits JSON events. A real scheduler-triggered backup with a controlled child writing email, query token, password, cookie and a secret value produced **zero non-JSON lines** and retained none of the probes. Backup subprocess stdout/stderr and `backup.completed` correctly shared one ID.
+
+The end-to-end scheduled operation nevertheless emitted two identities:
+
+- `backup-scheduler backup.started/finished`: `f2bbad1e-e233-4c8e-9f0b-ca79bd012ee3`;
+- `backup subprocess.stdout/stderr/completed`: `ec622259-8e47-4d2b-8079-950e924d39d1`.
+
+`scheduler.py` launches `/ops/backup.py` with raw `subprocess.run` and does not pass its module-level `OPS_JOB_ID`; the child imports `common` and generates another UUID. The committed regression only checks that every event has a truthy ID, not that all events for the job share it. Operators therefore cannot follow one scheduled backup through scheduler, native tool and completion with the promised job ID.
+
+There is also no actual memory bound on child diagnostics: `subprocess.run(capture_output=True)` buffers the complete streams before `detail[:4000]` truncates only the logged copy (`infra/ops/common.py:48-66`). The output schema is now safe; workflow correlation and bounded capture remain incomplete.
+
+### R10 — PARTIAL: declared budgets fit 3 GiB, but the runtime test is not a 4 GiB service/load test
+
+**Files:** `compose.prod.yaml:87-297`, `infra/tests/test_task5b_operations.py:153-175`, `infra/tests/test_task5b_runtime_boundaries.py:245-286`, `docs/operations/donweb-production.md:7`.
+
+Lowering beat to 128 MiB and backup to 320 MiB produces the advertised arithmetic: 2816 MiB for the eight steady services and 3072 MiB during `assets-init`, nominally leaving 1024 MiB on a 4096 MiB VPS. The runtime test also starts nine containers concurrently and verifies each configured `HostConfig.Memory`.
+
+It does **not** exercise the prior acceptance requirement. Every container is `alpine:3.21 sleep 60` (`infra/tests/test_task5b_runtime_boundaries.py:270-275`), not PostgreSQL, Redis, backend, worker, beat, frontend, backup, Caddy and assets-init. The Docker host used by the passing test reported **16,634,834,944 bytes (~15.5 GiB)**, with no aggregate 4 GiB parent/cgroup constraint. There is no request load, database workload, real backup overlap, page-cache pressure or OOM assertion. The test proves nine declarations can coexist on a much larger host; it does not prove the advertised stack survives its minimum host under load+backup/release overlap. R10 remains partial until the full service set runs under a real aggregate 4 GiB limit with representative load and backup/release overlap, or the minimum is raised based on measured use.
+
+### OPTIONAL disposition
+
+- **O1 — UNRESOLVED, explicitly optional:** base images remain mutable tags. Recording release image digests in the runbook is useful but does not make source rebuilds deterministic.
+- **O2 — UNRESOLVED, explicitly optional:** CSP/COOP/CORP remains a documented staging decision. Deferring a tested nonce policy is preferable to shipping `unsafe-inline`, but the finding is not implemented.
+- **O3 — PARTIAL:** release ID and sanitized fingerprint remain; migration/schema state, tool versions and provider modes are still absent from the backup manifest. The report now labels this limitation accurately.
+- **O4 — RESOLVED:** password-file validation/mount behavior remains covered.
+- **O5 — RESOLVED:** real config-check and Docker boundary tests remain wired into verification. O5's test quality does not make the insufficient R3/R9/R10 assertions satisfy their separate acceptance criteria.
+
+### Final Fix Round 2 assessment
+
+Fix Round 2 removes the two disclosure/plain-text defects and reduces the declared memory envelope without regressing the production topology, backup/restore or asset lifecycle. Those are real improvements. It does not close the review: Caddy access/error events and scheduler/backup events still split one operation across unrelated identifiers, while the 4 GiB claim is tested with sleeping placeholders on a much larger host. Task 5B therefore remains **SPEC FAIL / QUALITY NEEDS WORK** with three REQUIRED partials.
