@@ -1,11 +1,41 @@
 from collections import Counter, defaultdict
+from dataclasses import dataclass
+from decimal import Decimal
 from urllib.parse import urlencode
 
 from django.db import connection
-from django.db.models import Prefetch, Q
+from django.db.models import (
+    Exists,
+    F,
+    IntegerField,
+    OuterRef,
+    Prefetch,
+    Q,
+    Subquery,
+    Sum,
+    Value,
+    prefetch_related_objects,
+)
+from django.db.models.functions import Coalesce
+from django.utils import timezone
 
-from catalog.models import AttributeDefinition, AttributeValue, Category, Product, ProductVariant
-from catalog.serializers import attribute_public_value, variant_pricing
+from catalog.models import (
+    AttributeDefinition,
+    AttributeValue,
+    Category,
+    Product,
+    ProductMedia,
+    ProductVariant,
+)
+from catalog.serializers import attribute_public_value, variant_available_stock, variant_pricing
+from commerce.models import PromotionRule, StockReservation
+
+
+@dataclass(frozen=True)
+class CatalogPage:
+    count: int
+    products: list[Product]
+    facets: dict[str, object]
 
 
 def category_descendant_ids(slug):
@@ -25,21 +55,139 @@ def category_descendant_ids(slug):
     return ids
 
 
-def product_queryset(query):
-    variants = ProductVariant.objects.filter(is_active=True).prefetch_related(
-        Prefetch(
-            "attribute_values",
-            queryset=AttributeValue.objects.select_related("definition", "option").order_by(
-                "definition__slug"
-            ),
-        ),
-        "stock_reservations",
+def _active_promotions(checked_at):
+    return PromotionRule.objects.filter(
+        enabled=True,
+        starts_at__lte=checked_at,
+        ends_at__gte=checked_at,
+    ).only("id", "discount_type", "value", "starts_at", "ends_at", "enabled")
+
+
+def _reserved_quantity_subquery(*, checked_at):
+    return (
+        StockReservation.objects.filter(
+            variant_id=OuterRef("pk"),
+            status=StockReservation.Status.ACTIVE,
+            expires_at__gt=checked_at,
+        )
+        .values("variant_id")
+        .annotate(total=Sum("quantity"))
+        .values("total")[:1]
     )
+
+
+def active_variant_queryset(*, checked_at=None):
+    checked_at = checked_at or timezone.now()
+    return (
+        ProductVariant.objects.filter(is_active=True)
+        .annotate(
+            reserved_stock_value=Coalesce(
+                Subquery(_reserved_quantity_subquery(checked_at=checked_at)),
+                Value(0),
+                output_field=IntegerField(),
+            )
+        )
+        .annotate(available_stock_value=F("on_hand") - F("reserved_stock_value"))
+        .prefetch_related(
+            Prefetch(
+                "attribute_values",
+                queryset=AttributeValue.objects.select_related("definition", "option").order_by(
+                    "definition__slug"
+                ),
+            )
+        )
+    )
+
+
+def product_queryset(*, product_ids=None, include_media=True, checked_at=None):
+    checked_at = checked_at or timezone.now()
+    promotions = _active_promotions(checked_at)
     queryset = (
         Product.objects.filter(is_active=True, is_sellable=True)
         .select_related("category", "brand")
-        .prefetch_related(Prefetch("variants", queryset=variants), "media__variant")
+        .prefetch_related(
+            Prefetch("variants", queryset=active_variant_queryset(checked_at=checked_at)),
+            Prefetch(
+                "promotion_rules",
+                queryset=promotions,
+                to_attr="active_catalog_promotions",
+            ),
+            Prefetch(
+                "category__promotion_rules",
+                queryset=promotions,
+                to_attr="active_catalog_promotions",
+            ),
+        )
     )
+    if include_media:
+        queryset = queryset.prefetch_related(
+            Prefetch("media", queryset=ProductMedia.objects.select_related("variant"))
+        )
+    if product_ids is not None:
+        queryset = queryset.filter(pk__in=product_ids)
+    return queryset
+
+
+def _attribute_exists_filter(expected):
+    if isinstance(expected, bool):
+        return Q(boolean_value=expected)
+    if isinstance(expected, int):
+        return Q(integer_value=expected)
+    if isinstance(expected, Decimal):
+        return Q(decimal_value=expected)
+    return Q(text_value__iexact=expected) | Q(option__value__iexact=expected)
+
+
+def catalog_candidate_queryset(*, params, attribute_filters):
+    checked_at = timezone.now()
+    active_variants = (
+        ProductVariant.objects.filter(product_id=OuterRef("pk"), is_active=True)
+        .annotate(
+            reserved_stock_value=Coalesce(
+                Subquery(_reserved_quantity_subquery(checked_at=checked_at)),
+                Value(0),
+                output_field=IntegerField(),
+            )
+        )
+        .annotate(available_stock_value=F("on_hand") - F("reserved_stock_value"))
+    )
+    queryset = Product.objects.filter(is_active=True, is_sellable=True).filter(
+        Exists(active_variants)
+    )
+
+    category = params.get("category")
+    if category:
+        descendant_ids = category_descendant_ids(category)
+        if not descendant_ids:
+            return queryset.none()
+        queryset = queryset.filter(category_id__in=descendant_ids)
+
+    brand = params.get("brand")
+    if brand:
+        slugs = [item.strip() for item in brand.split(",") if item.strip()]
+        queryset = queryset.filter(brand__slug__in=slugs)
+
+    availability = params.get("availability")
+    available_variants = active_variants.filter(available_stock_value__gt=0)
+    if availability == "in_stock":
+        queryset = queryset.filter(Exists(available_variants))
+    elif availability == "out_of_stock":
+        queryset = queryset.filter(~Exists(available_variants))
+
+    for slug, expected in attribute_filters.items():
+        matching_attribute = AttributeValue.objects.filter(
+            variant__product_id=OuterRef("pk"),
+            variant__is_active=True,
+            definition__slug=slug,
+            definition__is_filterable=True,
+        ).filter(_attribute_exists_filter(expected))
+        queryset = queryset.filter(Exists(matching_attribute))
+
+    minimum = params.get("min_price")
+    if minimum is not None:
+        queryset = queryset.filter(Exists(active_variants.filter(price__gte=minimum)))
+
+    query = params.get("query", "")
     if query:
         if connection.vendor == "postgresql":
             from django.contrib.postgres.search import (
@@ -49,17 +197,27 @@ def product_queryset(query):
                 TrigramSimilarity,
             )
 
-            vector = SearchVector("name", weight="A") + SearchVector(
-                "description", weight="B"
-            )
+            vector = SearchVector("name", "description", config="spanish")
             search_query = SearchQuery(query, search_type="websearch", config="spanish")
+            sku_match = ProductVariant.objects.filter(
+                product_id=OuterRef("pk"),
+                is_active=True,
+                sku__trigram_similar=query,
+            )
             queryset = (
                 queryset.annotate(
-                    _relevance=SearchRank(vector, search_query)
-                    + TrigramSimilarity("name", query)
+                    catalog_search_vector=vector,
+                    name_similarity=TrigramSimilarity("name", query),
                 )
-                .filter(Q(_relevance__gt=0.01))
-                .order_by("-_relevance", "name", "pk")
+                .filter(
+                    Q(catalog_search_vector=search_query)
+                    | Q(name_similarity__gt=0.1)
+                    | Exists(sku_match)
+                )
+                .annotate(
+                    catalog_relevance=SearchRank(F("catalog_search_vector"), search_query)
+                    + F("name_similarity")
+                )
             )
         else:
             queryset = queryset.filter(
@@ -68,7 +226,13 @@ def product_queryset(query):
                 | Q(brand__name__icontains=query)
                 | Q(variants__sku__icontains=query)
             ).distinct()
-    return queryset
+
+    ordering = params.get("ordering", "relevance")
+    if ordering == "newest":
+        return queryset.order_by("-created_at", "-id")
+    if connection.vendor == "postgresql" and query:
+        return queryset.order_by("-catalog_relevance", "name", "pk")
+    return queryset.order_by("name", "pk")
 
 
 def _variant_snapshot(variant):
@@ -80,7 +244,7 @@ def _variant_snapshot(variant):
     }
     return {
         "variant": variant,
-        "available_stock": variant.available_stock,
+        "available_stock": variant_available_stock(variant),
         "pricing": pricing,
         "attributes": attributes,
     }
@@ -116,61 +280,86 @@ def _variant_matches(snapshot, params, attribute_filters):
     return True
 
 
-def filter_products(*, params, attribute_filters, search_requires_query=False):
-    query = params["query"]
-    if search_requires_query and not query:
-        return [], {}
-    queryset = product_queryset(query)
-    category = params.get("category")
-    if category:
-        descendant_ids = category_descendant_ids(category)
-        if not descendant_ids:
-            return [], {}
-        queryset = queryset.filter(category_id__in=descendant_ids)
-    if params.get("brand"):
-        slugs = [item.strip() for item in params["brand"].split(",") if item.strip()]
-        queryset = queryset.filter(brand__slug__in=slugs)
+def _commercial_filter_required(params):
+    return any(
+        params.get(name) is not None for name in ("min_price", "max_price", "offer")
+    ) or params.get("ordering") in {"price_asc", "price_desc", "discount_desc"}
 
-    products = list(queryset)
-    snapshots = {}
-    filtered = []
-    for product in products:
-        variant_snapshots = [_variant_snapshot(variant) for variant in product.variants.all()]
-        if not variant_snapshots:
-            continue
-        if not any(
-            _variant_matches(item, params, attribute_filters) for item in variant_snapshots
-        ):
-            continue
-        snapshots[product.pk] = variant_snapshots
-        filtered.append(product)
 
-    ordering = params["ordering"]
-    if ordering == "newest":
-        filtered.sort(key=lambda product: (product.created_at, product.pk), reverse=True)
-    elif ordering == "price_asc":
-        filtered.sort(
+def _sort_commercial_products(products, snapshots, ordering):
+    if ordering == "price_asc":
+        products.sort(
             key=lambda product: min(
                 item["pricing"]["effective_price"] for item in snapshots[product.pk]
             )
         )
     elif ordering == "price_desc":
-        filtered.sort(
+        products.sort(
             key=lambda product: min(
                 item["pricing"]["effective_price"] for item in snapshots[product.pk]
             ),
             reverse=True,
         )
     elif ordering == "discount_desc":
-        filtered.sort(
+        products.sort(
             key=lambda product: max(
                 item["pricing"]["discount_percentage"] for item in snapshots[product.pk]
             ),
             reverse=True,
         )
-    elif connection.vendor != "postgresql" or not query:
-        filtered.sort(key=lambda product: (product.name.casefold(), product.pk))
-    return filtered, snapshots
+
+
+def query_catalog(*, params, attribute_filters, search_requires_query=False):
+    query = params.get("query", "")
+    if search_requires_query and not query:
+        return CatalogPage(count=0, products=[], facets=build_facets([], {}))
+
+    checked_at = timezone.now()
+    candidates = catalog_candidate_queryset(params=params, attribute_filters=attribute_filters)
+    lean_products = list(
+        product_queryset(
+            product_ids=Subquery(candidates.values("pk")),
+            include_media=False,
+            checked_at=checked_at,
+        )
+    )
+    snapshots = {
+        product.pk: [_variant_snapshot(variant) for variant in product.variants.all()]
+        for product in lean_products
+    }
+
+    commercial = _commercial_filter_required(params)
+    if commercial:
+        filtered_products = [
+            product
+            for product in lean_products
+            if snapshots[product.pk]
+            and any(
+                _variant_matches(item, params, attribute_filters)
+                for item in snapshots[product.pk]
+            )
+        ]
+        _sort_commercial_products(filtered_products, snapshots, params.get("ordering"))
+        ordered_ids = [product.pk for product in filtered_products]
+    else:
+        filtered_products = lean_products
+        ordered_ids = list(candidates.values_list("pk", flat=True))
+
+    count = len(ordered_ids)
+    page = params["page"]
+    page_size = params["page_size"]
+    start = (page - 1) * page_size
+    page_ids = ordered_ids[start : start + page_size]
+    by_id = {product.pk: product for product in filtered_products}
+    page_products = [by_id[product_id] for product_id in page_ids if product_id in by_id]
+    if page_products:
+        prefetch_related_objects(
+            page_products,
+            Prefetch("media", queryset=ProductMedia.objects.select_related("variant")),
+        )
+
+    facets = build_facets(filtered_products, snapshots)
+    return CatalogPage(count=count, products=page_products, facets=facets)
 
 
 def _category_facets(products):
@@ -200,17 +389,15 @@ def _category_facets(products):
 
 def build_facets(products, snapshots):
     brand_counts = Counter(product.brand_id for product in products if product.brand_id)
-    brands = [
-        {
-            "name": product.brand.name,
-            "slug": product.brand.slug,
-            "count": brand_counts[product.brand_id],
-        }
-        for product in products
-        if product.brand_id
-    ]
-    brands = list({item["slug"]: item for item in brands}.values())
-    brands.sort(key=lambda item: item["name"].casefold())
+    brands_by_slug = {}
+    for product in products:
+        if product.brand_id:
+            brands_by_slug[product.brand.slug] = {
+                "name": product.brand.name,
+                "slug": product.brand.slug,
+                "count": brand_counts[product.brand_id],
+            }
+    brands = sorted(brands_by_slug.values(), key=lambda item: item["name"].casefold())
     prices = [
         item["pricing"]["effective_price"]
         for product in products
@@ -229,18 +416,20 @@ def build_facets(products, snapshots):
         definition.slug: definition
         for definition in AttributeDefinition.objects.filter(
             is_filterable=True, slug__in=attribute_counts
-        ).order_by("name", "pk")
+        )
+        .prefetch_related("options")
+        .order_by("name", "pk")
     }
     attributes = []
     for slug, definition in definitions.items():
+        option_labels = {option.value: option.label for option in definition.options.all()}
         values = []
         for value, count in sorted(attribute_counts[slug].items(), key=lambda item: str(item[0])):
             label = str(value)
             if definition.value_type == "boolean":
                 label = "Sí" if value else "No"
             elif definition.value_type == "option":
-                option = definition.options.filter(value=value).first()
-                label = option.label if option else label
+                label = option_labels.get(value, label)
             values.append({"value": value, "label": label, "count": count})
         attributes.append(
             {

@@ -88,9 +88,14 @@ def variant_pricing(variant):
     }
 
 
+def variant_available_stock(variant):
+    annotated = getattr(variant, "available_stock_value", None)
+    return annotated if annotated is not None else variant.available_stock
+
+
 class PublicVariantSerializer(serializers.ModelSerializer):
     volume_cm3 = serializers.DecimalField(max_digits=27, decimal_places=6, read_only=True)
-    available_stock = serializers.IntegerField(read_only=True)
+    available_stock = serializers.SerializerMethodField()
     attributes = serializers.SerializerMethodField()
     pricing = serializers.SerializerMethodField()
 
@@ -126,6 +131,10 @@ class PublicVariantSerializer(serializers.ModelSerializer):
                     }
                 )
         return sorted(values, key=lambda item: item["slug"])
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_available_stock(self, variant):
+        return variant_available_stock(variant)
 
     @extend_schema_field(PublicPricingSerializer)
     def get_pricing(self, variant):
@@ -175,7 +184,7 @@ class ProductSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.IntegerField())
     def get_available_stock(self, product):
-        return sum(max(variant.available_stock, 0) for variant in self._variants(product))
+        return sum(max(variant_available_stock(variant), 0) for variant in self._variants(product))
 
     @extend_schema_field(serializers.DecimalField(max_digits=12, decimal_places=2, allow_null=True))
     def get_effective_price(self, product):

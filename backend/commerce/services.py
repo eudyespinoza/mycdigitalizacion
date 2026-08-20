@@ -38,13 +38,23 @@ def discount_amount(discount_type, value, amount):
 def best_automatic_discount(*, variant, quantity, at=None):
     checked_at = at or timezone.now()
     line_amount = money(variant.price * quantity)
-    rules = PromotionRule.objects.filter(
-        enabled=True,
-        starts_at__lte=checked_at,
-        ends_at__gte=checked_at,
-    ).filter(Q(products=variant.product) | Q(categories=variant.product.category))
+    product = variant.product
+    product_rules = getattr(product, "active_catalog_promotions", None)
+    category_rules = getattr(product.category, "active_catalog_promotions", None)
+    if product_rules is not None and category_rules is not None:
+        rules = {rule.pk: rule for rule in (*product_rules, *category_rules)}.values()
+    else:
+        rules = (
+            PromotionRule.objects.filter(
+                enabled=True,
+                starts_at__lte=checked_at,
+                ends_at__gte=checked_at,
+            )
+            .filter(Q(products=product) | Q(categories=product.category))
+            .distinct()
+        )
     discounts = [
-        discount_amount(rule.discount_type, rule.value, line_amount) for rule in rules.distinct()
+        discount_amount(rule.discount_type, rule.value, line_amount) for rule in rules
     ]
     return max(discounts, default=Decimal("0.00"))
 

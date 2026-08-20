@@ -42,7 +42,7 @@ from catalog.serializers import (
     CategorySerializer,
     ProductSerializer,
 )
-from catalog.storefront import build_facets, filter_products, page_url
+from catalog.storefront import page_url, query_catalog
 from commerce.checkout import CheckoutError, confirm_checkout, resume_checkout
 from commerce.identity_service import IdentityRejected, approve_identity_manually, validate_identity
 from commerce.models import (
@@ -215,23 +215,21 @@ class ProductListView(generics.GenericAPIView):
                 converted[slug] = value
             attribute_filters = converted
         params = query_serializer.validated_data
-        products, snapshots = filter_products(
+        catalog_page = query_catalog(
             params=params,
             attribute_filters=attribute_filters,
             search_requires_query=self.search_requires_query,
         )
-        facets = build_facets(products, snapshots)
-        count = len(products)
+        count = catalog_page.count
         page = params["page"]
         page_size = params["page_size"]
         start = (page - 1) * page_size
-        results = products[start : start + page_size]
         payload = {
             "count": count,
             "next": page_url(request, page + 1) if start + page_size < count else None,
             "previous": page_url(request, page - 1) if page > 1 and start < count else None,
-            "results": ProductSerializer(results, many=True).data,
-            "facets": facets,
+            "results": ProductSerializer(catalog_page.products, many=True).data,
+            "facets": catalog_page.facets,
         }
         return Response(payload)
 
