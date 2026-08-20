@@ -19,9 +19,10 @@ RUN pnpm build
 FROM node:22-alpine AS production
 ENV NODE_ENV=production
 WORKDIR /app
-COPY --from=build /app/frontend/.next/standalone ./
+COPY --from=build --chown=node:node /app/frontend/.next/standalone ./
 WORKDIR /app/frontend
-COPY --from=build /app/frontend/.next/static ./.next/static
-COPY --from=build /app/frontend/public ./public
+COPY --from=build --chown=node:node /app/frontend/.next/static ./.next/static
+COPY --from=build --chown=node:node /app/frontend/public ./public
+USER node
 EXPOSE 3000
 CMD ["node", "server.js"]

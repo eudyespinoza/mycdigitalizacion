@@ -1,19 +1,56 @@
+{
+	http_port 8080
+	https_port 8443
+	email {$ACME_EMAIL}
+	admin 127.0.0.1:2019
+}
+
 {$SITE_ADDRESS} {
 	encode zstd gzip
-
-	@api path /api/*
-	handle @api {
-		reverse_proxy backend:8000
+	request_body {
+		max_size 25MB
 	}
 
-	@backendHealth path /healthz
-	handle @backendHealth {
-		reverse_proxy backend:8000
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(self)"
+		X-Request-ID "{http.request.uuid}"
+	}
+	log_append request_id {http.request.uuid}
+
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				request>headers>Authorization delete
+				request>headers>Cookie delete
+				request>uri regexp "\\?.*$" ""
+			}
+		}
+	}
+
+	@blockedAdmin {
+		path /admin /admin/*
+		not remote_ip {$ADMIN_ALLOWED_CIDRS}
+	}
+	respond @blockedAdmin 403
+
+	@backend path /api/* /admin /admin/* /healthz /readyz
+	handle @backend {
+		reverse_proxy backend:8000 {
+			header_up X-Request-ID {http.request.uuid}
+		}
 	}
 
 	@static path /static/*
 	handle @static {
-		reverse_proxy backend:8000
+		root * /srv
+		file_server
 	}
 
 	@media path /media/*
@@ -23,6 +60,8 @@
 	}
 
 	handle {
-		reverse_proxy frontend:3000
+		reverse_proxy frontend:3000 {
+			header_up X-Request-ID {http.request.uuid}
+		}
 	}
 }

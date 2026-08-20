@@ -1,181 +1,271 @@
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  security_opt: [no-new-privileges:true]
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "5"}
+
+x-app-environment: &app-environment
+  APP_ENV: production
+  DJANGO_DEBUG: "false"
+  SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env.production}
+  DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?set DJANGO_ALLOWED_HOSTS in .env.production}
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in .env.production}
+  PERSONAL_DATA_ENCRYPTION_KEY: ${PERSONAL_DATA_ENCRYPTION_KEY:?set PERSONAL_DATA_ENCRYPTION_KEY in .env.production}
+  POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env.production}
+  POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env.production}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
+  POSTGRES_HOST: postgres
+  REDIS_URL: redis://:${REDIS_PASSWORD:-REPLACE_ME_REDIS_PASSWORD}@redis:6379/0
+  SID_MODE: ${SID_MODE:-disabled}
+  SID_BASE_URL: ${SID_BASE_URL:-}
+  SID_ACCESS_TOKEN: ${SID_ACCESS_TOKEN:-}
+  MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN:-}
+  MERCADOPAGO_WEBHOOK_SECRET: ${MERCADOPAGO_WEBHOOK_SECRET:-}
+  MERCADOPAGO_COLLECTOR_ID: ${MERCADOPAGO_COLLECTOR_ID:-}
+  MERCADOPAGO_LIVE_MODE: ${MERCADOPAGO_LIVE_MODE:-false}
+  MERCADOPAGO_WEBHOOK_TOLERANCE_SECONDS: ${MERCADOPAGO_WEBHOOK_TOLERANCE_SECONDS:-300}
+  CORREO_ARGENTINO_ENABLED: ${CORREO_ARGENTINO_ENABLED:-false}
+  CORREO_ARGENTINO_ENVIRONMENT: ${CORREO_ARGENTINO_ENVIRONMENT:-production}
+  CORREO_ARGENTINO_PRODUCTION_BASE_URL: ${CORREO_ARGENTINO_PRODUCTION_BASE_URL:-https://api.correoargentino.com.ar/micorreo/v1}
+  CORREO_ARGENTINO_USERNAME: ${CORREO_ARGENTINO_USERNAME:-}
+  CORREO_ARGENTINO_PASSWORD: ${CORREO_ARGENTINO_PASSWORD:-}
+  CORREO_ARGENTINO_CUSTOMER_ID: ${CORREO_ARGENTINO_CUSTOMER_ID:-}
+  CORREO_ARGENTINO_ORIGIN_POSTAL_CODE: ${CORREO_ARGENTINO_ORIGIN_POSTAL_CODE:-}
+  SHIPPING_SURCHARGE_TYPE: ${SHIPPING_SURCHARGE_TYPE:-exact}
+  SHIPPING_SURCHARGE_VALUE: ${SHIPPING_SURCHARGE_VALUE:-0}
+  SHIPPING_FREE_THRESHOLD: ${SHIPPING_FREE_THRESHOLD:-}
+
+x-app-dependencies: &app-dependencies
+  config-check: {condition: service_completed_successfully}
+  postgres: {condition: service_healthy}
+  redis: {condition: service_healthy}
+
+x-app-common: &app-common
+  <<: *service-defaults
+  image: mycdigitalizaciones-backend-prod
+  build: {context: ./backend, target: production}
+  user: "1000:1000"
+  environment: *app-environment
+  depends_on: *app-dependencies
+  read_only: true
+  tmpfs: ["/tmp:rw,noexec,nosuid,size=128m"]
+
 services:
+  config-check:
+    image: mycdigitalizaciones-ops-prod
+    build: {context: ., dockerfile: infra/ops/Dockerfile}
+    env_file:
+      - path: "${PRODUCTION_ENV_FILE:-.env.production}"
+        required: false
+    command: [python, /ops/validate_env.py]
+    restart: "no"
+    user: "10001:10001"
+    read_only: true
+    security_opt: [no-new-privileges:true]
+
   postgres:
+    <<: *service-defaults
     image: postgres:17-alpine
-    restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
-      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env.production}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env.production}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources:
+        limits: {cpus: "${POSTGRES_CPUS:-1.0}", memory: "${POSTGRES_MEMORY:-768M}"}
 
   redis:
+    <<: *service-defaults
     image: redis:7-alpine
-    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-REPLACE_ME_REDIS_PASSWORD}
+    command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"']
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: [CMD-SHELL, 'redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    deploy:
+      resources:
+        limits: {cpus: "${REDIS_CPUS:-0.5}", memory: "${REDIS_MEMORY:-256M}"}
 
   backend:
-    image: mycdigitalizaciones-backend-prod
-    build:
-      context: ./backend
-      target: production
-    restart: unless-stopped
-    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3
+    <<: *app-common
+    command:
+      - gunicorn
+      - config.wsgi:application
+      - --bind
+      - 0.0.0.0:8000
+      - --workers
+      - "3"
+      - --access-logfile
+      - "-"
+      - --error-logfile
+      - "-"
+      - --access-logformat
+      - '{"timestamp":"%(t)s","level":"info","logger":"gunicorn.access","request_id":"%({x-request-id}i)s","method":"%(m)s","path":"%(U)s","status":%(s)s,"duration_us":%(D)s}'
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
-      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      POSTGRES_HOST: postgres
-      REDIS_URL: redis://redis:6379/0
-      APP_ENV: production
-      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env}
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in .env}
-      PERSONAL_DATA_ENCRYPTION_KEY: ${PERSONAL_DATA_ENCRYPTION_KEY:?set PERSONAL_DATA_ENCRYPTION_KEY in .env}
-      DJANGO_DEBUG: "false"
-      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?set DJANGO_ALLOWED_HOSTS in .env}
+      <<: *app-environment
       MEDIA_ROOT: /app/media
-      SID_MODE: ${SID_MODE:-disabled}
-      SID_BASE_URL: ${SID_BASE_URL:-}
-      SID_ACCESS_TOKEN: ${SID_ACCESS_TOKEN:-}
-      MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN:-}
-      MERCADOPAGO_WEBHOOK_SECRET: ${MERCADOPAGO_WEBHOOK_SECRET:-}
-      MERCADOPAGO_COLLECTOR_ID: ${MERCADOPAGO_COLLECTOR_ID:-}
-      MERCADOPAGO_LIVE_MODE: ${MERCADOPAGO_LIVE_MODE:-false}
-      MERCADOPAGO_WEBHOOK_TOLERANCE_SECONDS: ${MERCADOPAGO_WEBHOOK_TOLERANCE_SECONDS:-300}
-      CORREO_ARGENTINO_ENABLED: ${CORREO_ARGENTINO_ENABLED:-false}
-      CORREO_ARGENTINO_ENVIRONMENT: ${CORREO_ARGENTINO_ENVIRONMENT:-qa}
-      CORREO_ARGENTINO_QA_BASE_URL: ${CORREO_ARGENTINO_QA_BASE_URL:-https://apitest.correoargentino.com.ar/micorreo/v1}
-      CORREO_ARGENTINO_PRODUCTION_BASE_URL: ${CORREO_ARGENTINO_PRODUCTION_BASE_URL:-https://api.correoargentino.com.ar/micorreo/v1}
-      CORREO_ARGENTINO_USERNAME: ${CORREO_ARGENTINO_USERNAME:-}
-      CORREO_ARGENTINO_PASSWORD: ${CORREO_ARGENTINO_PASSWORD:-}
-      CORREO_ARGENTINO_CUSTOMER_ID: ${CORREO_ARGENTINO_CUSTOMER_ID:-}
-      CORREO_ARGENTINO_ORIGIN_POSTAL_CODE: ${CORREO_ARGENTINO_ORIGIN_POSTAL_CODE:-}
-      SHIPPING_SURCHARGE_TYPE: ${SHIPPING_SURCHARGE_TYPE:-exact}
-      SHIPPING_SURCHARGE_VALUE: ${SHIPPING_SURCHARGE_VALUE:-0}
-      SHIPPING_FREE_THRESHOLD: ${SHIPPING_FREE_THRESHOLD:-}
-    depends_on:
-      - postgres
-      - redis
-    volumes:
-      - media_data:/app/media
+    volumes: [media_data:/app/media, static_data:/app/staticfiles]
+    healthcheck:
+      test: [CMD, python, -c, "import os,urllib.request; request=urllib.request.Request('http://127.0.0.1:8000/readyz', headers={'Host': os.environ['SITE_ADDRESS'], 'X-Forwarded-Proto': 'https'}); urllib.request.urlopen(request, timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+    deploy:
+      resources:
+        limits: {cpus: "${BACKEND_CPUS:-1.0}", memory: "${BACKEND_MEMORY:-768M}"}
 
   worker:
+    <<: *app-common
     image: mycdigitalizaciones-worker-prod
-    build:
-      context: ./backend
-      target: production
-    restart: unless-stopped
-    command: celery -A config worker --loglevel=INFO
+    command: [celery, -A, config, worker, --loglevel=INFO]
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
-      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      POSTGRES_HOST: postgres
-      REDIS_URL: redis://redis:6379/0
-      APP_ENV: production
-      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env}
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in .env}
-      PERSONAL_DATA_ENCRYPTION_KEY: ${PERSONAL_DATA_ENCRYPTION_KEY:?set PERSONAL_DATA_ENCRYPTION_KEY in .env}
-      DJANGO_DEBUG: "false"
-      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?set DJANGO_ALLOWED_HOSTS in .env}
-      SID_MODE: ${SID_MODE:-disabled}
-      SID_BASE_URL: ${SID_BASE_URL:-}
-      SID_ACCESS_TOKEN: ${SID_ACCESS_TOKEN:-}
-      MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN:-}
-      MERCADOPAGO_WEBHOOK_SECRET: ${MERCADOPAGO_WEBHOOK_SECRET:-}
-      MERCADOPAGO_COLLECTOR_ID: ${MERCADOPAGO_COLLECTOR_ID:-}
-      MERCADOPAGO_LIVE_MODE: ${MERCADOPAGO_LIVE_MODE:-false}
-      MERCADOPAGO_WEBHOOK_TOLERANCE_SECONDS: ${MERCADOPAGO_WEBHOOK_TOLERANCE_SECONDS:-300}
-      CORREO_ARGENTINO_ENABLED: ${CORREO_ARGENTINO_ENABLED:-false}
-      CORREO_ARGENTINO_ENVIRONMENT: ${CORREO_ARGENTINO_ENVIRONMENT:-qa}
-      CORREO_ARGENTINO_QA_BASE_URL: ${CORREO_ARGENTINO_QA_BASE_URL:-https://apitest.correoargentino.com.ar/micorreo/v1}
-      CORREO_ARGENTINO_PRODUCTION_BASE_URL: ${CORREO_ARGENTINO_PRODUCTION_BASE_URL:-https://api.correoargentino.com.ar/micorreo/v1}
-      CORREO_ARGENTINO_USERNAME: ${CORREO_ARGENTINO_USERNAME:-}
-      CORREO_ARGENTINO_PASSWORD: ${CORREO_ARGENTINO_PASSWORD:-}
-      CORREO_ARGENTINO_CUSTOMER_ID: ${CORREO_ARGENTINO_CUSTOMER_ID:-}
-      CORREO_ARGENTINO_ORIGIN_POSTAL_CODE: ${CORREO_ARGENTINO_ORIGIN_POSTAL_CODE:-}
-      SHIPPING_SURCHARGE_TYPE: ${SHIPPING_SURCHARGE_TYPE:-exact}
-      SHIPPING_SURCHARGE_VALUE: ${SHIPPING_SURCHARGE_VALUE:-0}
-      SHIPPING_FREE_THRESHOLD: ${SHIPPING_FREE_THRESHOLD:-}
-    depends_on:
-      - postgres
-      - redis
+      <<: *app-environment
+      MEDIA_ROOT: /app/media
+    volumes: [media_data:/app/media]
+    healthcheck:
+      test: [CMD-SHELL, "celery -A config inspect ping --timeout=5 --destination celery@$$HOSTNAME | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    deploy:
+      resources:
+        limits: {cpus: "${WORKER_CPUS:-1.0}", memory: "${WORKER_MEMORY:-768M}"}
 
   beat:
+    <<: *app-common
     image: mycdigitalizaciones-worker-prod
-    build:
-      context: ./backend
-      target: production
-    restart: unless-stopped
-    command: celery -A config beat --loglevel=INFO
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
-      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      POSTGRES_HOST: postgres
-      REDIS_URL: redis://redis:6379/0
-      APP_ENV: production
-      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env}
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in .env}
-      PERSONAL_DATA_ENCRYPTION_KEY: ${PERSONAL_DATA_ENCRYPTION_KEY:?set PERSONAL_DATA_ENCRYPTION_KEY in .env}
-      DJANGO_DEBUG: "false"
-      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?set DJANGO_ALLOWED_HOSTS in .env}
-      SID_MODE: ${SID_MODE:-disabled}
-      SID_BASE_URL: ${SID_BASE_URL:-}
-      SID_ACCESS_TOKEN: ${SID_ACCESS_TOKEN:-}
-      MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN:-}
-      MERCADOPAGO_WEBHOOK_SECRET: ${MERCADOPAGO_WEBHOOK_SECRET:-}
-      MERCADOPAGO_COLLECTOR_ID: ${MERCADOPAGO_COLLECTOR_ID:-}
-      MERCADOPAGO_LIVE_MODE: ${MERCADOPAGO_LIVE_MODE:-false}
-      MERCADOPAGO_WEBHOOK_TOLERANCE_SECONDS: ${MERCADOPAGO_WEBHOOK_TOLERANCE_SECONDS:-300}
-      CORREO_ARGENTINO_ENABLED: ${CORREO_ARGENTINO_ENABLED:-false}
-      CORREO_ARGENTINO_ENVIRONMENT: ${CORREO_ARGENTINO_ENVIRONMENT:-qa}
-      CORREO_ARGENTINO_QA_BASE_URL: ${CORREO_ARGENTINO_QA_BASE_URL:-https://apitest.correoargentino.com.ar/micorreo/v1}
-      CORREO_ARGENTINO_PRODUCTION_BASE_URL: ${CORREO_ARGENTINO_PRODUCTION_BASE_URL:-https://api.correoargentino.com.ar/micorreo/v1}
-      CORREO_ARGENTINO_USERNAME: ${CORREO_ARGENTINO_USERNAME:-}
-      CORREO_ARGENTINO_PASSWORD: ${CORREO_ARGENTINO_PASSWORD:-}
-      CORREO_ARGENTINO_CUSTOMER_ID: ${CORREO_ARGENTINO_CUSTOMER_ID:-}
-      CORREO_ARGENTINO_ORIGIN_POSTAL_CODE: ${CORREO_ARGENTINO_ORIGIN_POSTAL_CODE:-}
-      SHIPPING_SURCHARGE_TYPE: ${SHIPPING_SURCHARGE_TYPE:-exact}
-      SHIPPING_SURCHARGE_VALUE: ${SHIPPING_SURCHARGE_VALUE:-0}
-      SHIPPING_FREE_THRESHOLD: ${SHIPPING_FREE_THRESHOLD:-}
-    depends_on:
-      - postgres
-      - redis
+    command: [celery, -A, config, beat, --loglevel=INFO, --pidfile=/tmp/celerybeat.pid, --schedule=/tmp/celerybeat-schedule]
+    healthcheck:
+      test: [CMD-SHELL, "test -s /tmp/celerybeat.pid && kill -0 $$(cat /tmp/celerybeat.pid)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits: {cpus: "${BEAT_CPUS:-0.5}", memory: "${BEAT_MEMORY:-256M}"}
 
   frontend:
+    <<: *service-defaults
     image: mycdigitalizaciones-frontend-prod
     build:
       context: .
       dockerfile: frontend/Dockerfile
       target: production
-      args:
-        API_INTERNAL_URL: http://backend:8000/api/v1
-        API_PROXY_TARGET: http://backend:8000
-    restart: unless-stopped
+      args: {API_INTERNAL_URL: http://backend:8000/api/v1, API_PROXY_TARGET: http://backend:8000}
+    user: "1000:1000"
+    environment: {NODE_ENV: production, API_INTERNAL_URL: http://backend:8000/api/v1, API_PROXY_TARGET: http://backend:8000}
+    depends_on:
+      config-check: {condition: service_completed_successfully}
+      backend: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+    deploy:
+      resources:
+        limits: {cpus: "${FRONTEND_CPUS:-1.0}", memory: "${FRONTEND_MEMORY:-512M}"}
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
+
+  backup:
+    <<: *service-defaults
+    image: mycdigitalizaciones-ops-prod
+    build: {context: ., dockerfile: infra/ops/Dockerfile}
+    user: "10001:10001"
+    command: [python, /ops/scheduler.py]
     environment:
-      NODE_ENV: production
-      API_INTERNAL_URL: http://backend:8000/api/v1
-      API_PROXY_TARGET: http://backend:8000
+      APP_ENV: production
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env.production}
+      ACME_EMAIL: ${ACME_EMAIL:-REPLACE_ME_ACME_EMAIL}
+      ADMIN_ALLOWED_CIDRS: ${ADMIN_ALLOWED_CIDRS:-REPLACE_ME_ADMIN_CIDRS}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?set DJANGO_ALLOWED_HOSTS in .env.production}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in .env.production}
+      PERSONAL_DATA_ENCRYPTION_KEY: ${PERSONAL_DATA_ENCRYPTION_KEY:?set PERSONAL_DATA_ENCRYPTION_KEY in .env.production}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env.production}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env.production}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
+      POSTGRES_HOST: postgres
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-REPLACE_ME_REDIS_PASSWORD}
+      MEDIA_ROOT: /srv/media
+      BACKUP_ROOT: /backups
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_ALERT_WEBHOOK_URL: ${BACKUP_ALERT_WEBHOOK_URL:-}
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:-}
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD:-}
+      RESTIC_PASSWORD_FILE: ${RESTIC_PASSWORD_FILE:-}
+      RESTIC_KEEP_DAILY: ${RESTIC_KEEP_DAILY:-7}
+      RESTIC_KEEP_WEEKLY: ${RESTIC_KEEP_WEEKLY:-5}
+      RESTIC_KEEP_MONTHLY: ${RESTIC_KEEP_MONTHLY:-12}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-sa-east-1}
+    depends_on:
+      config-check: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+    volumes: [media_data:/srv/media:ro, backup_data:/backups]
+    healthcheck:
+      test: [CMD, python, /ops/scheduler.py, --health]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 5m
+    deploy:
+      resources:
+        limits: {cpus: "${BACKUP_CPUS:-0.75}", memory: "${BACKUP_MEMORY:-512M}"}
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=128m"]
 
   caddy:
-    image: caddy:2.10-alpine
-    restart: unless-stopped
-    ports:
-      - "${CADDY_HTTP_PORT:-80}:80"
-      - "${CADDY_HTTPS_PORT:-443}:443"
+    <<: *service-defaults
+    image: mycdigitalizaciones-caddy-prod
+    build: {context: ., dockerfile: infra/caddy/Dockerfile}
+    user: "1000:1000"
+    ports: ["${CADDY_HTTP_PORT:-80}:8080", "${CADDY_HTTPS_PORT:-443}:8443"]
     environment:
-      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env}
-    volumes:
-      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-      - media_data:/srv/media:ro
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env.production}
+      ACME_EMAIL: ${ACME_EMAIL:-REPLACE_ME_ACME_EMAIL}
+      ADMIN_ALLOWED_CIDRS: ${ADMIN_ALLOWED_CIDRS:-REPLACE_ME_ADMIN_CIDRS}
+    volumes: [caddy_data:/data, caddy_config:/config, media_data:/srv/media:ro, static_data:/srv/static:ro]
     depends_on:
-      - frontend
-      - backend
+      config-check: {condition: service_completed_successfully}
+      frontend: {condition: service_healthy}
+      backend: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, --quiet, --spider, http://127.0.0.1:2019/config/]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits: {cpus: "${CADDY_CPUS:-0.5}", memory: "${CADDY_MEMORY:-256M}"}
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
 
 volumes:
   postgres_data:
+  redis_data:
+  media_data:
+  static_data:
+  backup_data:
   caddy_data:
   caddy_config:
-  media_data:
