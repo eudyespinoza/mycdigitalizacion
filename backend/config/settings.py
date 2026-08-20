@@ -164,6 +164,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "config.admin_security.AdminTwoFactorGateMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -173,6 +174,7 @@ TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         "APP_DIRS": True,
+        "DIRS": [BASE_DIR / "templates"],
         "OPTIONS": {
             "context_processors": [
                 "django.template.context_processors.request",
@@ -205,6 +207,11 @@ USE_TZ = True
 STATIC_URL = "/static/"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = Path(environ.get("MEDIA_ROOT", BASE_DIR / "media"))
+MAX_IMAGE_UPLOAD_BYTES = int(environ.get("MAX_IMAGE_UPLOAD_BYTES", str(12 * 1024 * 1024)))
+MAX_IMAGE_WIDTH = int(environ.get("MAX_IMAGE_WIDTH", "6000"))
+MAX_IMAGE_HEIGHT = int(environ.get("MAX_IMAGE_HEIGHT", "6000"))
+MAX_IMAGE_PIXELS = int(environ.get("MAX_IMAGE_PIXELS", "24000000"))
+MEDIA_DERIVATIVE_FORMATS = ("AVIF", "WEBP")
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STORAGES = {
     "default": {
@@ -216,6 +223,11 @@ STORAGES = {
 }
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
+
+ADMIN_LOGIN_MAX_ATTEMPTS = int(environ.get("ADMIN_LOGIN_MAX_ATTEMPTS", "5"))
+ADMIN_LOGIN_LOCK_SECONDS = int(environ.get("ADMIN_LOGIN_LOCK_SECONDS", "900"))
+ADMIN_2FA_REQUIRED = environ.get("ADMIN_2FA_REQUIRED", "false").lower() == "true"
+ADMIN_2FA_VERIFICATION_URL = environ.get("ADMIN_2FA_VERIFICATION_URL", "/admin/2fa/")
 
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],

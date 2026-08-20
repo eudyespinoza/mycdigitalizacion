@@ -176,10 +176,22 @@ class BillingProfile(models.Model):
     cuit_hash = models.CharField(max_length=64, blank=True, db_index=True)
     is_default = models.BooleanField(default=False)
 
+    class Meta:
+        permissions = (
+            ("view_sensitive_fiscal_data", "Can view unmasked fiscal export data"),
+        )
+
     def set_cuit(self, value):
         normalized = normalize_cuit(value)
         self.cuit_encrypted = _fernet().encrypt(normalized.encode()).decode()
         self.cuit_hash = _identifier_hash(normalized)
+
+    def get_cuit(self):
+        return (
+            _fernet().decrypt(self.cuit_encrypted.encode()).decode()
+            if self.cuit_encrypted
+            else ""
+        )
 
     @property
     def masked_cuit(self):

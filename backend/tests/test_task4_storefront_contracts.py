@@ -1,3 +1,4 @@
+import io
 import json
 from decimal import Decimal
 
@@ -5,6 +6,7 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
 from django.utils import timezone
+from PIL import Image
 
 from tests.test_commerce_domain import make_variant
 
@@ -435,15 +437,23 @@ def test_public_catalog_and_landing_media_urls_are_same_origin_relative(
     settings.MEDIA_URL = "/media/"
     settings.MEDIA_ROOT = tmp_path
     variant = make_variant(sku="MEDIA-CONTRACT")
+    product_image = io.BytesIO()
+    Image.new("RGB", (32, 24), "#335577").save(product_image, format="JPEG")
+    hero_image = io.BytesIO()
+    Image.new("RGB", (64, 36), "#224466").save(hero_image, format="JPEG")
     ProductMedia.objects.create(
         product=variant.product,
-        file=SimpleUploadedFile("product.jpg", b"image"),
+        file=SimpleUploadedFile(
+            "product.jpg", product_image.getvalue(), content_type="image/jpeg"
+        ),
         alt_text="Producto sintético",
     )
     HeroSlide.objects.create(
         title="Hero",
         alt_text="Campaña sintética",
-        desktop_image=SimpleUploadedFile("hero.jpg", b"image"),
+        desktop_image=SimpleUploadedFile(
+            "hero.jpg", hero_image.getvalue(), content_type="image/jpeg"
+        ),
     )
 
     product = client.get("/api/v1/products/").json()["results"][0]

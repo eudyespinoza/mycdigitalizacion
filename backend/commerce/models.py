@@ -256,6 +256,7 @@ class Order(models.Model):
         SHIPPED = "shipped", "Shipped"
         READY_FOR_PICKUP = "ready_for_pickup", "Ready for pickup"
         FULFILLED = "fulfilled", "Fulfilled"
+        CANCELLED = "cancelled", "Cancelled"
 
     class FulfillmentMethod(models.TextChoices):
         SHIPPING = "shipping", "Shipping"
@@ -292,6 +293,16 @@ class Order(models.Model):
     objects = OrderQuerySet.as_manager()
 
     class Meta:
+        permissions = (
+            ("approve_identity_order", "Can manually approve order identity"),
+            ("resume_order", "Can resume an approved order checkout"),
+            ("cancel_order", "Can cancel an order through the guarded service"),
+            ("refund_order", "Can refund an order through the guarded service"),
+            ("create_shipment_order", "Can create an order shipment"),
+            ("refresh_tracking_order", "Can refresh order tracking"),
+            ("export_order", "Can export masked order data"),
+            ("view_sensitive_order_data", "Can export unmasked order data"),
+        )
         constraints = [
             models.UniqueConstraint(
                 fields=("user", "checkout_idempotency_key"),
@@ -534,4 +545,16 @@ class ExternalProviderFailure(models.Model):
     operation = models.CharField(max_length=80)
     code = models.CharField(max_length=32)
     staff_diagnostics = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class StaffExportAudit(AppendOnlyModel):
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="staff_exports", on_delete=models.PROTECT
+    )
+    resource = models.CharField(max_length=64)
+    export_format = models.CharField(max_length=8)
+    filters = models.JSONField(default=dict)
+    row_count = models.PositiveIntegerField()
+    included_sensitive_data = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)

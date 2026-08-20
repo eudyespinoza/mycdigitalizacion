@@ -1,0 +1,16 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>Importar catálogo CSV</h1>
+<p>La primera ejecución es una validación en seco. Ninguna fila se guarda si existe un error.</p>
+<form method="post" enctype="multipart/form-data">
+  {% csrf_token %}
+  <label for="csv-file">Archivo CSV</label>
+  <input id="csv-file" type="file" name="csv_file" accept="text/csv,.csv" required>
+  <button type="submit">Validar</button>
+  <button type="submit" name="commit" value="1">Validar e importar</button>
+</form>
+{% if result %}
+<p>Filas válidas: {{ result.valid_rows }}. Creadas: {{ result.created_variants }}.</p>
+<ul>{% for error in result.errors %}<li>Fila {{ error.row }}, {{ error.field }}: {{ error.message }}</li>{% endfor %}</ul>
+{% endif %}
+{% endblock %}

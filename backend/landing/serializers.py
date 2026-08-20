@@ -59,13 +59,21 @@ class ScheduledContentSerializer(serializers.ModelSerializer):
 class HeroSlideSerializer(ScheduledContentSerializer):
     class Meta(ScheduledContentSerializer.Meta):
         model = HeroSlide
-        fields = ScheduledContentSerializer.Meta.fields + ("body",)
+        fields = ScheduledContentSerializer.Meta.fields + (
+            "body",
+            "interval_ms",
+            "pause_on_reduced_motion",
+        )
 
 
 class PromotionSlideSerializer(ScheduledContentSerializer):
     class Meta(ScheduledContentSerializer.Meta):
         model = PromotionSlide
-        fields = ScheduledContentSerializer.Meta.fields + ("body",)
+        fields = ScheduledContentSerializer.Meta.fields + (
+            "body",
+            "interval_ms",
+            "pause_on_reduced_motion",
+        )
 
 
 class LandingCollectionSerializer(ScheduledContentSerializer):
@@ -77,7 +85,12 @@ class LandingCollectionSerializer(ScheduledContentSerializer):
 class PromotionPopupSerializer(ScheduledContentSerializer):
     class Meta(ScheduledContentSerializer.Meta):
         model = PromotionPopup
-        fields = ScheduledContentSerializer.Meta.fields + ("body",)
+        fields = ScheduledContentSerializer.Meta.fields + (
+            "body",
+            "frequency",
+            "display_delay_ms",
+            "dismissible",
+        )
 
 
 class StorefrontHomeSerializer(serializers.Serializer):

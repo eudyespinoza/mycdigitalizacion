@@ -1,0 +1,16 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} | mycdigitalizacion{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'admin/css/mycdigitalizacion.css' %}">
+{% endblock %}
+
+{% block branding %}
+<div class="myc-brand">
+  <img src="{% static 'admin/img/mycdigitalizacion-mark.svg' %}" width="36" height="36" alt="">
+  <span id="site-name"><a href="{% url 'admin:index' %}">mycdigitalizacion</a></span>
+</div>
+{% endblock %}

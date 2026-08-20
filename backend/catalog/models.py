@@ -7,6 +7,8 @@ from django.db.models import Q, Sum
 from django.db.models.functions import Now
 from django.utils import timezone
 
+from config.media import generate_image_derivatives, safe_image_upload_to, validate_image_upload
+
 
 class Brand(models.Model):
     name = models.CharField(max_length=120, unique=True)
@@ -108,6 +110,12 @@ class Product(models.Model):
     is_sellable = models.BooleanField(default=False)
     objects = ProductQuerySet.as_manager()
 
+    class Meta:
+        permissions = (
+            ("import_product", "Can import products with validation"),
+            ("export_product", "Can export product administration data"),
+        )
+
     def clean(self):
         if self.is_sellable and (
             not self.pk or not self.variants.filter(is_active=True).exists()
@@ -141,12 +149,31 @@ class Product(models.Model):
 
 class ProductMedia(models.Model):
     product = models.ForeignKey(Product, related_name="media", on_delete=models.CASCADE)
-    file = models.FileField(upload_to="catalog")
+    file = models.ImageField(
+        upload_to=safe_image_upload_to("catalog"), validators=[validate_image_upload]
+    )
     alt_text = models.CharField(max_length=240)
     order = models.PositiveIntegerField(default=0)
+    derivatives = models.JSONField(default=dict, blank=True, editable=False)
 
     class Meta:
         ordering = ("order", "id")
+
+    def clean(self):
+        if self.file and not self.alt_text.strip():
+            raise ValidationError({"alt_text": "Alt text is required when an image is present"})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        result = super().save(*args, **kwargs)
+        if self.file and not self.derivatives:
+            derivatives = generate_image_derivatives(
+                storage=self.file.storage, name=self.file.name
+            )
+            if derivatives:
+                type(self).objects.filter(pk=self.pk).update(derivatives=derivatives)
+                self.derivatives = derivatives
+        return result
 
 
 class ProductVariantQuerySet(models.QuerySet):

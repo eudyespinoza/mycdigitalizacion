@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.http import HttpResponse
 
 from commerce.models import (
     Cart,
@@ -18,6 +19,7 @@ from commerce.models import (
     Refund,
     Shipment,
     ShippingQuote,
+    StaffExportAudit,
     StockReservation,
 )
 
@@ -90,6 +92,147 @@ class OrderAdmin(admin.ModelAdmin):
         "fulfillment_status",
     )
     inlines = (OrderItemInline, OrderAuditInline)
+    actions = (
+        "approve_identity_selected",
+        "resume_selected",
+        "cancel_selected",
+        "refund_selected",
+        "create_shipment_selected",
+        "refresh_tracking_selected",
+        "export_selected_csv",
+        "export_selected_xlsx",
+    )
+
+    def _perform_guarded(self, request, queryset, action, reason):
+        from commerce.admin_services import perform_order_admin_action
+        from commerce.provider_config import get_carrier_adapter, get_payment_adapter
+        from commerce.services import get_or_create_user_cart
+
+        adapters = {}
+        if action in {"resume", "refund"}:
+            adapters["payment"] = get_payment_adapter()
+        if action in {"create_shipment", "refresh_tracking"}:
+            adapters["carrier"] = get_carrier_adapter()
+        for order in queryset.select_related("user"):
+            context = (
+                {"cart": get_or_create_user_cart(user=order.user)}
+                if action == "resume"
+                else {}
+            )
+            perform_order_admin_action(
+                action=action,
+                order=order,
+                actor=request.user,
+                reason=reason,
+                adapters=adapters,
+                context=context,
+            )
+
+    @admin.action(
+        description="Aprobar identidad mediante servicio guardado",
+        permissions=("approve_identity_order",),
+    )
+    def approve_identity_selected(self, request, queryset):
+        self._perform_guarded(
+            request, queryset, "approve_identity", "Aprobación seleccionada en Django Admin"
+        )
+
+    @admin.action(
+        description="Reanudar checkout mediante servicio guardado",
+        permissions=("resume_order",),
+    )
+    def resume_selected(self, request, queryset):
+        self._perform_guarded(
+            request, queryset, "resume", "Reanudación seleccionada en Django Admin"
+        )
+
+    @admin.action(
+        description="Cancelar mediante servicio guardado", permissions=("cancel_order",)
+    )
+    def cancel_selected(self, request, queryset):
+        self._perform_guarded(
+            request, queryset, "cancel", "Cancelación seleccionada en Django Admin"
+        )
+
+    @admin.action(
+        description="Reembolsar mediante servicio guardado", permissions=("refund_order",)
+    )
+    def refund_selected(self, request, queryset):
+        self._perform_guarded(
+            request, queryset, "refund", "Reembolso seleccionado en Django Admin"
+        )
+
+    @admin.action(
+        description="Crear envío mediante servicio guardado",
+        permissions=("create_shipment_order",),
+    )
+    def create_shipment_selected(self, request, queryset):
+        self._perform_guarded(
+            request, queryset, "create_shipment", "Despacho seleccionado en Django Admin"
+        )
+
+    @admin.action(
+        description="Actualizar tracking mediante servicio guardado",
+        permissions=("refresh_tracking_order",),
+    )
+    def refresh_tracking_selected(self, request, queryset):
+        self._perform_guarded(
+            request,
+            queryset,
+            "refresh_tracking",
+            "Actualización de tracking seleccionada en Django Admin",
+        )
+
+    def _export(self, request, queryset, export_format):
+        from commerce.exports import export_orders
+
+        payload = export_orders(
+            queryset,
+            actor=request.user,
+            export_format=export_format,
+            filters={key: request.GET.getlist(key) for key in request.GET},
+        )
+        content_type = (
+            "text/csv"
+            if export_format == "csv"
+            else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        response = HttpResponse(payload, content_type=content_type)
+        response["Content-Disposition"] = f'attachment; filename="pedidos.{export_format}"'
+        return response
+
+    @admin.action(description="Exportar pedidos a CSV", permissions=("export_order",))
+    def export_selected_csv(self, request, queryset):
+        return self._export(request, queryset, "csv")
+
+    @admin.action(description="Exportar pedidos a XLSX", permissions=("export_order",))
+    def export_selected_xlsx(self, request, queryset):
+        return self._export(request, queryset, "xlsx")
+
+    def has_change_permission(self, request, obj=None):
+        del request, obj
+        return False
+
+    def has_approve_identity_order_permission(self, request):
+        return request.user.has_perm("commerce.approve_identity_order")
+
+    def has_resume_order_permission(self, request):
+        return request.user.has_perm("commerce.resume_order")
+
+    def has_cancel_order_permission(self, request):
+        return request.user.has_perm("commerce.cancel_order")
+
+    def has_refund_order_permission(self, request):
+        return request.user.has_perm("commerce.refund_order")
+
+    def has_create_shipment_order_permission(self, request):
+        return request.user.has_perm("commerce.create_shipment_order")
+
+    def has_refresh_tracking_order_permission(self, request):
+        return request.user.has_perm("commerce.refresh_tracking_order")
+
+    def has_export_order_permission(self, request):
+        return request.user.has_perm("commerce.export_order")
 
 
 @admin.register(StockReservation)
@@ -139,3 +282,4 @@ admin.site.register(Shipment, AppendOnlyAdmin)
 admin.site.register(Refund, AppendOnlyAdmin)
 admin.site.register(NotificationAttempt, AppendOnlyAdmin)
 admin.site.register(ExternalProviderFailure, AppendOnlyAdmin)
+admin.site.register(StaffExportAudit, AppendOnlyAdmin)

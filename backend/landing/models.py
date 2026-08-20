@@ -5,6 +5,8 @@ from django.core.validators import FileExtensionValidator, MaxValueValidator, Mi
 from django.db import models
 from django.utils import timezone
 
+from config.media import generate_image_derivatives, safe_image_upload_to, validate_image_upload
+
 
 class SiteSettings(models.Model):
     public_name = models.CharField(max_length=120, default="mycdigitalizacion")
@@ -39,16 +41,24 @@ class ScheduledContent(models.Model):
     starts_at = models.DateTimeField(null=True, blank=True)
     ends_at = models.DateTimeField(null=True, blank=True)
     desktop_image = models.ImageField(
-        upload_to="landing/desktop",
+        upload_to=safe_image_upload_to("landing/desktop"),
         blank=True,
-        validators=[FileExtensionValidator(["png", "jpg", "jpeg", "webp", "avif"])],
+        validators=[
+            FileExtensionValidator(["png", "jpg", "jpeg", "webp", "avif"]),
+            validate_image_upload,
+        ],
     )
     mobile_image = models.ImageField(
-        upload_to="landing/mobile",
+        upload_to=safe_image_upload_to("landing/mobile"),
         blank=True,
-        validators=[FileExtensionValidator(["png", "jpg", "jpeg", "webp", "avif"])],
+        validators=[
+            FileExtensionValidator(["png", "jpg", "jpeg", "webp", "avif"]),
+            validate_image_upload,
+        ],
     )
-    alt_text = models.CharField(max_length=240)
+    desktop_derivatives = models.JSONField(default=dict, blank=True, editable=False)
+    mobile_derivatives = models.JSONField(default=dict, blank=True, editable=False)
+    alt_text = models.CharField(max_length=240, blank=True)
     cta_label = models.CharField(max_length=80, blank=True)
     cta_url = models.CharField(max_length=300, blank=True, validators=[validate_cta_url])
     focal_x = models.DecimalField(
@@ -88,20 +98,42 @@ class ScheduledContent(models.Model):
     def clean(self):
         if self.starts_at and self.ends_at and self.starts_at >= self.ends_at:
             raise ValidationError("Content start must precede its end")
+        if (self.desktop_image or self.mobile_image) and not self.alt_text.strip():
+            raise ValidationError({"alt_text": "Alt text is required when an image is present"})
 
     def save(self, *args, **kwargs):
         self.full_clean()
-        return super().save(*args, **kwargs)
+        result = super().save(*args, **kwargs)
+        derivative_updates = {}
+        for field_name in ("desktop_image", "mobile_image"):
+            field = getattr(self, field_name)
+            derivatives_name = f"{field_name.replace('_image', '')}_derivatives"
+            if field and not getattr(self, derivatives_name):
+                derivatives = generate_image_derivatives(storage=field.storage, name=field.name)
+                if derivatives:
+                    derivative_updates[derivatives_name] = derivatives
+                    setattr(self, derivatives_name, derivatives)
+        if derivative_updates:
+            type(self).objects.filter(pk=self.pk).update(**derivative_updates)
+        return result
 
 
 class HeroSlide(ScheduledContent):
     title = models.CharField(max_length=160)
     body = models.TextField(blank=True)
+    interval_ms = models.PositiveIntegerField(
+        default=6000, validators=[MinValueValidator(1000), MaxValueValidator(30000)]
+    )
+    pause_on_reduced_motion = models.BooleanField(default=True)
 
 
 class PromotionSlide(ScheduledContent):
     title = models.CharField(max_length=160)
     body = models.TextField(blank=True)
+    interval_ms = models.PositiveIntegerField(
+        default=6000, validators=[MinValueValidator(1000), MaxValueValidator(30000)]
+    )
+    pause_on_reduced_motion = models.BooleanField(default=True)
 
 
 class LandingCollection(ScheduledContent):
@@ -122,5 +154,18 @@ class LandingCollection(ScheduledContent):
 
 
 class PromotionPopup(ScheduledContent):
+    class Frequency(models.TextChoices):
+        ONCE_PER_SESSION = "once_session", "Once per session"
+        DAILY = "daily", "Daily"
+        WEEKLY = "weekly", "Weekly"
+        ALWAYS = "always", "Always"
+
     title = models.CharField(max_length=160)
     body = models.TextField(blank=True)
+    frequency = models.CharField(
+        max_length=20, choices=Frequency.choices, default=Frequency.ONCE_PER_SESSION
+    )
+    display_delay_ms = models.PositiveIntegerField(
+        default=1500, validators=[MaxValueValidator(60000)]
+    )
+    dismissible = models.BooleanField(default=True)

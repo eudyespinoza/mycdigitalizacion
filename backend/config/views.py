@@ -1,10 +1,51 @@
+from django.conf import settings
+from django.db import DatabaseError, connection
 from django.http import JsonResponse
 from django.views.csrf import csrf_failure as django_csrf_failure
+from redis import Redis
+from redis.exceptions import RedisError
 
 
 def healthz(_: object) -> JsonResponse:
     """Expose process availability without disclosing operational details."""
     return JsonResponse({"status": "ok"})
+
+
+def database_is_ready():
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            return cursor.fetchone() == (1,)
+    except DatabaseError:
+        return False
+
+
+def redis_is_ready():
+    try:
+        client = Redis.from_url(
+            settings.CELERY_BROKER_URL,
+            socket_connect_timeout=1,
+            socket_timeout=1,
+        )
+        return bool(client.ping())
+    except (RedisError, OSError, ValueError):
+        return False
+
+
+def readyz(_: object) -> JsonResponse:
+    database_ready = database_is_ready()
+    redis_ready = redis_is_ready()
+    ready = database_ready and redis_ready
+    return JsonResponse(
+        {
+            "status": "ready" if ready else "not_ready",
+            "dependencies": {
+                "database": "ok" if database_ready else "unavailable",
+                "redis": "ok" if redis_ready else "unavailable",
+            },
+        },
+        status=200 if ready else 503,
+    )
 
 
 def csrf_failure(request, reason="", template_name="403_csrf.html"):

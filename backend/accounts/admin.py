@@ -1,6 +1,7 @@
 from django import forms
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
+from django.http import HttpResponse
 
 from accounts.models import (
     BillingProfile,
@@ -117,6 +118,33 @@ class BillingProfileAdmin(admin.ModelAdmin):
         "masked_cuit",
         "replacement_cuit",
     )
+    actions = ("export_selected_csv", "export_selected_xlsx")
+
+    def _export(self, request, queryset, export_format):
+        from commerce.exports import export_billing_profiles
+
+        payload = export_billing_profiles(
+            queryset,
+            actor=request.user,
+            export_format=export_format,
+            filters={key: request.GET.getlist(key) for key in request.GET},
+        )
+        content_type = (
+            "text/csv"
+            if export_format == "csv"
+            else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        response = HttpResponse(payload, content_type=content_type)
+        response["Content-Disposition"] = f'attachment; filename="fiscal.{export_format}"'
+        return response
+
+    @admin.action(description="Exportar fiscal a CSV", permissions=("view",))
+    def export_selected_csv(self, request, queryset):
+        return self._export(request, queryset, "csv")
+
+    @admin.action(description="Exportar fiscal a XLSX", permissions=("view",))
+    def export_selected_xlsx(self, request, queryset):
+        return self._export(request, queryset, "xlsx")
 
 
 admin.site.register(Profile)
