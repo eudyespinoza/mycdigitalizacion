@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { apiRequest } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import type { BillingProfile, Customer, Order } from "@/lib/types";
+import { ProfileForm } from "./profile-form";
 
 export function AccountDashboard() {
   const [customer, setCustomer] = useState<Customer | null>(null);
@@ -60,13 +61,8 @@ export function AccountDashboard() {
             {loggingOut ? "Cerrando…" : "Cerrar sesión"}
           </button>
         </div>
-        <dl>
-          <div><dt>Email</dt><dd>{customer.email}</dd></div>
-          <div><dt>Verificación</dt><dd>{customer.email_verified_at ? "Email verificado" : "Pendiente"}</dd></div>
-          <div><dt>Nombre</dt><dd>{[customer.profile.first_name, customer.profile.last_name].filter(Boolean).join(" ") || "No informado"}</dd></div>
-          <div><dt>Teléfono</dt><dd>{customer.profile.phone || "No informado"}</dd></div>
-        </dl>
-        <p className="helper">El contrato actual permite consultar el perfil. La edición todavía no está publicada por la API.</p>
+        <dl><div><dt>Email</dt><dd>{customer.email}</dd></div><div><dt>Verificación</dt><dd>{customer.email_verified_at ? "Email verificado" : "Pendiente"}</dd></div></dl>
+        <ProfileForm customer={customer} onSave={async (payload) => { const next = await apiRequest<Customer>("/customers/me/", { method: "PATCH", body: JSON.stringify({ ...payload, ...(payload.dni ? { dni: payload.dni } : {}) }) }); setCustomer(next); return next; }} />
       </section>
       <section className="account-panel">
         <div className="section-heading"><h2>Datos fiscales</h2><Link href="/cuenta/fiscal">Administrar</Link></div>

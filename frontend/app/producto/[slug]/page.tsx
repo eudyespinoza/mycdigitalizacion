@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { ProductPurchase } from "@/components/product/product-purchase";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
-import { serverGet } from "@/lib/api";
+import { normalizeMediaUrl, serverGet } from "@/lib/api";
 import type { Category, Product } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -34,15 +34,14 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
         </nav>
         <div className="product-detail">
           <section className="product-gallery" aria-label="Galería de producto">
-            {media.length ? media.map((item, index) => (
+            {media.filter((item) => normalizeMediaUrl(item.file)).length ? media.filter((item) => normalizeMediaUrl(item.file)).map((item, index) => (
               <div className="gallery-frame" key={`${item.file}-${item.order}`}>
                 <Image
-                  src={item.file}
+                  src={normalizeMediaUrl(item.file)}
                   alt={item.alt_text}
                   fill
                   priority={index === 0}
                   loading={index === 0 ? "eager" : "lazy"}
-                  unoptimized
                   sizes="(max-width: 768px) 100vw, 50vw"
                 />
               </div>

@@ -57,7 +57,7 @@ describe("storefront behavior", () => {
   test("catalog filters remain shareable in the URL", () => {
     expect(
       buildCatalogQuery({ q: "cuaderno", category: "papeleria", sort: "price_asc", page: 2 }),
-    ).toBe("category=papeleria&page=2&q=cuaderno&sort=price_asc");
+    ).toBe("category=papeleria&ordering=price_asc&page=2&q=cuaderno");
   });
 
   test("variant and quantity produce the authoritative cart request", async () => {
@@ -71,6 +71,9 @@ describe("storefront behavior", () => {
             sku: "CUA-11",
             name: "Azul",
             price: "12500.00",
+            available_stock: 8,
+            attributes: [],
+            pricing: { list_price: "12500.00", effective_price: "12500.00", discount_amount: "0.00", discount_percentage: "0.00", on_offer: false },
             packaged_weight_grams: 300,
             length_cm: "21.00",
             width_cm: "15.00",

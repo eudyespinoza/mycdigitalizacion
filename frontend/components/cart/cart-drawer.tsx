@@ -2,44 +2,14 @@
 
 import { X } from "@phosphor-icons/react";
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 import { formatMoney } from "@/lib/format";
 import { useCart } from "./cart-provider";
 
 export function CartDrawer() {
-  const context = useCart();
-  if (!context?.open) return null;
-  const { cart, error, loading, setOpen, setQuantity, remove } = context;
-  return (
-    <div className="drawer-layer" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setOpen(false)}>
-      <aside className="cart-drawer" role="dialog" aria-modal="true" aria-labelledby="cart-drawer-title">
-        <div className="drawer-head">
-          <h2 id="cart-drawer-title">Tu carrito</h2>
-          <button className="icon-button" type="button" aria-label="Cerrar carrito" onClick={() => setOpen(false)}><X size={22} /></button>
-        </div>
-        {error && <p className="inline-error" role="alert">{error} Volvé a intentarlo.</p>}
-        {!cart || cart.lines.length === 0 ? (
-          <div className="empty-state"><h3>Tu carrito está listo para empezar</h3><p>Explorá el catálogo y agregá los productos que quieras.</p><Link className="button primary" href="/catalogo" onClick={() => setOpen(false)}>Explorar catálogo</Link></div>
-        ) : (
-          <>
-            <div className="cart-lines">
-              {cart.lines.map((line) => (
-                <article className="cart-line" key={line.id}>
-                  <div><strong>{line.sku}</strong><span>{formatMoney(line.unit_price)} por unidad</span></div>
-                  <div className="quantity-control">
-                    <button type="button" aria-label={`Reducir cantidad de ${line.sku}`} onClick={() => void setQuantity(line.variant_id, line.quantity - 1)}>-</button>
-                    <span aria-live="polite">{line.quantity}</span>
-                    <button type="button" aria-label={`Aumentar cantidad de ${line.sku}`} onClick={() => void setQuantity(line.variant_id, line.quantity + 1)}>+</button>
-                  </div>
-                  <button className="text-button" type="button" onClick={() => void remove(line.variant_id)}>Quitar</button>
-                </article>
-              ))}
-            </div>
-            <div className="drawer-total"><span>Total</span><strong>{formatMoney(cart.total)}</strong></div>
-            <Link className="button primary wide" href="/carrito" onClick={() => setOpen(false)}>Revisar carrito</Link>
-          </>
-        )}
-        {loading && <p className="loading-note" role="status">Actualizando carrito…</p>}
-      </aside>
-    </div>
-  );
+  const context = useCart(); const panel = useRef<HTMLElement>(null); const closeButton = useRef<HTMLButtonElement>(null);
+  const open = context?.open; const setDrawerOpen = context?.setOpen; const restoreFocus = context?.restoreFocus;
+  useEffect(() => { if (!open || !setDrawerOpen || !restoreFocus) return; const background = [...document.querySelectorAll<HTMLElement>("#contenido, .site-header, .trust-rail, .site-footer")]; background.forEach((item) => { item.setAttribute("inert", ""); item.setAttribute("aria-hidden", "true"); }); closeButton.current?.focus(); const keydown = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); setDrawerOpen(false); return; } if (event.key !== "Tab" || !panel.current) return; const nodes = [...panel.current.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled)')]; const first = nodes[0]; const last = nodes[nodes.length - 1]; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); } }; document.addEventListener("keydown", keydown); return () => { document.removeEventListener("keydown", keydown); background.forEach((item) => { item.removeAttribute("inert"); item.removeAttribute("aria-hidden"); }); restoreFocus(); }; }, [open, setDrawerOpen, restoreFocus]);
+  if (!context?.open) return null; const { cart, error, loading, setOpen, setQuantity, remove } = context;
+  return <div className="drawer-layer" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setOpen(false)}><aside ref={panel} className="cart-drawer" role="dialog" aria-modal="true" aria-labelledby="cart-drawer-title"><div className="drawer-head"><h2 id="cart-drawer-title">Tu carrito</h2><button ref={closeButton} className="icon-button" type="button" aria-label="Cerrar carrito" onClick={() => setOpen(false)}><X size={22} /></button></div>{error && <p className="inline-error" role="alert">{error} Volvé a intentarlo.</p>}{!cart || cart.lines.length === 0 ? <div className="empty-state"><h3>Tu carrito está listo para empezar</h3><p>Explorá el catálogo y agregá los productos que quieras.</p><Link className="button primary" href="/catalogo" onClick={() => setOpen(false)}>Explorar catálogo</Link></div> : <><div className="cart-lines">{cart.lines.map((line) => <article className="cart-line" key={line.id}><div><strong>{line.name || line.sku}</strong><span>{formatMoney(line.line_total)}</span>{line.notices.map((notice) => <small key={notice.code}>{notice.code === "price_changed" ? "Precio actualizado" : "Stock actualizado"}</small>)}</div><div className="quantity-control"><button disabled={loading} type="button" aria-label={`Reducir cantidad de ${line.sku}`} onClick={() => void setQuantity(line.variant_id, line.quantity - 1)}>-</button><span aria-live="polite">{line.quantity}</span><button disabled={loading || line.availability !== "available"} type="button" aria-label={`Aumentar cantidad de ${line.sku}`} onClick={() => void setQuantity(line.variant_id, line.quantity + 1)}>+</button></div><button className="text-button" disabled={loading} type="button" onClick={() => void remove(line.variant_id)}>Quitar</button></article>)}</div><div className="drawer-total"><span>Total</span><strong>{formatMoney(cart.total)}</strong></div><Link className="button primary wide" href="/carrito" onClick={() => setOpen(false)}>Revisar carrito</Link></>}{loading && <p className="loading-note" role="status">Actualizando carrito…</p>}</aside></div>;
 }

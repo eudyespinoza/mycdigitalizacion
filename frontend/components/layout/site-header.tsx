@@ -21,7 +21,8 @@ export function SiteHeader({ categories }: { categories: Category[] }) {
       <header className="site-header">
         <div className="header-main shell">
           <Link className="brand" href="/" aria-label="mycdigitalizacion, inicio">
-            <Image src="/brand/mycdigitalizacion-logo.png" alt="" width={224} height={78} priority />
+            <span className="brand-mark" aria-hidden><Image src="/brand/mycdigitalizacion-logo.png" alt="" fill sizes="64px" priority /></span>
+            <span className="brand-word" aria-hidden><Image src="/brand/mycdigitalizacion-logo.png" alt="" fill sizes="210px" priority /></span>
           </Link>
           <form className="header-search" role="search" action="/catalogo">
             <label className="sr-only" htmlFor="site-search">Buscar productos</label>
