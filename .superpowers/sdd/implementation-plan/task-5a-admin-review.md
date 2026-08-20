@@ -462,3 +462,24 @@ O4 therefore remains partial. Record exact-commit commands, environment/skip rea
 Task 5A now meets the remaining functional specification. Mobile staff can reach both brand and theme controls, CMS ordering has one locked global mutation path across real pagination and forged Admin posts, and responsive generation no longer duplicates the retained source at intermediate widths while preserving rollback and cleanup behavior.
 
 Acceptance is **SPEC PASS**. Quality remains **NEEDS WORK** only because O4's implementation evidence is not exact or fully reproducible; no REQUIRED defect remains in this review scope.
+
+## Final O4 documentary re-review
+
+Review target: `4cdf7f79f8c0986178c5a43d5e555272e852ace7`.
+
+### Verdict
+
+- **O4: RESOLVED.**
+- **Task 5A SPEC COMPLIANCE: PASS.**
+- **Task 5A CODE QUALITY: PASS.**
+- **Final Fix Round 3 scope:** 4 RESOLVED, 0 PARTIAL, 0 UNRESOLVED.
+
+The target commit changes exactly one file, `.superpowers/sdd/implementation-plan/task-5a-admin-report.md`; it contains no product, test, migration, generated artifact or concurrent Task 5B change.
+
+The three discrepancies recorded under O4 now match the independent exact-commit evidence:
+
+1. The report states **`224 passed, 16 skipped`** for the full SQLite-compatible suite at the exact reviewed commit, replacing the unrelated shared-tree `222/18` claim.
+2. The isolated collectstatic evidence states **166 files copied and 792 post-processed**, matching the literal independent output.
+3. The mobile hit-test states that the 44×44 theme control at `x=304` does not overlay the brand and that the correct clickable brand target is **`A`**, not `IMG`; it retains the verified 360/768/1024/1440 measurements.
+
+No runtime gate was rerun because this commit is documentation-only and every corrected value is a literal result already produced and recorded by the preceding independent review. O4 is closed, so Task 5A is fully accepted with SPEC and QUALITY both **PASS**.
