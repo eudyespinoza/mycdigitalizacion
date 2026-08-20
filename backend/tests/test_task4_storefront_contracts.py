@@ -359,7 +359,7 @@ def test_address_confirm_supports_second_confirmation_after_reverse_lookup(
     )
     client.force_login(user)
 
-    wrong_choice = client.post(
+    written_choice = client.post(
         f"/api/v1/addresses/{address.pk}/confirm/",
         {
             "latitude": "-34.6100000",
@@ -378,8 +378,8 @@ def test_address_confirm_supports_second_confirmation_after_reverse_lookup(
         content_type="application/json",
     )
 
-    assert wrong_choice.status_code == 409
-    assert wrong_choice.json()["code"] == "address_choice_mismatch"
+    assert written_choice.status_code == 200
+    assert written_choice.json()["needs_review"] is False
     assert confirmed.status_code == 200
     assert confirmed.json()["needs_review"] is False
 

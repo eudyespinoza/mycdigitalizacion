@@ -287,7 +287,7 @@ class OrderSerializer(serializers.ModelSerializer):
             return None
         settings = SiteSettings.objects.first()
         return {
-            "enabled": settings.pickup_enabled if settings else False,
+            "enabled": settings.pickup_enabled if settings else True,
             "label": settings.pickup_label if settings else "Retiro en tienda",
             "address": settings.pickup_address if settings else "",
             "hours": settings.pickup_hours if settings else "",

@@ -22,6 +22,7 @@ from commerce.services import (
     transition_order_status,
 )
 from commerce.shipping import quote_is_valid
+from landing.models import SiteSettings
 
 
 class CheckoutError(ValueError):
@@ -101,8 +102,24 @@ def cart_fingerprint(cart, *, address=None, parcels=None, at=None):
     return hashlib.sha256(raw).hexdigest()
 
 
-def _validate_shipping(*, user, cart, fulfillment_method, address, shipping_quote, now):
+def _validate_shipping(
+    *,
+    user,
+    cart,
+    fulfillment_method,
+    address,
+    shipping_quote,
+    now,
+    pickup_enabled=None,
+):
     if fulfillment_method == "pickup":
+        if pickup_enabled is None:
+            settings = SiteSettings.objects.only("pickup_enabled").first()
+            pickup_enabled = settings is None or settings.pickup_enabled
+        if not pickup_enabled:
+            raise CheckoutError(
+                "pickup_unavailable", "El retiro no está disponible en este momento."
+            )
         return None
     if fulfillment_method != "shipping":
         raise CheckoutError("invalid_fulfillment", "Elegí una forma de entrega válida")
@@ -148,6 +165,12 @@ def confirm_checkout(
         raise CheckoutError(
             "identity_consent_required", "Necesitamos tu consentimiento para validar la identidad"
         )
+    if fulfillment_method == "pickup":
+        settings = SiteSettings.objects.only("pickup_enabled").first()
+        if settings is not None and not settings.pickup_enabled:
+            raise CheckoutError(
+                "pickup_unavailable", "El retiro no está disponible en este momento."
+            )
     if idempotency_key is None:
         idempotency_key = uuid.uuid4()
     identifiers = _checkout_identifiers(user_id=user.pk, idempotency_key=idempotency_key)
@@ -198,6 +221,16 @@ def confirm_checkout(
                 if shipping_quote is not None
                 else None
             )
+            locked_settings = (
+                SiteSettings.objects.select_for_update().only("pickup_enabled").first()
+                if fulfillment_method == "pickup"
+                else None
+            )
+            pickup_enabled = (
+                locked_settings is None or locked_settings.pickup_enabled
+                if fulfillment_method == "pickup"
+                else None
+            )
             lines = list(locked_cart.lines.select_for_update().select_related("variant__product"))
             if not lines:
                 raise CheckoutError("empty_cart", "El carrito está vacío")
@@ -208,6 +241,7 @@ def confirm_checkout(
                 address=locked_address,
                 shipping_quote=locked_quote,
                 now=now,
+                pickup_enabled=pickup_enabled,
             )
             order = create_pending_identity_order(
                 cart=locked_cart,
@@ -368,12 +402,15 @@ def resume_checkout(*, order, cart, user, payment_adapter):
         )
         expiry = now + timezone.timedelta(minutes=20)
         for line in cart.lines.select_related("variant"):
-            reservation = create_reservation(
-                variant=line.variant,
-                quantity=line.quantity,
-                reference=str(locked_order.public_id),
-                expires_at=expiry,
-            )
+            try:
+                reservation = create_reservation(
+                    variant=line.variant,
+                    quantity=line.quantity,
+                    reference=str(locked_order.public_id),
+                    expires_at=expiry,
+                )
+            except InsufficientStock as exc:
+                raise CheckoutError("insufficient_stock", "No hay stock suficiente") from exc
             locked_order.reservations.add(reservation)
         payment_transaction = PaymentTransaction.objects.create(
             order=locked_order,

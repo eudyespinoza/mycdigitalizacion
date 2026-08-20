@@ -176,7 +176,7 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
         "idempotency_key",
     }
     assert {"address_id", "shipping_quote_id"} <= checkout_request["properties"].keys()
-    assert {"201", "202", "400", "403", "422", "502", "503"} == set(
+    assert {"201", "202", "400", "403", "422", "501", "502", "503"} == set(
         checkout["responses"]
     )
 
@@ -232,6 +232,7 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
             "400",
             "403",
             "422",
+            "501",
             "502",
             "503",
         },
@@ -274,7 +275,7 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
     assert_error_schema(paths["/api/v1/auth/register/"]["post"], "409")
     checkout_error = paths["/api/v1/checkout/"]["post"]["responses"]["503"]
     checkout_schema = checkout_error["content"]["application/json"]["schema"]
-    assert checkout_schema["$ref"].endswith("/Error")
+    assert checkout_schema["$ref"].endswith("/CheckoutProviderError")
 
 
 @pytest.mark.django_db

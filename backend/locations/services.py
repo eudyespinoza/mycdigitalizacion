@@ -100,7 +100,13 @@ def reverse_geocode_pin(*, address, latitude, longitude, adapter):
     address.latitude = latitude
     address.longitude = longitude
     address.geocode_source = address.GeocodeSource.MANUAL
-    address.geocode_summary = result.get("summary", {})
+    address.geocode_summary = {
+        **result.get("summary", {}),
+        "reverse_location": {
+            "locality": str(result.get("locality", "")),
+            "province": str(result.get("province", "")),
+        },
+    }
     address.needs_review = bool(moved_far)
     address.reviewed_at = None if moved_far else timezone.now()
     address.save(
@@ -135,10 +141,12 @@ def confirm_address(*, address, latitude, longitude, address_choice, tolerance_m
         tolerance_meters,
     ):
         raise ValueError("address_coordinates_changed")
-    expected_choice = (
-        "reverse" if locked.geocode_source == locked.GeocodeSource.MANUAL else "written"
+    allowed_choices = (
+        {"written", "reverse"}
+        if locked.geocode_source == locked.GeocodeSource.MANUAL
+        else {"written"}
     )
-    if address_choice != expected_choice:
+    if address_choice not in allowed_choices:
         raise ValueError("address_choice_mismatch")
     reviewed_at = timezone.now()
     summary = dict(locked.geocode_summary or {})
@@ -146,10 +154,19 @@ def confirm_address(*, address, latitude, longitude, address_choice, tolerance_m
         "address_choice": address_choice,
         "confirmed_at": reviewed_at.isoformat(),
     }
+    update_fields = ["geocode_summary", "needs_review", "reviewed_at", "updated_at"]
+    if address_choice == "reverse":
+        reverse_location = summary.get("reverse_location") or {}
+        normalized_parts = [
+            str(reverse_location.get(field, "")).strip()
+            for field in ("locality", "province")
+        ]
+        normalized_address = ", ".join(part for part in normalized_parts if part)
+        if normalized_address:
+            locked.normalized_address = normalized_address
+            update_fields.append("normalized_address")
     locked.geocode_summary = summary
     locked.needs_review = False
     locked.reviewed_at = reviewed_at
-    locked.save(
-        update_fields=("geocode_summary", "needs_review", "reviewed_at", "updated_at")
-    )
+    locked.save(update_fields=update_fields)
     return locked

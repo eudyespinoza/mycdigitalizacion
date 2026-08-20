@@ -59,3 +59,11 @@ def test_rendered_compose_has_persistent_backend_media_and_read_only_caddy_mount
     assert caddy_media["source"] == "media_data"
     assert caddy_media["read_only"] is True
     assert config["services"]["backend"]["environment"]["MEDIA_ROOT"] == "/app/media"
+    frontend = config["services"]["frontend"]
+    assert frontend["environment"]["API_INTERNAL_URL"] == "http://backend:8000/api/v1"
+    assert frontend["environment"]["API_PROXY_TARGET"] == "http://backend:8000"
+    if filename == "compose.prod.yaml":
+        assert frontend["build"]["args"] == {
+            "API_INTERNAL_URL": "http://backend:8000/api/v1",
+            "API_PROXY_TARGET": "http://backend:8000",
+        }

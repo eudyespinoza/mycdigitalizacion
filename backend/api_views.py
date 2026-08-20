@@ -270,6 +270,66 @@ class ErrorSerializer(serializers.Serializer):
     detail = serializers.CharField(required=False)
 
 
+class CsrfFailureSerializer(serializers.Serializer):
+    code = serializers.ChoiceField(choices=("csrf_failed",))
+    detail = serializers.CharField()
+
+
+class CheckoutDomainErrorSerializer(serializers.Serializer):
+    code = serializers.ChoiceField(
+        choices=(
+            "invalid_fulfillment",
+            "pickup_unavailable",
+            "address_required",
+            "address_review_required",
+            "shipping_quote_required",
+            "shipping_quote_expired",
+            "shipping_quote_changed",
+            "cart_owner_mismatch",
+            "invalid_email",
+            "email_not_verified",
+            "identity_consent_required",
+            "identity_missing",
+            "billing_profile_invalid",
+            "empty_cart",
+            "insufficient_stock",
+        )
+    )
+    detail = serializers.CharField()
+
+
+class CheckoutResumeErrorSerializer(serializers.Serializer):
+    code = serializers.ChoiceField(
+        choices=(
+            "identity_pending_review",
+            "cart_owner_mismatch",
+            "checkout_changed",
+            "pickup_unavailable",
+            "insufficient_stock",
+        )
+    )
+    detail = serializers.CharField()
+
+
+class CheckoutProviderErrorSerializer(serializers.Serializer):
+    code = serializers.ChoiceField(
+        choices=(
+            "not_configured",
+            "unavailable",
+            "timeout",
+            "invalid_response",
+            "rejected",
+            "not_supported",
+        )
+    )
+    detail = serializers.CharField()
+
+
+class CheckoutIdentityErrorSerializer(serializers.Serializer):
+    code = serializers.ChoiceField(choices=("identity_rejected",))
+    detail = serializers.CharField()
+
+
 VALIDATION_ERROR_SCHEMA = {
     "type": "object",
     "additionalProperties": {
@@ -291,7 +351,30 @@ VALIDATION_OR_DOMAIN_ERROR_SCHEMA = {
         },
     ]
 }
-CSRF_ERROR_RESPONSE = OpenApiResponse(description="CSRF validation failed")
+CSRF_ERROR_RESPONSE = OpenApiResponse(
+    response=CsrfFailureSerializer,
+    description="La validación CSRF falló; el cliente puede renovar el token y reintentar una vez.",
+)
+CHECKOUT_ERROR_RESPONSE = OpenApiResponse(
+    response={
+        "oneOf": [
+            VALIDATION_ERROR_SCHEMA,
+            {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "enum": list(CheckoutDomainErrorSerializer().fields["code"].choices),
+                    },
+                    "detail": {"type": "string"},
+                },
+                "required": ["code", "detail"],
+                "additionalProperties": False,
+            },
+        ]
+    },
+    description="Errores de validación de campos o códigos estables del dominio de checkout.",
+)
 
 
 class DomainError(APIException):
@@ -322,7 +405,7 @@ class StorefrontHomeView(generics.GenericAPIView):
                     "public_name": settings.public_name if settings else "mycdigitalizacion",
                     "announcement": settings.announcement if settings else "",
                     "contact_email": settings.contact_email if settings else "",
-                    "pickup_enabled": settings.pickup_enabled if settings else False,
+                    "pickup_enabled": settings.pickup_enabled if settings else True,
                     "pickup_label": settings.pickup_label if settings else "Retiro en tienda",
                     "pickup_address": settings.pickup_address if settings else "",
                     "pickup_hours": settings.pickup_hours if settings else "",
@@ -1219,11 +1302,12 @@ class CheckoutView(generics.GenericAPIView):
         responses={
             202: CheckoutResponseSerializer,
             201: CheckoutResponseSerializer,
-            400: ErrorSerializer,
-            422: ErrorSerializer,
+            400: CHECKOUT_ERROR_RESPONSE,
+            422: CheckoutIdentityErrorSerializer,
             403: ErrorSerializer,
-            502: ErrorSerializer,
-            503: ErrorSerializer,
+            501: CheckoutProviderErrorSerializer,
+            502: CheckoutProviderErrorSerializer,
+            503: CheckoutProviderErrorSerializer,
         },
     )
     def post(self, request):
@@ -1292,11 +1376,12 @@ class CheckoutResumeView(generics.GenericAPIView):
         request=None,
         responses={
             201: CheckoutResponseSerializer,
-            400: ErrorSerializer,
+            400: CheckoutResumeErrorSerializer,
             403: ErrorSerializer,
             404: ErrorSerializer,
-            502: ErrorSerializer,
-            503: ErrorSerializer,
+            501: CheckoutProviderErrorSerializer,
+            502: CheckoutProviderErrorSerializer,
+            503: CheckoutProviderErrorSerializer,
         },
     )
     def post(self, request, public_id):

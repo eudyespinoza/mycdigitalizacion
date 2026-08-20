@@ -134,3 +134,70 @@ No frontend files were changed by this backend/infra work. The Impeccable detect
 
 The 13 SQLite skips are the pre-existing PostgreSQL/provider-gated tests; the PostgreSQL-relevant
 paths were run separately and passed. No live SID, carrier, or payment credentials were used.
+
+## Fix Round 2: backend and infrastructure closure
+
+### Stable CSRF failure contract
+
+- Django now uses `config.views.csrf_failure` as `CSRF_FAILURE_VIEW`. Every middleware-level CSRF
+  rejection under `/api/*` returns HTTP 403 with exactly
+  `{code: "csrf_failed", detail: "La sesión de seguridad venció. Actualizá la página e intentá nuevamente."}`.
+  The middleware reason is never returned. Non-API requests retain Django's standard failure view.
+- A real `Client(enforce_csrf_checks=True)` regression covers both a missing login token and the
+  stale pre-login token after Django rotates the CSRF secret. Refreshing `/auth/csrf/` and retrying
+  once succeeds. Login/logout OpenAPI 403 responses use the exact `csrf_failed` schema.
+
+### Address choice after a far reverse lookup
+
+- A persisted manual/reverse pin can be confirmed with either `written` or `reverse`, while the
+  two-metre current-coordinate tolerance and owner-only lookup remain unchanged.
+- `written` preserves the user's `raw_address` and prior forward-normalized written address while
+  retaining the confirmed manual coordinates. `reverse` preserves `raw_address` and promotes the
+  stored reverse locality/province to `normalized_address`. Both choices clear review, timestamp the
+  confirmation, and audit the selected choice without floor, apartment, reference, or notes.
+- Reverse lookup stores only safe provider IDs and locality/province needed for the later choice.
+
+### Pickup gating and error-code recovery
+
+- The plan default is now enabled: absent `SiteSettings` and newly created settings publish pickup
+  as available. Migration `landing.0004` changes the application default without rewriting existing
+  rows, so an existing explicit `false` remains disabled.
+- Initial checkout preflights an explicit disable before identity/provider work, then rechecks the
+  setting inside its transaction. Resume rechecks it before reservations/payment. Both return HTTP
+  400 `pickup_unavailable`; a resume stock race is converted to HTTP 400 `insufficient_stock`.
+- Initial checkout 400 domain codes are `invalid_fulfillment`, `pickup_unavailable`,
+  `address_required`, `address_review_required`, `shipping_quote_required`,
+  `shipping_quote_expired`, `shipping_quote_changed`, `cart_owner_mismatch`, `invalid_email`,
+  `email_not_verified`, `identity_consent_required`, `identity_missing`,
+  `billing_profile_invalid`, `empty_cart`, and `insufficient_stock`.
+- Resume 400 domain codes are `identity_pending_review`, `cart_owner_mismatch`, `checkout_changed`,
+  `pickup_unavailable`, and `insufficient_stock`. Identity rejection is HTTP 422
+  `identity_rejected`.
+- Provider codes are stable and enumerated in OpenAPI: `not_configured`, `unavailable`, and
+  `timeout` map to 503; `invalid_response` and `rejected` map to 502; `not_supported` maps to 501.
+
+### Production frontend-to-backend media topology
+
+- Development and production frontend containers receive
+  `API_INTERNAL_URL=http://backend:8000/api/v1` and
+  `API_PROXY_TARGET=http://backend:8000` at runtime. The production frontend build receives the
+  same values as build arguments, so server fetches and baked Next rewrites use the internal Docker
+  DNS route while public media URLs remain same-origin `/media/...`.
+- Rendered Compose regression tests assert both environments and the production build arguments in
+  addition to the persistent backend/read-only Caddy media volume contract.
+
+### Fix Round 2 TDD and verification evidence
+
+- RED: **9/9 focused checks failed** for real middleware CSRF HTML, both far-pin choices, pickup
+  gating/default, resume stock conversion, exact OpenAPI codes, and both Compose configurations.
+- Focused GREEN after implementation: `test_task4_fix_round2_contracts.py` plus media topology;
+  includes missing/stale CSRF, exactly-one successful retry, written/reverse persistence, explicit
+  pickup disable at initial checkout and resume, plan-default pickup, stock race, and exact schema
+  enums/statuses.
+- Related compatibility GREEN: **58 passed** across Task 4, checkout, provider, API/OpenAPI, and
+  media contracts before the final full-suite run.
+- Final SQLite full suite: **170 passed, 13 skipped**.
+- Expanded PostgreSQL row-locking/provider and Task 4 contract suite: **36 passed**.
+- Ruff, Django system check, migration drift check, and validated OpenAPI generation pass.
+- Fully populated development and production Compose render successfully. Caddy 2.10 validates
+  both production and development configurations.

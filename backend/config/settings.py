@@ -134,6 +134,7 @@ CURRENT_CONSENT_VERSION = "privacy-v1"
 
 SESSION_COOKIE_SECURE = APP_ENV == "production"
 CSRF_COOKIE_SECURE = APP_ENV == "production"
+CSRF_FAILURE_VIEW = "config.views.csrf_failure"
 SECURE_SSL_REDIRECT = APP_ENV == "production"
 SECURE_HSTS_SECONDS = 31_536_000 if APP_ENV == "production" else 0
 SECURE_HSTS_INCLUDE_SUBDOMAINS = APP_ENV == "production"
