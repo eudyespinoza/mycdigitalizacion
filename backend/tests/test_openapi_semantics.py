@@ -1,6 +1,15 @@
 import json
+from copy import deepcopy
 
 import pytest
+from django.contrib.auth import get_user_model
+from django.test import Client
+from django.utils import timezone
+from jsonschema import Draft202012Validator
+from referencing import Registry, Resource
+from referencing.jsonschema import DRAFT202012
+
+from accounts.models import CustomerProfile, Profile
 
 
 def request_schema(operation, components):
@@ -14,6 +23,71 @@ def assert_error_schema(operation, status_code):
     response = operation["responses"][status_code]
     schema = response["content"]["application/json"]["schema"]
     assert schema["$ref"].endswith("/Error")
+
+
+def assert_validation_error_schema(operation, *, allows_domain_error=False):
+    schema = operation["responses"]["400"]["content"]["application/json"]["schema"]
+    if allows_domain_error:
+        validation_schema, domain_schema = schema["oneOf"]
+        assert domain_schema == {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string"},
+                "detail": {"type": "string"},
+            },
+            "required": ["code", "detail"],
+            "additionalProperties": False,
+        }
+    else:
+        validation_schema = schema
+    assert validation_schema == {
+        "type": "object",
+        "additionalProperties": {"type": "array", "items": {"type": "string"}},
+    }
+
+
+def absolutize_local_refs(value):
+    if isinstance(value, dict):
+        converted = {
+            key: (
+                f"urn:openapi{item}"
+                if key == "$ref" and item.startswith("#/")
+                else absolutize_local_refs(item)
+            )
+            for key, item in value.items()
+            if key != "nullable"
+        }
+        if value.get("nullable"):
+            if "type" in converted:
+                converted["type"] = [converted["type"], "null"]
+            else:
+                converted = {"anyOf": [converted, {"type": "null"}]}
+        return converted
+    if isinstance(value, list):
+        return [absolutize_local_refs(item) for item in value]
+    return value
+
+
+def assert_runtime_response_matches(schema, path, method, response):
+    status_code = str(response.status_code)
+    documented = schema["paths"][path][method]["responses"][status_code]
+    content = documented.get("content", {})
+    if not content:
+        assert not response.headers.get("Content-Type", "").startswith("application/json")
+        return
+    if not response.content:
+        raise AssertionError("documented response has a body but runtime returned none")
+    assert response.headers["Content-Type"].startswith("application/json")
+    response_schema = deepcopy(content["application/json"]["schema"])
+    registry = Registry().with_resource(
+        "urn:openapi",
+        Resource.from_contents(
+            absolutize_local_refs(schema), default_specification=DRAFT202012
+        ),
+    )
+    Draft202012Validator(
+        absolutize_local_refs(response_schema), registry=registry
+    ).validate(response.json())
 
 
 @pytest.mark.django_db
@@ -53,24 +127,31 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
     register = request_schema(paths["/api/v1/auth/register/"]["post"], components)
     assert set(register["required"]) == {"email", "password", "consent_version"}
     assert register["properties"]["email"]["format"] == "email"
-    assert {"201", "400", "409"} <= paths["/api/v1/auth/register/"]["post"][
-        "responses"
-    ].keys()
+    assert set(paths["/api/v1/auth/register/"]["post"]["responses"]) == {
+        "201",
+        "400",
+        "409",
+    }
 
     verify = request_schema(paths["/api/v1/auth/email-verify/"]["post"], components)
     assert set(verify["required"]) == {"email", "code"}
-    assert {"200", "400", "429"} <= paths["/api/v1/auth/email-verify/"]["post"][
-        "responses"
-    ].keys()
+    assert set(paths["/api/v1/auth/email-verify/"]["post"]["responses"]) == {
+        "200",
+        "400",
+        "429",
+    }
 
     login = request_schema(paths["/api/v1/auth/login/"]["post"], components)
     assert set(login["required"]) == {"email", "password"}
     assert "cart_token" in login["properties"]
-    assert {"200", "400", "403"} <= paths["/api/v1/auth/login/"]["post"][
-        "responses"
-    ].keys()
+    assert set(paths["/api/v1/auth/login/"]["post"]["responses"]) == {
+        "200",
+        "400",
+        "403",
+    }
 
-    assert "204" in paths["/api/v1/auth/logout/"]["post"]["responses"]
+    assert set(paths["/api/v1/auth/csrf/"]["get"]["responses"]) == {"200"}
+    assert set(paths["/api/v1/auth/logout/"]["post"]["responses"]) == {"204", "403"}
     checkout = paths["/api/v1/checkout/"]["post"]
     assert "requestBody" not in checkout
     assert "503" in checkout["responses"]
@@ -80,43 +161,230 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
     assert {"variant_id", "quantity", "coupon"} <= cart_post["properties"].keys()
 
     protected_contracts = {
-        ("/api/v1/customers/me/", "get"): {"200", "401", "403"},
-        ("/api/v1/billing-profiles/", "get"): {"200", "401", "403"},
-        ("/api/v1/billing-profiles/", "post"): {"201", "400", "401", "403"},
-        ("/api/v1/billing-profiles/{id}/", "get"): {"200", "401", "403", "404"},
+        ("/api/v1/customers/me/", "get"): {"200", "403"},
+        ("/api/v1/billing-profiles/", "get"): {"200", "403"},
+        ("/api/v1/billing-profiles/", "post"): {"201", "400", "403"},
+        ("/api/v1/billing-profiles/{id}/", "get"): {"200", "403", "404"},
         ("/api/v1/billing-profiles/{id}/", "put"): {
             "200",
             "400",
-            "401",
             "403",
             "404",
         },
         ("/api/v1/billing-profiles/{id}/", "patch"): {
             "200",
             "400",
-            "401",
             "403",
             "404",
         },
-        ("/api/v1/billing-profiles/{id}/", "delete"): {"204", "401", "403", "404"},
-        ("/api/v1/addresses/", "get"): {"200", "401", "403"},
-        ("/api/v1/addresses/", "post"): {"201", "400", "401", "403"},
-        ("/api/v1/addresses/{id}/", "get"): {"200", "401", "403", "404"},
-        ("/api/v1/addresses/{id}/", "put"): {"200", "400", "401", "403", "404"},
-        ("/api/v1/addresses/{id}/", "patch"): {"200", "400", "401", "403", "404"},
-        ("/api/v1/addresses/{id}/", "delete"): {"204", "401", "403", "404"},
-        ("/api/v1/orders/", "get"): {"200", "401", "403"},
-        ("/api/v1/orders/{public_id}/", "get"): {"200", "401", "403", "404"},
-        ("/api/v1/identity/status/", "get"): {"200", "401", "403"},
-        ("/api/v1/checkout/", "post"): {"401", "403", "503"},
+        ("/api/v1/billing-profiles/{id}/", "delete"): {"204", "403", "404"},
+        ("/api/v1/addresses/", "get"): {"200", "403"},
+        ("/api/v1/addresses/", "post"): {"201", "400", "403"},
+        ("/api/v1/addresses/{id}/", "get"): {"200", "403", "404"},
+        ("/api/v1/addresses/{id}/", "put"): {"200", "400", "403", "404"},
+        ("/api/v1/addresses/{id}/", "patch"): {"200", "400", "403", "404"},
+        ("/api/v1/addresses/{id}/", "delete"): {"204", "403", "404"},
+        ("/api/v1/orders/", "get"): {"200", "403"},
+        ("/api/v1/orders/{public_id}/", "get"): {"200", "403", "404"},
+        ("/api/v1/identity/status/", "get"): {"200", "403"},
+        ("/api/v1/checkout/", "post"): {"403", "503"},
     }
     for (path, method), expected_statuses in protected_contracts.items():
         operation = paths[path][method]
-        assert expected_statuses <= operation["responses"].keys(), (path, method)
-        for error_status in expected_statuses & {"400", "401", "403", "404"}:
+        assert set(operation["responses"]) == expected_statuses, (path, method)
+        for error_status in expected_statuses & {"403", "404"}:
             assert_error_schema(operation, error_status)
+
+    cart_contracts = {
+        "get": {"200", "404"},
+        "post": {"201", "400", "404"},
+        "patch": {"200", "400", "404"},
+        "delete": {"200", "400", "404"},
+    }
+    for method, expected_statuses in cart_contracts.items():
+        assert set(paths["/api/v1/cart/"][method]["responses"]) == expected_statuses
+
+    for path, method in (
+        ("/api/v1/auth/register/", "post"),
+        ("/api/v1/billing-profiles/", "post"),
+        ("/api/v1/billing-profiles/{id}/", "put"),
+        ("/api/v1/billing-profiles/{id}/", "patch"),
+        ("/api/v1/addresses/", "post"),
+        ("/api/v1/addresses/{id}/", "put"),
+        ("/api/v1/addresses/{id}/", "patch"),
+    ):
+        assert_validation_error_schema(paths[path][method])
+
+    for path, method in (
+        ("/api/v1/auth/email-verify/", "post"),
+        ("/api/v1/auth/login/", "post"),
+        ("/api/v1/cart/", "post"),
+    ):
+        assert_validation_error_schema(paths[path][method], allows_domain_error=True)
+    assert_validation_error_schema(paths["/api/v1/cart/"]["patch"])
+    assert_validation_error_schema(paths["/api/v1/cart/"]["delete"])
 
     assert_error_schema(paths["/api/v1/auth/register/"]["post"], "409")
     checkout_error = paths["/api/v1/checkout/"]["post"]["responses"]["503"]
     checkout_schema = checkout_error["content"]["application/json"]["schema"]
     assert checkout_schema["$ref"].endswith("/Code")
+
+
+@pytest.mark.django_db
+def test_runtime_payloads_match_their_documented_response_schemas(client):
+    schema_response = client.get("/api/v1/schema/?format=json")
+    schema = json.loads(schema_response.content)
+    user = get_user_model().objects.create_user(
+        email="openapi-runtime@example.test",
+        password="Correct-Horse-Battery-Staple-42",
+        email_verified_at=timezone.now(),
+    )
+    Profile.objects.create(user=user)
+    CustomerProfile.objects.create(user=user, consent_version="privacy-v1")
+
+    unauthenticated = (
+        ("/api/v1/customers/me/", "get", client.get("/api/v1/customers/me/")),
+        ("/api/v1/billing-profiles/", "get", client.get("/api/v1/billing-profiles/")),
+        ("/api/v1/addresses/", "get", client.get("/api/v1/addresses/")),
+        ("/api/v1/orders/", "get", client.get("/api/v1/orders/")),
+        ("/api/v1/identity/status/", "get", client.get("/api/v1/identity/status/")),
+        ("/api/v1/checkout/", "post", client.post("/api/v1/checkout/", {})),
+    )
+    for path, method, response in unauthenticated:
+        assert response.status_code == 403
+        assert_runtime_response_matches(schema, path, method, response)
+
+    client.force_login(user)
+    authenticated = (
+        ("/api/v1/customers/me/", "get", client.get("/api/v1/customers/me/")),
+        ("/api/v1/billing-profiles/", "get", client.get("/api/v1/billing-profiles/")),
+        ("/api/v1/addresses/", "get", client.get("/api/v1/addresses/")),
+        ("/api/v1/orders/", "get", client.get("/api/v1/orders/")),
+        ("/api/v1/identity/status/", "get", client.get("/api/v1/identity/status/")),
+        ("/api/v1/checkout/", "post", client.post("/api/v1/checkout/", {})),
+        (
+            "/api/v1/billing-profiles/",
+            "post",
+            client.post("/api/v1/billing-profiles/", {"cuit": "invalid"}),
+        ),
+        ("/api/v1/addresses/", "post", client.post("/api/v1/addresses/", {})),
+        ("/api/v1/orders/{public_id}/", "get", client.get("/api/v1/orders/invalid/")),
+    )
+    for path, method, response in authenticated:
+        assert_runtime_response_matches(schema, path, method, response)
+
+    client.logout()
+    cart_and_auth = (
+        ("/api/v1/auth/csrf/", "get", client.get("/api/v1/auth/csrf/")),
+        (
+            "/api/v1/auth/register/",
+            "post",
+            client.post("/api/v1/auth/register/", {"email": "invalid"}),
+        ),
+        (
+            "/api/v1/auth/email-verify/",
+            "post",
+            client.post("/api/v1/auth/email-verify/", {"email": "invalid", "code": "x"}),
+        ),
+        (
+            "/api/v1/auth/login/",
+            "post",
+            client.post(
+                "/api/v1/auth/login/",
+                {"email": "invalid", "password": "wrong"},
+            ),
+        ),
+        ("/api/v1/cart/", "get", client.get("/api/v1/cart/")),
+        (
+            "/api/v1/cart/",
+            "post",
+            client.post("/api/v1/cart/", {"variant_id": 999999, "quantity": 1}),
+        ),
+        (
+            "/api/v1/cart/",
+            "post",
+            client.post("/api/v1/cart/", {"variant_id": "invalid", "quantity": 1}),
+        ),
+        (
+            "/api/v1/cart/",
+            "patch",
+            client.patch(
+                "/api/v1/cart/",
+                json.dumps({"variant_id": "invalid", "quantity": 1}),
+                content_type="application/json",
+            ),
+        ),
+        (
+            "/api/v1/cart/",
+            "delete",
+            client.delete(
+                "/api/v1/cart/",
+                json.dumps({"variant_id": "invalid"}),
+                content_type="application/json",
+            ),
+        ),
+        (
+            "/api/v1/cart/",
+            "get",
+            client.get("/api/v1/cart/", HTTP_X_CART_TOKEN="invalid"),
+        ),
+    )
+    for path, method, response in cart_and_auth:
+        assert_runtime_response_matches(schema, path, method, response)
+
+    non_field_error = client.post("/api/v1/cart/", {})
+    assert non_field_error.json() == {
+        "non_field_errors": ["Provide either variant_id or coupon"]
+    }
+    assert_runtime_response_matches(
+        schema, "/api/v1/cart/", "post", non_field_error
+    )
+
+    domain_errors = (
+        (
+            "/api/v1/auth/email-verify/",
+            "post",
+            client.post(
+                "/api/v1/auth/email-verify/",
+                {"email": "missing@example.test", "code": "123456"},
+            ),
+            {
+                "code": "invalid_verification_challenge",
+                "detail": "Invalid or expired verification challenge",
+            },
+        ),
+        (
+            "/api/v1/auth/login/",
+            "post",
+            client.post(
+                "/api/v1/auth/login/",
+                {"email": "missing@example.test", "password": "wrong"},
+            ),
+            {"code": "invalid_credentials", "detail": "Invalid credentials"},
+        ),
+        (
+            "/api/v1/cart/",
+            "post",
+            client.post("/api/v1/cart/", {"variant_id": 999999, "quantity": 1}),
+            {"code": "unknown_variant", "detail": "Unknown variant"},
+        ),
+        (
+            "/api/v1/cart/",
+            "post",
+            client.post("/api/v1/cart/", {"coupon": "MISSING"}),
+            {"code": "invalid_coupon", "detail": "Coupon is invalid"},
+        ),
+    )
+    for path, method, response, expected_payload in domain_errors:
+        assert response.json() == expected_payload
+        assert_runtime_response_matches(schema, path, method, response)
+
+    csrf_client = Client(enforce_csrf_checks=True)
+    csrf_rejection = csrf_client.post(
+        "/api/v1/auth/login/",
+        {"email": "missing@example.test", "password": "wrong"},
+    )
+    assert csrf_rejection.status_code == 403
+    assert_runtime_response_matches(
+        schema, "/api/v1/auth/login/", "post", csrf_rejection
+    )

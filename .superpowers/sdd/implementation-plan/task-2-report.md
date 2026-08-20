@@ -223,3 +223,46 @@ Resolved only the required partial findings F1, F6, F7, F9, F12, F14, and F16. N
 
 - F18 key rotation remains intentionally out of scope and unimplemented, as required for this round.
 - Task 3 provider orchestration remains explicitly absent.
+
+---
+
+## Fix Round 3 — F16 only
+
+### Summary
+
+Aligned the generated OpenAPI contract exactly with the configured DRF `SessionAuthentication` runtime. Protected customer, billing, address, order, identity, and checkout operations no longer advertise an unreachable `401`; their exact response sets use the real unauthenticated/unverified `403` behavior. Auth and cart operations now also have exact status matrices, including cart-token `404` responses and real cart request-validation `400` responses.
+
+Serializer validation errors are documented as an object whose arbitrary field names (including `non_field_errors`) map to lists of strings. Operations that can also return business-domain failures use a non-overlapping `oneOf` with a required, closed `code`/`detail` object. Domain failures for verification, login, cart lookup/update, and coupons now return that stable shape. CSRF failures remain their real HTML 403 response and are documented without a false JSON body schema.
+
+Cart POST/PATCH/DELETE now execute their already-published dedicated request serializers before reading values. This makes malformed IDs/quantities deterministic 400 field-error maps instead of uncaught conversion errors, without changing domain models, migrations, providers, or frontend code.
+
+### Semantic contract coverage
+
+- Exact response-key equality is asserted for every customer, billing CRUD, address CRUD, order read, identity, checkout, cart, and auth operation; subset assertions can no longer hide spurious statuses.
+- Real unauthenticated requests prove the session-only protected boundary emits 403 and validate each JSON body against the documented response schema.
+- Real success/validation/not-found/provider responses cover customer, billing, addresses, orders, identity, checkout, cart, registration, email verification, login, and CSRF acquisition.
+- Runtime payload validation uses the generated OpenAPI document itself, resolving components and translating OpenAPI 3 `nullable` to equivalent JSON Schema solely inside the test validator.
+- Serializer validation probes include field errors and multiple-field/non-field-compatible maps; domain probes assert exact stable codes/details for invalid verification challenges, credentials, variants, and coupons.
+- Enforced-CSRF login verifies the real HTML 403 matches a bodyless documented response rather than an advertised JSON error.
+
+### TDD red/green evidence
+
+- Initial exact-status/runtime-schema tests: `2 failed`; they exposed the extra protected `401` and validation maps being documented as string-valued `Error` objects.
+- After the first annotation pass, the runtime-schema test still failed because invalid credentials returned a flat list rather than either documented error shape.
+- Cart request validation regression failed with an uncaught `ValueError` for a non-integer variant ID and showed PATCH/DELETE missing their real 400 contracts. Executing the dedicated serializers made those paths deterministic validation responses.
+- The first mixed validation/domain `oneOf` failed because the permissive legacy `Error` component overlapped with every validation map. A required, closed `code`/`detail` branch made the alternatives unambiguous.
+- Invalid coupon coverage then reproduced the previously uncaught Django `ValidationError`; the API boundary now maps it to `{"code":"invalid_coupon","detail":"Coupon is invalid"}`.
+- A missing cart target initially returned the domain `unknown_variant` response; the cart request serializer now emits the documented `non_field_errors` list requiring either `variant_id` or `coupon`.
+- Final focused run: `2 passed in 3.58s`.
+
+### Commands and results
+
+- `APP_ENV=test pytest -q tests/test_openapi_semantics.py` — `2 passed in 3.58s`.
+- `APP_ENV=test python -m pytest -q` — `78 passed, 7 skipped in 22.74s`; skips remain PostgreSQL-marked tests unaffected by this F16-only round.
+- `APP_ENV=test python manage.py spectacular --file <temporary> --validate` — exit 0 with no warnings; the temporary artifact was removed.
+- `python -m ruff check .` — `All checks passed!` after applying the reported import/line formatting corrections.
+- `git diff --check` — passed with only the existing Windows line-ending notices.
+
+### Concerns
+
+- None within the F16 scope. No model, migration, dependency, provider, or frontend changes were made.

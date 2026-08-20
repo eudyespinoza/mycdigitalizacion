@@ -3,15 +3,16 @@ import secrets
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.core import signing
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.middleware.csrf import get_token
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import generics, permissions, serializers, status, viewsets
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 
 from accounts.models import BillingProfile, CustomerProfile, EmailVerificationChallenge, Profile
@@ -111,6 +112,36 @@ class ErrorSerializer(serializers.Serializer):
     detail = serializers.CharField(required=False)
 
 
+VALIDATION_ERROR_SCHEMA = {
+    "type": "object",
+    "additionalProperties": {
+        "type": "array",
+        "items": {"type": "string"},
+    },
+}
+VALIDATION_OR_DOMAIN_ERROR_SCHEMA = {
+    "oneOf": [
+        VALIDATION_ERROR_SCHEMA,
+        {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string"},
+                "detail": {"type": "string"},
+            },
+            "required": ["code", "detail"],
+            "additionalProperties": False,
+        },
+    ]
+}
+CSRF_ERROR_RESPONSE = OpenApiResponse(description="CSRF validation failed")
+
+
+class DomainError(APIException):
+    def __init__(self, *, code, detail, status_code):
+        self.status_code = status_code
+        super().__init__({"code": code, "detail": detail}, code=code)
+
+
 class CsrfSerializer(serializers.Serializer):
     csrf_token = serializers.CharField()
 
@@ -174,7 +205,7 @@ class RegisterView(generics.GenericAPIView):
         request=RegistrationRequestSerializer,
         responses={
             201: CustomerSerializer,
-            400: ErrorSerializer,
+            400: VALIDATION_ERROR_SCHEMA,
             409: ErrorSerializer,
         },
     )
@@ -213,13 +244,21 @@ class VerifyEmailView(generics.GenericAPIView):
 
     @extend_schema(
         request=VerifyEmailRequestSerializer,
-        responses={200: StatusSerializer, 400: ErrorSerializer, 429: ErrorSerializer},
+        responses={
+            200: StatusSerializer,
+            400: VALIDATION_OR_DOMAIN_ERROR_SCHEMA,
+            429: ErrorSerializer,
+        },
     )
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         if not consume_email_verification_challenge(**serializer.validated_data):
-            raise ValidationError("Invalid or expired verification challenge")
+            raise DomainError(
+                code="invalid_verification_challenge",
+                detail="Invalid or expired verification challenge",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
         return Response({"status": "verified"})
 
 
@@ -230,7 +269,11 @@ class LoginView(generics.GenericAPIView):
 
     @extend_schema(
         request=LoginRequestSerializer,
-        responses={200: CustomerSerializer, 400: ErrorSerializer, 403: ErrorSerializer},
+        responses={
+            200: CustomerSerializer,
+            400: VALIDATION_OR_DOMAIN_ERROR_SCHEMA,
+            403: CSRF_ERROR_RESPONSE,
+        },
     )
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
@@ -242,13 +285,21 @@ class LoginView(generics.GenericAPIView):
             password=data["password"],
         )
         if not user:
-            raise ValidationError("Invalid credentials")
+            raise DomainError(
+                code="invalid_credentials",
+                detail="Invalid credentials",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
         anonymous_token = data.get("cart_token")
         if anonymous_token:
             try:
                 merge_carts(anonymous_cart=Cart.from_signed_token(anonymous_token), user=user)
             except (signing.BadSignature, Cart.DoesNotExist) as exc:
-                raise ValidationError("Invalid cart token") from exc
+                raise DomainError(
+                    code="invalid_cart_token",
+                    detail="Invalid cart token",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                ) from exc
         login(request, user)
         return Response(CustomerSerializer(user).data)
 
@@ -257,7 +308,7 @@ class LoginView(generics.GenericAPIView):
 class LogoutView(generics.GenericAPIView):
     serializer_class = EmptySerializer
 
-    @extend_schema(request=None, responses={204: None, 403: ErrorSerializer})
+    @extend_schema(request=None, responses={204: None, 403: CSRF_ERROR_RESPONSE})
     def post(self, request):
         logout(request)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -267,9 +318,7 @@ class CustomerMeView(generics.GenericAPIView):
     permission_classes = (permissions.IsAuthenticated, IsVerifiedEmail)
     serializer_class = CustomerSerializer
 
-    @extend_schema(
-        responses={200: CustomerSerializer, 401: ErrorSerializer, 403: ErrorSerializer}
-    )
+    @extend_schema(responses={200: CustomerSerializer, 403: ErrorSerializer})
     def get(self, request):
         return Response(CustomerSerializer(request.user).data)
 
@@ -278,22 +327,19 @@ class CustomerMeView(generics.GenericAPIView):
     list=extend_schema(
         responses={
             200: BillingProfileSerializer(many=True),
-            401: ErrorSerializer,
             403: ErrorSerializer,
         }
     ),
     create=extend_schema(
         responses={
             201: BillingProfileSerializer,
-            400: ErrorSerializer,
-            401: ErrorSerializer,
+            400: VALIDATION_ERROR_SCHEMA,
             403: ErrorSerializer,
         }
     ),
     retrieve=extend_schema(
         responses={
             200: BillingProfileSerializer,
-            401: ErrorSerializer,
             403: ErrorSerializer,
             404: ErrorSerializer,
         }
@@ -301,8 +347,7 @@ class CustomerMeView(generics.GenericAPIView):
     update=extend_schema(
         responses={
             200: BillingProfileSerializer,
-            400: ErrorSerializer,
-            401: ErrorSerializer,
+            400: VALIDATION_ERROR_SCHEMA,
             403: ErrorSerializer,
             404: ErrorSerializer,
         }
@@ -310,8 +355,7 @@ class CustomerMeView(generics.GenericAPIView):
     partial_update=extend_schema(
         responses={
             200: BillingProfileSerializer,
-            400: ErrorSerializer,
-            401: ErrorSerializer,
+            400: VALIDATION_ERROR_SCHEMA,
             403: ErrorSerializer,
             404: ErrorSerializer,
         }
@@ -319,7 +363,6 @@ class CustomerMeView(generics.GenericAPIView):
     destroy=extend_schema(
         responses={
             204: None,
-            401: ErrorSerializer,
             403: ErrorSerializer,
             404: ErrorSerializer,
         }
@@ -346,48 +389,85 @@ class CartView(generics.GenericAPIView):
             try:
                 return Cart.from_signed_token(token)
             except Exception as exc:
-                raise NotFound("Cart not found") from exc
+                raise DomainError(
+                    code="cart_not_found",
+                    detail="Cart not found",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                ) from exc
         return Cart.objects.create()
 
-    @extend_schema(responses={200: CartSerializer})
+    @extend_schema(responses={200: CartSerializer, 404: ErrorSerializer})
     def get(self, request):
         return Response(CartSerializer(self._cart(request)).data)
 
     @extend_schema(
         request=CartPostRequestSerializer,
-        responses={201: CartSerializer, 400: ErrorSerializer, 404: ErrorSerializer},
+        responses={
+            201: CartSerializer,
+            400: VALIDATION_OR_DOMAIN_ERROR_SCHEMA,
+            404: ErrorSerializer,
+        },
     )
     def post(self, request):
+        request_serializer = CartPostRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        data = request_serializer.validated_data
         cart = self._cart(request)
-        if request.data.get("coupon"):
-            apply_coupon(cart, request.data["coupon"])
+        if data.get("coupon"):
+            try:
+                apply_coupon(cart, data["coupon"])
+            except DjangoValidationError as exc:
+                raise DomainError(
+                    code="invalid_coupon",
+                    detail=exc.messages[0],
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                ) from exc
         else:
             try:
                 variant = ProductVariant.objects.get(
-                    pk=request.data.get("variant_id"),
+                    pk=data.get("variant_id"),
                     is_active=True,
                     product__is_active=True,
                     product__is_sellable=True,
                 )
             except ProductVariant.DoesNotExist as exc:
-                raise ValidationError("Unknown variant") from exc
-            quantity = int(request.data.get("quantity", 1))
-            if quantity < 1:
-                raise ValidationError("Quantity must be positive")
-            add_cart_line(cart=cart, variant=variant, quantity=quantity)
+                raise DomainError(
+                    code="unknown_variant",
+                    detail="Unknown variant",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                ) from exc
+            try:
+                add_cart_line(cart=cart, variant=variant, quantity=data["quantity"])
+            except DjangoValidationError as exc:
+                raise DomainError(
+                    code="cart_update_rejected",
+                    detail=exc.messages[0],
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                ) from exc
         return Response(CartSerializer(cart).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         request=CartPatchRequestSerializer,
-        responses={200: CartSerializer, 400: ErrorSerializer, 404: ErrorSerializer},
+        responses={
+            200: CartSerializer,
+            400: VALIDATION_ERROR_SCHEMA,
+            404: ErrorSerializer,
+        },
     )
     def patch(self, request):
+        request_serializer = CartPatchRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        data = request_serializer.validated_data
         cart = self._cart(request)
         try:
-            line = cart.lines.get(variant_id=request.data.get("variant_id"))
+            line = cart.lines.get(variant_id=data["variant_id"])
         except CartLine.DoesNotExist as exc:
-            raise NotFound("Cart line not found") from exc
-        quantity = int(request.data.get("quantity", 0))
+            raise DomainError(
+                code="cart_line_not_found",
+                detail="Cart line not found",
+                status_code=status.HTTP_404_NOT_FOUND,
+            ) from exc
+        quantity = data["quantity"]
         if quantity < 1:
             line.delete()
         else:
@@ -397,11 +477,17 @@ class CartView(generics.GenericAPIView):
 
     @extend_schema(
         request=CartDeleteRequestSerializer,
-        responses={200: CartSerializer, 404: ErrorSerializer},
+        responses={
+            200: CartSerializer,
+            400: VALIDATION_ERROR_SCHEMA,
+            404: ErrorSerializer,
+        },
     )
     def delete(self, request):
+        request_serializer = CartDeleteRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
         cart = self._cart(request)
-        variant_id = request.data.get("variant_id")
+        variant_id = request_serializer.validated_data.get("variant_id")
         if variant_id:
             cart.lines.filter(variant_id=variant_id).delete()
         else:
@@ -415,22 +501,19 @@ class CartView(generics.GenericAPIView):
     list=extend_schema(
         responses={
             200: AddressSerializer(many=True),
-            401: ErrorSerializer,
             403: ErrorSerializer,
         }
     ),
     create=extend_schema(
         responses={
             201: AddressSerializer,
-            400: ErrorSerializer,
-            401: ErrorSerializer,
+            400: VALIDATION_ERROR_SCHEMA,
             403: ErrorSerializer,
         }
     ),
     retrieve=extend_schema(
         responses={
             200: AddressSerializer,
-            401: ErrorSerializer,
             403: ErrorSerializer,
             404: ErrorSerializer,
         }
@@ -438,8 +521,7 @@ class CartView(generics.GenericAPIView):
     update=extend_schema(
         responses={
             200: AddressSerializer,
-            400: ErrorSerializer,
-            401: ErrorSerializer,
+            400: VALIDATION_ERROR_SCHEMA,
             403: ErrorSerializer,
             404: ErrorSerializer,
         }
@@ -447,8 +529,7 @@ class CartView(generics.GenericAPIView):
     partial_update=extend_schema(
         responses={
             200: AddressSerializer,
-            400: ErrorSerializer,
-            401: ErrorSerializer,
+            400: VALIDATION_ERROR_SCHEMA,
             403: ErrorSerializer,
             404: ErrorSerializer,
         }
@@ -456,7 +537,6 @@ class CartView(generics.GenericAPIView):
     destroy=extend_schema(
         responses={
             204: None,
-            401: ErrorSerializer,
             403: ErrorSerializer,
             404: ErrorSerializer,
         }
@@ -478,14 +558,12 @@ class AddressViewSet(viewsets.ModelViewSet):
     list=extend_schema(
         responses={
             200: OrderSerializer(many=True),
-            401: ErrorSerializer,
             403: ErrorSerializer,
         }
     ),
     retrieve=extend_schema(
         responses={
             200: OrderSerializer,
-            401: ErrorSerializer,
             403: ErrorSerializer,
             404: ErrorSerializer,
         }
@@ -508,7 +586,6 @@ class IdentityStatusView(generics.GenericAPIView):
     @extend_schema(
         responses={
             200: StatusSerializer,
-            401: ErrorSerializer,
             403: ErrorSerializer,
         }
     )
@@ -523,7 +600,6 @@ class CheckoutView(generics.GenericAPIView):
     @extend_schema(
         request=None,
         responses={
-            401: ErrorSerializer,
             403: ErrorSerializer,
             503: CodeSerializer,
         },

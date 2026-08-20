@@ -9,6 +9,11 @@ class CartPostRequestSerializer(serializers.Serializer):
     quantity = serializers.IntegerField(min_value=1, required=False, default=1)
     coupon = serializers.CharField(required=False)
 
+    def validate(self, attrs):
+        if "variant_id" not in attrs and not attrs.get("coupon"):
+            raise serializers.ValidationError("Provide either variant_id or coupon")
+        return attrs
+
 
 class CartPatchRequestSerializer(serializers.Serializer):
     variant_id = serializers.IntegerField()
