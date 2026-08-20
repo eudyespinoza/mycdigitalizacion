@@ -201,3 +201,53 @@ The implementation should not be accepted yet. Normal-flow coverage is substanti
 - `python manage.py makemigrations --check --dry-run` -> **No changes detected**, with the expected local PostgreSQL authentication warning.
 - `git diff --check 5d7f070 ad9c5fd` -> **pass**.
 - Focused live reproductions confirmed: distinct provider keys after checkout rollback; orphan unbound identity audit row; an active stale webhook claim swept/requeued; HTML 500 on explicit SID checkout rejection; public fiscal ciphertext/hash exposure; and permissive invalid production booleans.
+
+---
+
+## Fix Round 2 verdict — 2026-08-20
+
+Fix reviewed: `64eb01f..87dee3db804af57d31e166c478df78b59d8edff7`
+
+This final pass independently replayed the exact eight remaining Round 1 REQUIRED failures, inspected every new regression assertion, ran the real PostgreSQL concurrency cases, and scanned the complete round diff for new security, provider-recovery, transaction, migration, and API-contract regressions.
+
+### Resolution of the eight remaining findings
+
+1. **F2 — RESOLVED.** Checkout now deterministically derives the order public UUID, payment external reference, and Mercado Pago preference idempotency key from `(user_id, checkout idempotency key)` at `backend/commerce/checkout.py:41-52,153-154,242,261-278`; resume derives the same identifiers at `checkout.py:317-320,378-394`. All confirmation-transaction exception exits after a returned SID attempt remove only a still-unbound attempt (`checkout.py:287-305`); an explicit SID rejection remains a deliberate rejection audit. Replaying the prior provider-success/post-provider-DB-failure reproduction now produced the same provider key and external reference on both calls, the provider returned the same preference, and the database contained one bound attempt with no orphan. The regression at `backend/tests/test_task3_round2_regressions.py:26-102` faithfully injects failure after preference success and asserts each invariant.
+
+2. **F6 — RESOLVED.** A webhook claim now writes an explicit current `updated_at` in the same locked update as `status=processing` before provider I/O (`backend/commerce/payments.py:278-285`). The exact stale-event reproduction invokes the sweep from inside `fetch_payment`; the active event is no longer selected or requeued (`backend/tests/test_task3_round2_regressions.py:105-135`). Provider retry/reset and the stale crash-recovery sweep remain intact.
+
+3. **F9 — RESOLVED.** Refund creation isolates the global unique insert in an inner savepoint and, on collision, locks the committed winner before returning either the existing same-order result or stable `refund_idempotency_conflict` (`backend/commerce/payments.py:314-359`). The PostgreSQL two-order/same-key race at `backend/tests/test_postgres_checkout.py:179-235` passed with exactly one approved refund row, one provider call, and one stable conflict—no uncaught `IntegrityError`.
+
+4. **F13 — RESOLVED.** The HTTP transport converts all `http.client.HTTPException` protocol failures to typed unavailable errors with code-only diagnostics (`backend/providers.py:6,88-104`), and HTTP 400/402 now map to non-retried `ProviderRejected` (`providers.py:148-160`). Faithful fakes cover remote disconnect, bad status line, incomplete read, and one-call 400/402 rejection at `backend/tests/test_task3_round2_regressions.py:138-186`.
+
+5. **F14 — RESOLVED.** Migration `backend/commerce/migrations/0011_shipment_parcel_import.py` adds durable per-parcel intents. Shipment plus all deterministic parcel intents commit before provider I/O (`backend/commerce/shipping.py:374-409`); each parcel locks, reuses its external/provider key, commits independently, and skips imported work (`shipping.py:412-434`); final shipment state commits separately (`shipping.py:437-461`). The recovery beat task is wired at `backend/commerce/tasks.py:141-162` and `backend/config/settings.py:290-294`. The SQLite regressions cover parcel-two provider failure and final local-finalization failure without repeating parcel one (`backend/tests/test_task3_round2_regressions.py:236-315`); the PostgreSQL recovery case at `backend/tests/test_postgres_checkout.py:238-276` also passed. This closes the prior lost-progress multibulto failure while retaining deterministic provider idempotency for the remote-success/local-commit crash window.
+
+6. **F15 — RESOLVED.** Checkout maps explicit SID rejection to stable safe HTTP 422 JSON (`backend/api_views.py:1021-1080`), reproduced at `backend/tests/test_task3_round2_regressions.py:317-346`. Webhook OpenAPI now requires query `data.id`, headers `x-signature`/`x-request-id`, and body `id`/`type`/`data.id`, with 200/202/403 responses (`backend/api_views.py:1138-1183`); the generated schema assertions at `backend/tests/test_task3_round2_regressions.py:349-361` and schema validation both pass.
+
+7. **F16 — RESOLVED.** `strict_boolean()` accepts only literal true/false in every environment, and any configured/live Mercado Pago instance requires access token, webhook secret, and collector ID before startup (`backend/config/settings.py:28-57`). Enabled carrier mode/credentials/customer/origin/HTTPS URL are also checked before the non-production early return (`settings.py:58-80`). The exact invalid booleans and missing-collector inputs now raise `ImproperlyConfigured` in production and development (`backend/tests/test_task3_round2_regressions.py:364-398`). Development and production Compose interpolation validate with the provider controls forwarded to backend, worker, and beat.
+
+8. **F17 — RESOLVED.** The internal encrypted/hash/masked fiscal snapshot remains available for ownership/resume audit, while `PublicFiscalSnapshotSerializer` exposes only label, legal name, tax condition, and masked CUIT (`backend/commerce/serializers.py:85-114`). The owner detail API regression supplies ciphertext/hash/profile ID and proves all three are absent from the response (`backend/tests/test_task3_round2_regressions.py:401-434`).
+
+### Fix Round 2 counts and final verdict
+
+- **Resolved this round:** 8 (`F2`, `F6`, `F9`, `F13`, `F14`, `F15`, `F16`, `F17`)
+- **Partial this round:** 0
+- **Unresolved this round:** 0
+- **All original REQUIRED findings:** 19 resolved, 0 remaining
+- **New REQUIRED regressions found:** 0
+- **SPEC COMPLIANCE: PASS**
+- **CODE QUALITY: PASS**
+
+Task 3 now satisfies the reviewed brief and can be accepted. The four original OPTIONAL findings remain non-blocking operational follow-up; no sandbox/provider success was inferred without credentials. The typed 501 for MiCorreo labels remains the correct contract because the published v1 API has no label endpoint.
+
+### Fix Round 2 verification performed
+
+- Exact Round 2 plus OpenAPI/local PostgreSQL-file selection -> **18 passed, 5 PostgreSQL-only skipped**.
+- Full SQLite suite: `APP_ENV=test python -m pytest -q` -> **144 passed, 13 skipped**.
+- PostgreSQL 17 Compose suite: `docker compose run --rm -e APP_ENV=test -e USE_POSTGRES_TEST_DB=true backend python -m pytest -q -m postgresql` -> **14 passed, 143 deselected**.
+- `ruff check .` -> **All checks passed**.
+- `python manage.py check` -> **pass**.
+- `python manage.py spectacular --validate --file NUL` -> **exit 0, no warnings**.
+- `python manage.py makemigrations --check --dry-run` -> **No changes detected**, with only the local non-Compose PostgreSQL authentication warning.
+- Development Compose and production Compose with required interpolation values -> **valid**.
+- `git diff --check 64eb01f 87dee3d` -> **pass**.
