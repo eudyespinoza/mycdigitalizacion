@@ -147,6 +147,8 @@ def emit_event(service: str, event: str, *, level: str = "info", stream=None, **
         "job_id": OPS_JOB_ID,
     }
     for key, value in fields.items():
+        if key == "job_id":
+            continue
         if value is not None:
             payload[key] = safe_text(value) if isinstance(value, str) else value
     print(json.dumps(payload, separators=(",", ":")), file=stream or sys.stdout)

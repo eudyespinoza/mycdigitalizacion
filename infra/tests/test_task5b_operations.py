@@ -383,6 +383,7 @@ class BackupRestoreTests(unittest.TestCase):
                 **self.backup_env(),
                 "BACKUP_HEALTH_FILE": str(self.root / "scheduler-health.json"),
                 "FAKE_EMIT_SENSITIVE": "true",
+                "OPS_JOB_ID": "123e4567-e89b-12d3-a456-123456789012",
             },
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
