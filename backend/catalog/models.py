@@ -1,8 +1,9 @@
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.db import models
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 
@@ -14,6 +15,13 @@ class Brand(models.Model):
         return self.name
 
 
+class CategoryQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        if "parent" in kwargs or "parent_id" in kwargs:
+            raise ValidationError("Use move_category to change category ancestry")
+        return super().update(**kwargs)
+
+
 class Category(models.Model):
     name = models.CharField(max_length=120)
     slug = models.SlugField(unique=True)
@@ -21,6 +29,7 @@ class Category(models.Model):
         "self", null=True, blank=True, related_name="children", on_delete=models.PROTECT
     )
     is_active = models.BooleanField(default=True)
+    objects = CategoryQuerySet.as_manager()
 
     def clean(self):
         depth = 1
@@ -36,6 +45,12 @@ class Category(models.Model):
             ancestor = ancestor.parent
 
     def save(self, *args, **kwargs):
+        if self.pk and not getattr(self, "_allow_reparent", False):
+            original_parent_id = type(self)._base_manager.filter(pk=self.pk).values_list(
+                "parent_id", flat=True
+            ).first()
+            if original_parent_id != self.parent_id:
+                raise ValidationError("Use move_category to change category ancestry")
         self.full_clean()
         return super().save(*args, **kwargs)
 
@@ -105,18 +120,90 @@ class ProductMedia(models.Model):
         ordering = ("order", "id")
 
 
+class ProductVariantQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        if kwargs.get("is_active") is False:
+            active_sellable = self.filter(is_active=True, product__is_sellable=True)
+            for product_id in active_sellable.values_list("product_id", flat=True).distinct():
+                deactivating = active_sellable.filter(product_id=product_id).count()
+                active = ProductVariant.objects.filter(
+                    product_id=product_id, is_active=True
+                ).count()
+                if deactivating >= active:
+                    raise ValidationError("Cannot deactivate the last active variant")
+        return super().update(**kwargs)
+
+    def delete(self):
+        active_sellable = self.filter(is_active=True, product__is_sellable=True)
+        for product_id in active_sellable.values_list("product_id", flat=True).distinct():
+            deleting = active_sellable.filter(product_id=product_id).count()
+            remaining = ProductVariant.objects.filter(
+                product_id=product_id, is_active=True
+            ).count()
+            if deleting >= remaining:
+                raise ValidationError("Cannot delete the last active variant")
+        return super().delete()
+
+
 class ProductVariant(models.Model):
     product = models.ForeignKey(Product, related_name="variants", on_delete=models.CASCADE)
     sku = models.CharField(max_length=64, unique=True)
     name = models.CharField(max_length=120, blank=True)
-    price = models.DecimalField(max_digits=12, decimal_places=2)
-    cost = models.DecimalField(max_digits=12, decimal_places=2)
-    packaged_weight_grams = models.PositiveIntegerField()
-    length_cm = models.DecimalField(max_digits=9, decimal_places=2)
-    width_cm = models.DecimalField(max_digits=9, decimal_places=2)
-    height_cm = models.DecimalField(max_digits=9, decimal_places=2)
+    price = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0"))]
+    )
+    cost = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0"))]
+    )
+    packaged_weight_grams = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    length_cm = models.DecimalField(
+        max_digits=9, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    )
+    width_cm = models.DecimalField(
+        max_digits=9, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    )
+    height_cm = models.DecimalField(
+        max_digits=9, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    )
     is_active = models.BooleanField(default=True)
     on_hand = models.PositiveIntegerField(default=0)
+    objects = ProductVariantQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=Q(price__gte=0), name="variant_price_nonnegative"),
+            models.CheckConstraint(condition=Q(cost__gte=0), name="variant_cost_nonnegative"),
+            models.CheckConstraint(
+                condition=Q(packaged_weight_grams__gt=0), name="variant_weight_positive"
+            ),
+            models.CheckConstraint(condition=Q(length_cm__gt=0), name="variant_length_positive"),
+            models.CheckConstraint(condition=Q(width_cm__gt=0), name="variant_width_positive"),
+            models.CheckConstraint(condition=Q(height_cm__gt=0), name="variant_height_positive"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk and not getattr(self, "_allow_state_change", False):
+            original = type(self)._base_manager.filter(pk=self.pk).values("is_active").first()
+            if (
+                original
+                and original["is_active"]
+                and not self.is_active
+                and self.product.is_sellable
+                and not self.product.variants.filter(is_active=True).exclude(pk=self.pk).exists()
+            ):
+                raise ValidationError("Cannot deactivate the last active variant")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if (
+            not getattr(self, "_allow_delete", False)
+            and self.is_active
+            and self.product.is_sellable
+            and not self.product.variants.filter(is_active=True).exclude(pk=self.pk).exists()
+        ):
+            raise ValidationError("Cannot delete the last active variant")
+        return super().delete(*args, **kwargs)
 
     @property
     def volume_cm3(self):
@@ -153,5 +240,69 @@ class AttributeValue(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=("variant", "definition"), name="unique_variant_attribute"
-            )
+            ),
+            models.CheckConstraint(
+                condition=(
+                    (
+                        Q(text_value__gt="")
+                        & Q(integer_value__isnull=True)
+                        & Q(decimal_value__isnull=True)
+                        & Q(boolean_value__isnull=True)
+                        & Q(option__isnull=True)
+                    )
+                    | (
+                        Q(text_value="")
+                        & Q(integer_value__isnull=False)
+                        & Q(decimal_value__isnull=True)
+                        & Q(boolean_value__isnull=True)
+                        & Q(option__isnull=True)
+                    )
+                    | (
+                        Q(text_value="")
+                        & Q(integer_value__isnull=True)
+                        & Q(decimal_value__isnull=False)
+                        & Q(boolean_value__isnull=True)
+                        & Q(option__isnull=True)
+                    )
+                    | (
+                        Q(text_value="")
+                        & Q(integer_value__isnull=True)
+                        & Q(decimal_value__isnull=True)
+                        & Q(boolean_value__isnull=False)
+                        & Q(option__isnull=True)
+                    )
+                    | (
+                        Q(text_value="")
+                        & Q(integer_value__isnull=True)
+                        & Q(decimal_value__isnull=True)
+                        & Q(boolean_value__isnull=True)
+                        & Q(option__isnull=False)
+                    )
+                ),
+                name="attribute_value_exactly_one_storage",
+            ),
         ]
+
+    def clean(self):
+        expected_field = {
+            "text": "text_value",
+            "integer": "integer_value",
+            "decimal": "decimal_value",
+            "boolean": "boolean_value",
+            "option": "option",
+        }[self.definition.value_type]
+        populated = {
+            "text_value": self.text_value != "",
+            "integer_value": self.integer_value is not None,
+            "decimal_value": self.decimal_value is not None,
+            "boolean_value": self.boolean_value is not None,
+            "option": self.option_id is not None,
+        }
+        if sum(populated.values()) != 1 or not populated[expected_field]:
+            raise ValidationError("Attribute value must use exactly its declared value type")
+        if self.option_id and self.option.definition_id != self.definition_id:
+            raise ValidationError("Attribute option must belong to the same definition")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)

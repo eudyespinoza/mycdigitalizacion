@@ -1,11 +1,37 @@
 import uuid
+from decimal import Decimal
 
 from django.conf import settings
 from django.core import signing
+from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils import timezone
 
 from catalog.models import Category, Product, ProductVariant
+
+
+class AppendOnlyQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("This record is append-only")
+
+    def delete(self):
+        raise ValidationError("This record is append-only")
+
+
+class AppendOnlyModel(models.Model):
+    objects = AppendOnlyQuerySet.as_manager()
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError("This record is append-only")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("This record is append-only")
 
 
 class DiscountType(models.TextChoices):
@@ -15,13 +41,44 @@ class DiscountType(models.TextChoices):
 
 class ScheduledDiscount(models.Model):
     discount_type = models.CharField(max_length=16, choices=DiscountType.choices)
-    value = models.DecimalField(max_digits=12, decimal_places=2)
+    value = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
+    )
     starts_at = models.DateTimeField()
     ends_at = models.DateTimeField()
     enabled = models.BooleanField(default=True)
 
     class Meta:
         abstract = True
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(starts_at__lt=models.F("ends_at")),
+                name="%(class)s_schedule_ordered",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(value__gt=0)
+                    & (
+                        models.Q(discount_type="fixed")
+                        | (
+                            models.Q(discount_type="percentage")
+                            & models.Q(value__lte=100)
+                        )
+                    )
+                ),
+                name="%(class)s_discount_valid",
+            ),
+        ]
+
+    def clean(self):
+        if self.starts_at >= self.ends_at:
+            raise ValidationError("Discount start must precede its end")
+        if self.value <= 0 or (self.discount_type == "percentage" and self.value > 100):
+            raise ValidationError("Discount value is outside its valid range")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
     def is_active(self, at=None):
         checked_at = at or timezone.now()
@@ -56,6 +113,15 @@ class Cart(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("user",),
+                condition=models.Q(user__isnull=False),
+                name="unique_authenticated_user_cart",
+            )
+        ]
+
     @property
     def signed_token(self):
         return signing.dumps(str(self.anonymous_token), salt="commerce.cart")
@@ -73,7 +139,10 @@ class CartLine(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=("cart", "variant"), name="unique_cart_variant")
+            models.UniqueConstraint(fields=("cart", "variant"), name="unique_cart_variant"),
+            models.CheckConstraint(
+                condition=models.Q(quantity__gt=0), name="cart_quantity_positive"
+            ),
         ]
 
 
@@ -95,7 +164,7 @@ class StockReservation(models.Model):
     released_at = models.DateTimeField(null=True, blank=True)
 
 
-class InventoryMovement(models.Model):
+class InventoryMovement(AppendOnlyModel):
     class Kind(models.TextChoices):
         ADJUSTMENT = "adjustment", "Adjustment"
         RESERVATION = "reservation", "Reservation"
@@ -119,6 +188,17 @@ class InventoryMovement(models.Model):
 
 
 class Order(models.Model):
+    IMMUTABLE_FIELDS = (
+        "user_id",
+        "fulfillment_method",
+        "customer_snapshot",
+        "address_snapshot",
+        "fiscal_snapshot",
+        "coupon_code_snapshot",
+        "subtotal_snapshot",
+        "discount_snapshot",
+        "total_snapshot",
+    )
     class IdentityStatus(models.TextChoices):
         PENDING = "pending_identity", "Pending identity"
         VERIFIED = "verified", "Verified"
@@ -166,8 +246,25 @@ class Order(models.Model):
     reservations = models.ManyToManyField(StockReservation, related_name="orders", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def save(self, *args, **kwargs):
+        if self.pk:
+            original = (
+                type(self)
+                ._base_manager.filter(pk=self.pk)
+                .values(*self.IMMUTABLE_FIELDS)
+                .get()
+            )
+            if any(getattr(self, field) != original[field] for field in self.IMMUTABLE_FIELDS):
+                raise ValidationError("Order snapshots are immutable")
+            if not getattr(self, "_allow_status_transition", False):
+                statuses = ("identity_status", "payment_status", "fulfillment_status")
+                current = type(self)._base_manager.filter(pk=self.pk).values(*statuses).get()
+                if any(getattr(self, field) != current[field] for field in statuses):
+                    raise ValidationError("Order statuses require a transition service")
+        return super().save(*args, **kwargs)
 
-class OrderItem(models.Model):
+
+class OrderItem(AppendOnlyModel):
     order = models.ForeignKey(Order, related_name="items", on_delete=models.PROTECT)
     variant = models.ForeignKey(ProductVariant, null=True, on_delete=models.SET_NULL)
     product_name_snapshot = models.CharField(max_length=200)
@@ -179,7 +276,7 @@ class OrderItem(models.Model):
     line_total_snapshot = models.DecimalField(max_digits=12, decimal_places=2)
 
 
-class OrderAuditEvent(models.Model):
+class OrderAuditEvent(AppendOnlyModel):
     order = models.ForeignKey(Order, related_name="audit_events", on_delete=models.CASCADE)
     kind = models.CharField(max_length=64)
     data = models.JSONField(default=dict)

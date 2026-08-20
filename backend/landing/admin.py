@@ -16,7 +16,15 @@ class ScheduledContentAdmin(admin.ModelAdmin):
     ordering = ("order",)
 
 
-admin.site.register(SiteSettings)
+@admin.register(SiteSettings)
+class SiteSettingsAdmin(admin.ModelAdmin):
+    def has_add_permission(self, request):
+        return not SiteSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 admin.site.register(HeroSlide, ScheduledContentAdmin)
 admin.site.register(PromotionSlide, ScheduledContentAdmin)
 admin.site.register(LandingCollection, ScheduledContentAdmin)

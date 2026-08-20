@@ -19,6 +19,9 @@ class OrderItemInline(admin.TabularInline):
     can_delete = False
     readonly_fields = [field.name for field in OrderItem._meta.fields]
 
+    def has_add_permission(self, request, obj=None):
+        return False
+
 
 class OrderAuditInline(admin.TabularInline):
     model = OrderAuditEvent
@@ -26,12 +29,16 @@ class OrderAuditInline(admin.TabularInline):
     can_delete = False
     readonly_fields = [field.name for field in OrderAuditEvent._meta.fields]
 
+    def has_add_permission(self, request, obj=None):
+        return False
+
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     list_display = (
         "public_id",
         "user",
+        "fulfillment_method",
         "identity_status",
         "payment_status",
         "fulfillment_status",
@@ -44,10 +51,14 @@ class OrderAdmin(admin.ModelAdmin):
         "customer_snapshot",
         "address_snapshot",
         "fiscal_snapshot",
+        "coupon_code_snapshot",
         "subtotal_snapshot",
         "discount_snapshot",
         "total_snapshot",
         "created_at",
+        "identity_status",
+        "payment_status",
+        "fulfillment_status",
     )
     inlines = (OrderItemInline, OrderAuditInline)
 
@@ -57,6 +68,16 @@ class StockReservationAdmin(admin.ModelAdmin):
     list_display = ("variant", "quantity", "status", "expires_at", "reference")
     list_filter = ("status",)
     search_fields = ("variant__sku", "reference")
+    readonly_fields = [field.name for field in StockReservation._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(InventoryMovement)
@@ -65,6 +86,15 @@ class InventoryMovementAdmin(admin.ModelAdmin):
     list_filter = ("kind",)
     search_fields = ("variant__sku", "reference")
     readonly_fields = [field.name for field in InventoryMovement._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 admin.site.register(PromotionRule)

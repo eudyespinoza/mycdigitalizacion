@@ -1,28 +1,54 @@
 import secrets
 
+from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.core import signing
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.middleware.csrf import get_token
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_protect
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, permissions, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 from accounts.models import BillingProfile, CustomerProfile, EmailVerificationChallenge, Profile
-from accounts.serializers import BillingProfileSerializer, CustomerSerializer
+from accounts.permissions import IsVerifiedEmail
+from accounts.serializers import (
+    BillingProfileSerializer,
+    CustomerSerializer,
+    LoginRequestSerializer,
+    RegistrationRequestSerializer,
+    VerifyEmailRequestSerializer,
+)
+from accounts.services import consume_email_verification_challenge
+from accounts.throttles import VerificationEmailThrottle, VerificationIPThrottle
 from catalog.models import Category, Product, ProductVariant
 from catalog.serializers import CategorySerializer, ProductSerializer
 from commerce.models import Cart, CartLine, Order
-from commerce.serializers import CartSerializer, OrderSerializer
-from commerce.services import apply_coupon, merge_carts
+from commerce.serializers import (
+    CartDeleteRequestSerializer,
+    CartPatchRequestSerializer,
+    CartPostRequestSerializer,
+    CartSerializer,
+    OrderSerializer,
+)
+from commerce.services import add_cart_line, apply_coupon, get_or_create_user_cart, merge_carts
 from landing.models import (
     HeroSlide,
     LandingCollection,
     PromotionPopup,
     PromotionSlide,
     SiteSettings,
+)
+from landing.serializers import (
+    HeroSlideSerializer,
+    LandingCollectionSerializer,
+    PromotionPopupSerializer,
+    PromotionSlideSerializer,
+    StorefrontHomeSerializer,
 )
 from locations.models import Address
 from locations.serializers import AddressSerializer
@@ -53,7 +79,7 @@ class ProductDetailView(generics.RetrieveAPIView):
     serializer_class = ProductSerializer
     lookup_field = "slug"
     queryset = (
-        Product.objects.filter(is_active=True)
+        Product.objects.filter(is_active=True, is_sellable=True)
         .select_related("category", "brand")
         .prefetch_related("variants", "media")
     )
@@ -80,16 +106,13 @@ class CodeSerializer(serializers.Serializer):
     code = serializers.CharField()
 
 
+class ErrorSerializer(serializers.Serializer):
+    code = serializers.CharField(required=False)
+    detail = serializers.CharField(required=False)
+
+
 class CsrfSerializer(serializers.Serializer):
     csrf_token = serializers.CharField()
-
-
-class StorefrontHomeSerializer(serializers.Serializer):
-    settings = serializers.JSONField()
-    hero_slides = serializers.ListField(child=serializers.JSONField())
-    promotion_slides = serializers.ListField(child=serializers.JSONField())
-    collections = serializers.ListField(child=serializers.JSONField())
-    promotion_popups = serializers.ListField(child=serializers.JSONField())
 
 
 class StorefrontHomeView(generics.GenericAPIView):
@@ -99,18 +122,9 @@ class StorefrontHomeView(generics.GenericAPIView):
     def get(self, request):
         now = timezone.now()
 
-        def scheduled(model):
-            return [
-                {
-                    "id": item.pk,
-                    "title": item.title,
-                    "alt_text": item.alt_text,
-                    "cta_label": item.cta_label,
-                    "cta_url": item.cta_url,
-                }
-                for item in model.objects.all()
-                if item.is_scheduled(now)
-            ]
+        def scheduled(model, serializer):
+            items = [item for item in model.objects.all() if item.is_scheduled(now)]
+            return serializer(items, many=True, context={"request": request}).data
 
         settings = SiteSettings.objects.first()
         return Response(
@@ -118,11 +132,12 @@ class StorefrontHomeView(generics.GenericAPIView):
                 "settings": {
                     "public_name": settings.public_name if settings else "mycdigitalizacion",
                     "announcement": settings.announcement if settings else "",
+                    "contact_email": settings.contact_email if settings else "",
                 },
-                "hero_slides": scheduled(HeroSlide),
-                "promotion_slides": scheduled(PromotionSlide),
-                "collections": scheduled(LandingCollection),
-                "promotion_popups": scheduled(PromotionPopup),
+                "hero_slides": scheduled(HeroSlide, HeroSlideSerializer),
+                "promotion_slides": scheduled(PromotionSlide, PromotionSlideSerializer),
+                "collections": scheduled(LandingCollection, LandingCollectionSerializer),
+                "promotion_popups": scheduled(PromotionPopup, PromotionPopupSerializer),
             }
         )
 
@@ -131,29 +146,40 @@ class CsrfView(generics.GenericAPIView):
     permission_classes = (permissions.AllowAny,)
     serializer_class = CsrfSerializer
 
+    @extend_schema(responses={200: CsrfSerializer})
     def get(self, request):
         return Response({"csrf_token": get_token(request)})
 
 
 class RegisterView(generics.GenericAPIView):
     permission_classes = (permissions.AllowAny,)
-    serializer_class = CustomerSerializer
+    serializer_class = RegistrationRequestSerializer
 
     @extend_schema(
-        request={"application/json": {"type": "object"}},
-        responses={201: CustomerSerializer},
+        request=RegistrationRequestSerializer,
+        responses={
+            201: CustomerSerializer,
+            400: ErrorSerializer,
+            409: ErrorSerializer,
+        },
     )
     def post(self, request):
-        email = request.data.get("email", "").strip().lower()
-        password = request.data.get("password", "")
-        consent_version = request.data.get("consent_version", "")
-        if not email or len(password) < 8 or not consent_version:
-            raise ValidationError(
-                "email, password of 8+ characters, and consent_version are required"
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            with transaction.atomic():
+                user = get_user_model().objects.create_user(
+                    email=data["email"], password=data["password"]
+                )
+                Profile.objects.create(user=user)
+                CustomerProfile.objects.create(
+                    user=user, consent_version=settings.CURRENT_CONSENT_VERSION
+                )
+        except IntegrityError:
+            return Response(
+                {"code": "email_already_registered"}, status=status.HTTP_409_CONFLICT
             )
-        user = get_user_model().objects.create_user(email=email, password=password)
-        Profile.objects.create(user=user)
-        CustomerProfile.objects.create(user=user, consent_version=consent_version)
         code = f"{secrets.randbelow(1_000_000):06d}"
         EmailVerificationChallenge.issue(user=user, code=code)
         return Response(CustomerSerializer(user).data, status=status.HTTP_201_CREATED)
@@ -161,37 +187,42 @@ class RegisterView(generics.GenericAPIView):
 
 class VerifyEmailView(generics.GenericAPIView):
     permission_classes = (permissions.AllowAny,)
-    serializer_class = StatusSerializer
+    serializer_class = VerifyEmailRequestSerializer
+    throttle_classes = (VerificationIPThrottle, VerificationEmailThrottle)
 
+    @extend_schema(
+        request=VerifyEmailRequestSerializer,
+        responses={200: StatusSerializer, 400: ErrorSerializer, 429: ErrorSerializer},
+    )
     def post(self, request):
-        try:
-            user = get_user_model().objects.get(email=request.data.get("email", "").strip().lower())
-            challenge = user.verification_challenges.order_by("-created_at").first()
-        except get_user_model().DoesNotExist as exc:
-            raise ValidationError("Invalid verification challenge") from exc
-        if not challenge or not challenge.verify(str(request.data.get("code", ""))):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if not consume_email_verification_challenge(**serializer.validated_data):
             raise ValidationError("Invalid or expired verification challenge")
-        now = timezone.now()
-        challenge.consumed_at = now
-        challenge.save(update_fields=["consumed_at"])
-        user.email_verified_at = now
-        user.save(update_fields=["email_verified_at"])
         return Response({"status": "verified"})
 
 
+@method_decorator(csrf_protect, name="dispatch")
 class LoginView(generics.GenericAPIView):
     permission_classes = (permissions.AllowAny,)
-    serializer_class = CustomerSerializer
+    serializer_class = LoginRequestSerializer
 
+    @extend_schema(
+        request=LoginRequestSerializer,
+        responses={200: CustomerSerializer, 400: ErrorSerializer, 403: ErrorSerializer},
+    )
     def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
         user = authenticate(
             request,
-            email=request.data.get("email", "").strip().lower(),
-            password=request.data.get("password"),
+            email=data["email"].casefold(),
+            password=data["password"],
         )
         if not user:
             raise ValidationError("Invalid credentials")
-        anonymous_token = request.data.get("cart_token")
+        anonymous_token = data.get("cart_token")
         if anonymous_token:
             try:
                 merge_carts(anonymous_cart=Cart.from_signed_token(anonymous_token), user=user)
@@ -201,16 +232,18 @@ class LoginView(generics.GenericAPIView):
         return Response(CustomerSerializer(user).data)
 
 
+@method_decorator(csrf_protect, name="dispatch")
 class LogoutView(generics.GenericAPIView):
     serializer_class = EmptySerializer
 
+    @extend_schema(request=None, responses={204: None, 403: ErrorSerializer})
     def post(self, request):
         logout(request)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class CustomerMeView(generics.GenericAPIView):
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = (permissions.IsAuthenticated, IsVerifiedEmail)
     serializer_class = CustomerSerializer
 
     def get(self, request):
@@ -218,7 +251,7 @@ class CustomerMeView(generics.GenericAPIView):
 
 
 class BillingProfileViewSet(viewsets.ModelViewSet):
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = (permissions.IsAuthenticated, IsVerifiedEmail)
     serializer_class = BillingProfileSerializer
     queryset = BillingProfile.objects.all()
 
@@ -232,7 +265,7 @@ class CartView(generics.GenericAPIView):
 
     def _cart(self, request):
         if request.user.is_authenticated:
-            return Cart.objects.get_or_create(user=request.user)[0]
+            return get_or_create_user_cart(user=request.user)
         token = request.headers.get("X-Cart-Token")
         if token:
             try:
@@ -241,9 +274,14 @@ class CartView(generics.GenericAPIView):
                 raise NotFound("Cart not found") from exc
         return Cart.objects.create()
 
+    @extend_schema(responses={200: CartSerializer})
     def get(self, request):
         return Response(CartSerializer(self._cart(request)).data)
 
+    @extend_schema(
+        request=CartPostRequestSerializer,
+        responses={201: CartSerializer, 400: ErrorSerializer, 404: ErrorSerializer},
+    )
     def post(self, request):
         cart = self._cart(request)
         if request.data.get("coupon"):
@@ -251,21 +289,23 @@ class CartView(generics.GenericAPIView):
         else:
             try:
                 variant = ProductVariant.objects.get(
-                    pk=request.data.get("variant_id"), is_active=True
+                    pk=request.data.get("variant_id"),
+                    is_active=True,
+                    product__is_active=True,
+                    product__is_sellable=True,
                 )
             except ProductVariant.DoesNotExist as exc:
                 raise ValidationError("Unknown variant") from exc
             quantity = int(request.data.get("quantity", 1))
             if quantity < 1:
                 raise ValidationError("Quantity must be positive")
-            line, created = CartLine.objects.get_or_create(
-                cart=cart, variant=variant, defaults={"quantity": quantity}
-            )
-            if not created:
-                line.quantity += quantity
-                line.save(update_fields=["quantity"])
+            add_cart_line(cart=cart, variant=variant, quantity=quantity)
         return Response(CartSerializer(cart).data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        request=CartPatchRequestSerializer,
+        responses={200: CartSerializer, 400: ErrorSerializer, 404: ErrorSerializer},
+    )
     def patch(self, request):
         cart = self._cart(request)
         try:
@@ -280,6 +320,10 @@ class CartView(generics.GenericAPIView):
             line.save(update_fields=["quantity"])
         return Response(CartSerializer(cart).data)
 
+    @extend_schema(
+        request=CartDeleteRequestSerializer,
+        responses={200: CartSerializer, 404: ErrorSerializer},
+    )
     def delete(self, request):
         cart = self._cart(request)
         variant_id = request.data.get("variant_id")
@@ -293,7 +337,7 @@ class CartView(generics.GenericAPIView):
 
 
 class AddressViewSet(viewsets.ModelViewSet):
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = (permissions.IsAuthenticated, IsVerifiedEmail)
     serializer_class = AddressSerializer
     queryset = Address.objects.all()
 
@@ -305,7 +349,7 @@ class AddressViewSet(viewsets.ModelViewSet):
 
 
 class OrderViewSet(viewsets.ReadOnlyModelViewSet):
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = (permissions.IsAuthenticated, IsVerifiedEmail)
     serializer_class = OrderSerializer
     queryset = Order.objects.all()
     lookup_field = "public_id"
@@ -315,16 +359,18 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class IdentityStatusView(generics.GenericAPIView):
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = (permissions.IsAuthenticated, IsVerifiedEmail)
     serializer_class = StatusSerializer
 
+    @extend_schema(responses={200: StatusSerializer, 403: ErrorSerializer})
     def get(self, request):
         return Response({"status": "not_configured"})
 
 
 class CheckoutView(generics.GenericAPIView):
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = (permissions.IsAuthenticated, IsVerifiedEmail)
     serializer_class = CodeSerializer
 
+    @extend_schema(request=None, responses={403: ErrorSerializer, 503: CodeSerializer})
     def post(self, request):
         return Response({"code": "not_configured"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)

@@ -9,14 +9,14 @@ FROM base AS development
 RUN pip install --require-hashes -r requirements-dev.lock
 
 FROM base AS production-build
-ENV APP_ENV=production \
+RUN APP_ENV=production \
     DJANGO_DEBUG=false \
     DJANGO_SECRET_KEY=container-build-signing-key-that-is-not-a-placeholder \
-    PERSONAL_DATA_ENCRYPTION_KEY=container-build-personal-data-encryption-key-not-for-runtime \
+    PERSONAL_DATA_ENCRYPTION_KEY=ephemeral-build-only-personal-data-key-never-used-at-runtime \
     POSTGRES_PASSWORD=container-build-database-password-not-a-placeholder \
     SITE_ADDRESS=build.example.test \
-    DJANGO_ALLOWED_HOSTS=build.example.test
-RUN python manage.py collectstatic --noinput
+    DJANGO_ALLOWED_HOSTS=build.example.test \
+    python manage.py collectstatic --noinput
 
 FROM production-build AS production
 RUN useradd --create-home appuser && chown -R appuser:appuser /app

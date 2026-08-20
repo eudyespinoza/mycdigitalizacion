@@ -1,9 +1,9 @@
 from dataclasses import dataclass
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 from django.core.exceptions import ValidationError
-from django.db import transaction
-from django.db.models import Q, Sum
+from django.db import IntegrityError, transaction
+from django.db.models import F, Q, Sum
 from django.utils import timezone
 
 from catalog.models import ProductVariant
@@ -27,6 +27,8 @@ def money(value):
 
 
 def discount_amount(discount_type, value, amount):
+    if value <= 0 or (discount_type == "percentage" and value > 100):
+        raise ValidationError("Discount value is outside its valid range")
     if discount_type == "percentage":
         return money(amount * value / Decimal("100"))
     return min(money(value), money(amount))
@@ -54,32 +56,91 @@ class CartTotals:
     total: Decimal
 
 
+@dataclass(frozen=True)
+class PricedLine:
+    cart_line: CartLine
+    subtotal: Decimal
+    discount: Decimal
+    total: Decimal
+
+
+def _allocate_discount(total, capacities):
+    total = money(total)
+    capacity_total = sum(capacities, Decimal("0"))
+    if total <= 0 or capacity_total <= 0:
+        return [Decimal("0.00") for _ in capacities]
+    allocations = [
+        min(capacity, (total * capacity / capacity_total).quantize(MONEY, rounding=ROUND_DOWN))
+        for capacity in capacities
+    ]
+    remainder = money(total - sum(allocations, Decimal("0")))
+    while remainder >= MONEY:
+        changed = False
+        for index, capacity in enumerate(capacities):
+            if allocations[index] + MONEY <= capacity:
+                allocations[index] += MONEY
+                remainder -= MONEY
+                changed = True
+                if remainder < MONEY:
+                    break
+        if not changed:
+            break
+    return [money(value) for value in allocations]
+
+
+def price_cart_lines(lines, *, coupon=None, at=None):
+    checked_at = at or timezone.now()
+    ordered_lines = sorted(lines, key=lambda line: line.pk)
+    subtotals = [money(line.variant.price * line.quantity) for line in ordered_lines]
+    automatic = [
+        best_automatic_discount(variant=line.variant, quantity=line.quantity, at=checked_at)
+        for line in ordered_lines
+    ]
+    subtotal = money(sum(subtotals, Decimal("0")))
+    automatic_total = money(sum(automatic, Decimal("0")))
+    base_discounts = automatic
+    coupon_to_allocate = Decimal("0.00")
+    if coupon and coupon.is_active(checked_at):
+        coupon_discount = discount_amount(coupon.discount_type, coupon.value, subtotal)
+        if coupon.combinable:
+            coupon_to_allocate = min(coupon_discount, money(subtotal - automatic_total))
+        elif coupon_discount > automatic_total:
+            base_discounts = [Decimal("0.00") for _ in ordered_lines]
+            coupon_to_allocate = coupon_discount
+    capacities = [
+        money(value - discount)
+        for value, discount in zip(subtotals, base_discounts, strict=False)
+    ]
+    coupon_allocations = _allocate_discount(coupon_to_allocate, capacities)
+    priced = []
+    for line, line_subtotal, base, coupon_part in zip(
+        ordered_lines, subtotals, base_discounts, coupon_allocations, strict=False
+    ):
+        line_discount = min(line_subtotal, money(base + coupon_part))
+        priced.append(
+            PricedLine(
+                cart_line=line,
+                subtotal=line_subtotal,
+                discount=line_discount,
+                total=money(line_subtotal - line_discount),
+            )
+        )
+    return priced
+
+
 def calculate_cart_totals(cart, *, at=None):
     checked_at = at or timezone.now()
     lines = list(cart.lines.select_related("variant__product__category"))
-    subtotal = money(sum((line.variant.price * line.quantity for line in lines), Decimal("0")))
-    automatic_discount = money(
-        sum(
-            (
-                best_automatic_discount(
-                    variant=line.variant, quantity=line.quantity, at=checked_at
-                )
-                for line in lines
-            ),
-            Decimal("0"),
-        )
-    )
-    discount = automatic_discount
-    if cart.coupon and cart.coupon.is_active(checked_at):
-        coupon_discount = discount_amount(
-            cart.coupon.discount_type, cart.coupon.value, subtotal
-        )
-        discount = (
-            money(automatic_discount + coupon_discount)
-            if cart.coupon.combinable
-            else max(automatic_discount, coupon_discount)
-        )
-    discount = min(discount, subtotal)
+    if any(
+        not line.variant.is_active
+        or not line.variant.product.is_active
+        or not line.variant.product.is_sellable
+        for line in lines
+    ):
+        raise ValidationError("Cart contains an unavailable variant")
+    priced = price_cart_lines(lines, coupon=cart.coupon, at=checked_at)
+    subtotal = money(sum((line.subtotal for line in priced), Decimal("0")))
+    discount = money(sum((line.discount for line in priced), Decimal("0")))
     return CartTotals(subtotal=subtotal, discount=discount, total=money(subtotal - discount))
 
 
@@ -97,21 +158,68 @@ def apply_coupon(cart, code, *, at=None):
     return cart
 
 
+def get_or_create_user_cart(*, user):
+    existing = Cart.objects.filter(user=user).first()
+    if existing:
+        return existing
+    try:
+        with transaction.atomic():
+            return Cart.objects.create(user=user)
+    except IntegrityError:
+        return Cart.objects.get(user=user)
+
+
+@transaction.atomic
+def add_cart_line(*, cart, variant, quantity):
+    if quantity < 1:
+        raise ValidationError("Quantity must be positive")
+    locked_cart = Cart.objects.select_for_update().get(pk=cart.pk)
+    available_variant = ProductVariant.objects.filter(
+        pk=variant.pk,
+        is_active=True,
+        product__is_active=True,
+        product__is_sellable=True,
+    ).first()
+    if not available_variant:
+        raise ValidationError("Variant is unavailable")
+    updated = CartLine.objects.filter(cart=locked_cart, variant=available_variant).update(
+        quantity=F("quantity") + quantity
+    )
+    if not updated:
+        CartLine.objects.create(
+            cart=locked_cart, variant=available_variant, quantity=quantity
+        )
+    return locked_cart.lines.get(variant=available_variant)
+
+
 def merge_carts(*, anonymous_cart, user):
+    destination = get_or_create_user_cart(user=user)
     with transaction.atomic():
-        cart, _ = Cart.objects.get_or_create(user=user)
-        for source in anonymous_cart.lines.select_related("variant"):
-            line, created = CartLine.objects.get_or_create(
-                cart=cart, variant=source.variant, defaults={"quantity": source.quantity}
+        locked = {
+            cart.pk: cart
+            for cart in Cart.objects.select_for_update().filter(
+                pk__in=sorted((anonymous_cart.pk, destination.pk))
             )
-            if not created:
-                line.quantity += source.quantity
-                line.save(update_fields=["quantity"])
-        if not cart.coupon_id and anonymous_cart.coupon_id:
-            cart.coupon_id = anonymous_cart.coupon_id
-            cart.save(update_fields=["coupon"])
-        anonymous_cart.delete()
-        return cart
+        }
+        source = locked.get(anonymous_cart.pk)
+        target = locked[destination.pk]
+        if not source:
+            return target
+        for source_line in source.lines.order_by("pk"):
+            updated = CartLine.objects.filter(
+                cart=target, variant_id=source_line.variant_id
+            ).update(quantity=F("quantity") + source_line.quantity)
+            if not updated:
+                CartLine.objects.create(
+                    cart=target,
+                    variant_id=source_line.variant_id,
+                    quantity=source_line.quantity,
+                )
+        if not target.coupon_id and source.coupon_id:
+            target.coupon_id = source.coupon_id
+            target.save(update_fields=["coupon"])
+        source.delete()
+        return target
 
 
 class InsufficientStock(ValidationError):
@@ -124,6 +232,27 @@ def create_reservation(*, variant, quantity, reference, expires_at=None):
         raise ValidationError("Reservation quantity must be positive")
     locked_variant = ProductVariant.objects.select_for_update().get(pk=variant.pk)
     now = timezone.now()
+    effective_expiry = expires_at or now + timezone.timedelta(minutes=20)
+    if effective_expiry <= now:
+        raise ValidationError("Reservation expiry must be in the future")
+    expired = list(
+        StockReservation.objects.select_for_update().filter(
+            variant=locked_variant,
+            status=StockReservation.Status.ACTIVE,
+            expires_at__lte=now,
+        )
+    )
+    for reservation in expired:
+        reservation.status = StockReservation.Status.RELEASED
+        reservation.released_at = now
+        reservation.save(update_fields=["status", "released_at"])
+        InventoryMovement.objects.create(
+            variant=locked_variant,
+            reservation=reservation,
+            kind=InventoryMovement.Kind.RELEASE,
+            quantity_delta=0,
+            reference=reservation.reference,
+        )
     reserved = (
         StockReservation.objects.filter(
             variant=locked_variant,
@@ -138,7 +267,7 @@ def create_reservation(*, variant, quantity, reference, expires_at=None):
         variant=locked_variant,
         quantity=quantity,
         reference=reference,
-        expires_at=expires_at or now + timezone.timedelta(minutes=20),
+        expires_at=effective_expiry,
     )
     InventoryMovement.objects.create(
         variant=locked_variant,
@@ -152,14 +281,27 @@ def create_reservation(*, variant, quantity, reference, expires_at=None):
 
 @transaction.atomic
 def consume_reservation(reservation):
-    locked = StockReservation.objects.select_for_update().select_related("variant").get(
+    variant_id = StockReservation.objects.values_list("variant_id", flat=True).get(
         pk=reservation.pk
     )
+    variant = ProductVariant.objects.select_for_update().get(pk=variant_id)
+    locked = StockReservation.objects.select_for_update().get(pk=reservation.pk)
     if locked.status == StockReservation.Status.CONSUMED:
         return locked
     if locked.status != StockReservation.Status.ACTIVE:
         return locked
-    variant = ProductVariant.objects.select_for_update().get(pk=locked.variant_id)
+    if locked.expires_at <= timezone.now():
+        locked.status = StockReservation.Status.RELEASED
+        locked.released_at = timezone.now()
+        locked.save(update_fields=["status", "released_at"])
+        InventoryMovement.objects.create(
+            variant=variant,
+            reservation=locked,
+            kind=InventoryMovement.Kind.RELEASE,
+            quantity_delta=0,
+            reference=locked.reference,
+        )
+        return locked
     variant.on_hand -= locked.quantity
     variant.save(update_fields=["on_hand"])
     locked.status = StockReservation.Status.CONSUMED
@@ -177,6 +319,10 @@ def consume_reservation(reservation):
 
 @transaction.atomic
 def release_reservation(reservation):
+    variant_id = StockReservation.objects.values_list("variant_id", flat=True).get(
+        pk=reservation.pk
+    )
+    variant = ProductVariant.objects.select_for_update().get(pk=variant_id)
     locked = StockReservation.objects.select_for_update().get(pk=reservation.pk)
     if locked.status != StockReservation.Status.ACTIVE:
         return locked
@@ -184,7 +330,7 @@ def release_reservation(reservation):
     locked.released_at = timezone.now()
     locked.save(update_fields=["status", "released_at"])
     InventoryMovement.objects.create(
-        variant=locked.variant,
+        variant=variant,
         reservation=locked,
         kind=InventoryMovement.Kind.RELEASE,
         quantity_delta=0,
@@ -195,23 +341,52 @@ def release_reservation(reservation):
 
 @transaction.atomic
 def create_pending_identity_order(
-    *, cart, customer_snapshot, address_snapshot, fiscal_snapshot, fulfillment_method
+    *, cart, customer_snapshot, address_snapshot, fiscal_snapshot, fulfillment_method, at=None
 ):
-    totals = calculate_cart_totals(cart)
+    checked_at = at or timezone.now()
+    locked_cart = Cart.objects.select_for_update().get(pk=cart.pk)
+    if locked_cart.coupon_id:
+        locked_cart.coupon = Coupon.objects.select_for_update().get(pk=locked_cart.coupon_id)
+    line_refs = list(
+        CartLine.objects.select_for_update()
+        .filter(cart=locked_cart)
+        .order_by("pk")
+        .values("pk", "variant_id")
+    )
+    list(
+        ProductVariant.objects.select_for_update().filter(
+            pk__in=[line["variant_id"] for line in line_refs]
+        )
+    )
+    lines = list(
+        CartLine.objects.filter(pk__in=[line["pk"] for line in line_refs]).select_related(
+            "variant__product__category"
+        )
+    )
+    if any(
+        not line.variant.is_active
+        or not line.variant.product.is_active
+        or not line.variant.product.is_sellable
+        for line in lines
+    ):
+        raise ValidationError("Cart contains an unavailable variant")
+    priced_lines = price_cart_lines(lines, coupon=locked_cart.coupon, at=checked_at)
+    subtotal = money(sum((line.subtotal for line in priced_lines), Decimal("0")))
+    discount = money(sum((line.discount for line in priced_lines), Decimal("0")))
+    total = money(sum((line.total for line in priced_lines), Decimal("0")))
     order = Order.objects.create(
-        user=cart.user,
+        user=locked_cart.user,
         customer_snapshot=customer_snapshot,
         address_snapshot=address_snapshot,
         fiscal_snapshot=fiscal_snapshot,
-        coupon_code_snapshot=cart.coupon.code if cart.coupon_id else "",
+        coupon_code_snapshot=locked_cart.coupon.code if locked_cart.coupon_id else "",
         fulfillment_method=fulfillment_method,
-        subtotal_snapshot=totals.subtotal,
-        discount_snapshot=totals.discount,
-        total_snapshot=totals.total,
+        subtotal_snapshot=subtotal,
+        discount_snapshot=discount,
+        total_snapshot=total,
     )
-    for line in cart.lines.select_related("variant__product__category"):
-        line_subtotal = money(line.variant.price * line.quantity)
-        line_discount = best_automatic_discount(variant=line.variant, quantity=line.quantity)
+    for priced in priced_lines:
+        line = priced.cart_line
         OrderItem.objects.create(
             order=order,
             variant=line.variant,
@@ -220,8 +395,35 @@ def create_pending_identity_order(
             sku_snapshot=line.variant.sku,
             quantity=line.quantity,
             unit_price_snapshot=line.variant.price,
-            discount_snapshot=line_discount,
-            line_total_snapshot=money(line_subtotal - line_discount),
+            discount_snapshot=priced.discount,
+            line_total_snapshot=priced.total,
         )
+    if sum((item.line_total_snapshot for item in order.items.all()), Decimal("0")) != total:
+        raise ValidationError("Order item snapshots do not reconcile with order total")
     OrderAuditEvent.objects.create(order=order, kind="created_pending_identity")
     return order
+
+
+@transaction.atomic
+def transition_order_status(*, order, field, value, actor=None):
+    allowed = {
+        "identity_status": dict(Order.IdentityStatus.choices),
+        "payment_status": dict(Order.PaymentStatus.choices),
+        "fulfillment_status": dict(Order.FulfillmentStatus.choices),
+    }
+    if field not in allowed or value not in allowed[field]:
+        raise ValidationError("Invalid order status transition")
+    locked = Order.objects.select_for_update().get(pk=order.pk)
+    previous = getattr(locked, field)
+    if previous == value:
+        return locked
+    setattr(locked, field, value)
+    locked._allow_status_transition = True
+    locked.save(update_fields=[field])
+    OrderAuditEvent.objects.create(
+        order=locked,
+        kind=f"{field}_changed",
+        data={"from": previous, "to": value},
+        actor=actor,
+    )
+    return locked

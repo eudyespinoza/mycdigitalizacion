@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from catalog.models import Category, Product, ProductMedia, ProductVariant
@@ -35,9 +36,13 @@ class PublicVariantSerializer(serializers.ModelSerializer):
 
 class ProductSerializer(serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)
-    variants = PublicVariantSerializer(many=True, read_only=True)
+    variants = serializers.SerializerMethodField()
     media = ProductMediaSerializer(many=True, read_only=True)
 
     class Meta:
         model = Product
         fields = ("id", "name", "slug", "description", "category", "variants", "media")
+
+    @extend_schema_field(PublicVariantSerializer(many=True))
+    def get_variants(self, product):
+        return PublicVariantSerializer(product.variants.filter(is_active=True), many=True).data

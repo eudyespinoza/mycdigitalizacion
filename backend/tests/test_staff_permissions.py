@@ -12,5 +12,6 @@ def test_staff_permission_groups_are_seeded_with_bounded_permissions():
     ).exists()
     assert groups["Catalog"].permissions.filter(codename="change_product").exists()
     assert not groups["Catalog"].permissions.filter(codename="change_order").exists()
-    assert groups["Orders/Logistics"].permissions.filter(codename="change_order").exists()
+    assert groups["Orders/Logistics"].permissions.filter(codename="view_order").exists()
+    assert not groups["Orders/Logistics"].permissions.filter(codename="change_order").exists()
     assert groups["Content"].permissions.filter(codename="change_heroslide").exists()

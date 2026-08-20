@@ -1,7 +1,39 @@
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from accounts.models import BillingProfile, CustomerProfile, Profile
+from accounts.models import BillingProfile, CustomerProfile, Profile, normalize_cuit
+
+
+class RegistrationRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+    consent_version = serializers.CharField()
+
+    def validate_email(self, value):
+        return value.strip().casefold()
+
+    def validate_password(self, value):
+        validate_password(value)
+        return value
+
+    def validate_consent_version(self, value):
+        if value != settings.CURRENT_CONSENT_VERSION:
+            raise serializers.ValidationError("Unsupported consent version")
+        return value
+
+
+class LoginRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+    cart_token = serializers.CharField(required=False)
+
+
+class VerifyEmailRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.RegexField(r"^\d{6}$")
 
 
 class ProfileSerializer(serializers.ModelSerializer):
@@ -36,10 +68,18 @@ class BillingProfileSerializer(serializers.ModelSerializer):
             "cuit",
         )
 
+    def validate_cuit(self, value):
+        try:
+            normalize_cuit(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages) from exc
+        return value
+
     def create(self, validated_data):
         cuit = validated_data.pop("cuit", "")
         customer, _ = CustomerProfile.objects.get_or_create(
-            user=self.context["request"].user, defaults={"consent_version": "api-v1"}
+            user=self.context["request"].user,
+            defaults={"consent_version": settings.CURRENT_CONSENT_VERSION},
         )
         profile = BillingProfile(customer=customer, **validated_data)
         if cuit:

@@ -1,3 +1,8 @@
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 from django.core.exceptions import ImproperlyConfigured
 
@@ -38,3 +43,21 @@ def test_production_configuration_requires_an_explicit_mode():
 
 def test_production_configuration_accepts_non_placeholder_values():
     validate_runtime_environment(production_environment())
+
+
+def test_production_settings_pass_django_deploy_checks():
+    environment = os.environ | production_environment(
+        DJANGO_SECRET_KEY=(
+            "X9vR2pL7sQ4kN8tB5mC1zH6eW3yU0aF9vR2pL7sQ4kN8tB5mC1zH6eW3"
+        )
+    )
+    result = subprocess.run(
+        [sys.executable, "manage.py", "check", "--deploy", "--fail-level", "WARNING"],
+        cwd=Path(__file__).resolve().parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr

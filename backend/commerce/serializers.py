@@ -4,6 +4,21 @@ from commerce.models import CartLine, Order, OrderItem
 from commerce.services import calculate_cart_totals
 
 
+class CartPostRequestSerializer(serializers.Serializer):
+    variant_id = serializers.IntegerField(required=False)
+    quantity = serializers.IntegerField(min_value=1, required=False, default=1)
+    coupon = serializers.CharField(required=False)
+
+
+class CartPatchRequestSerializer(serializers.Serializer):
+    variant_id = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=0)
+
+
+class CartDeleteRequestSerializer(serializers.Serializer):
+    variant_id = serializers.IntegerField(required=False)
+
+
 class CartLineSerializer(serializers.ModelSerializer):
     sku = serializers.CharField(source="variant.sku", read_only=True)
     unit_price = serializers.DecimalField(

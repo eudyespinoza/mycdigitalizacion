@@ -14,6 +14,7 @@ PLACEHOLDER_VALUES = frozenset(
         "example.com",
         "ops@example.com",
         "development-only-personal-data-key",
+        "container-build-personal-data-encryption-key-not-for-runtime",
     }
 )
 
@@ -46,6 +47,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = environ.get("DJANGO_SECRET_KEY", "unsafe-development-key-change-me")
 DEBUG = environ.get("DJANGO_DEBUG", "false").lower() == "true"
 ALLOWED_HOSTS = environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+CURRENT_CONSENT_VERSION = "privacy-v1"
+
+SESSION_COOKIE_SECURE = APP_ENV == "production"
+CSRF_COOKIE_SECURE = APP_ENV == "production"
+SECURE_SSL_REDIRECT = APP_ENV == "production"
+SECURE_HSTS_SECONDS = 31_536_000 if APP_ENV == "production" else 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = APP_ENV == "production"
+SECURE_HSTS_PRELOAD = APP_ENV == "production"
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -109,8 +119,12 @@ TIME_ZONE = "America/Argentina/Buenos_Aires"
 USE_I18N = True
 USE_TZ = True
 STATIC_URL = "/static/"
+MEDIA_URL = "/media/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     }
@@ -124,7 +138,17 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",
     ],
+    "DEFAULT_THROTTLE_RATES": {
+        "verify_email": "10/hour",
+        "verify_ip": "20/hour",
+    },
 }
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
 SPECTACULAR_SETTINGS = {
     "TITLE": "mycdigitalizacion API",
     "VERSION": "1.0.0",

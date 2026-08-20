@@ -9,6 +9,7 @@ from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 
@@ -18,7 +19,7 @@ class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         if not email:
             raise ValueError("Email is required")
-        user = self.model(email=self.normalize_email(email), **extra_fields)
+        user = self.model(email=self.normalize_email(email).casefold(), **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
         return user
@@ -38,6 +39,11 @@ class User(AbstractUser):
     REQUIRED_FIELDS = []
     objects = UserManager()
 
+    class Meta(AbstractUser.Meta):
+        constraints = [
+            models.UniqueConstraint(Lower("email"), name="unique_user_email_casefold")
+        ]
+
 
 class Profile(models.Model):
     user = models.OneToOneField(
@@ -56,6 +62,8 @@ class EmailVerificationChallenge(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     consumed_at = models.DateTimeField(null=True, blank=True)
+    attempt_count = models.PositiveSmallIntegerField(default=0)
+    locked_at = models.DateTimeField(null=True, blank=True)
 
     @classmethod
     def issue(cls, *, user, code):
@@ -88,6 +96,29 @@ def _identifier_hash(value):
     ).hexdigest()
 
 
+def normalize_dni(value):
+    normalized = "".join(filter(str.isdigit, value or ""))
+    if len(normalized) != 8:
+        raise ValidationError("DNI must contain exactly eight digits")
+    return normalized
+
+
+def normalize_cuit(value):
+    normalized = "".join(filter(str.isdigit, value or ""))
+    if len(normalized) != 11:
+        raise ValidationError("CUIT must contain exactly eleven digits")
+    weights = (5, 4, 3, 2, 7, 6, 5, 4, 3, 2)
+    weighted = sum(
+        int(digit) * weight
+        for digit, weight in zip(normalized[:10], weights, strict=False)
+    )
+    result = 11 - weighted % 11
+    expected = 0 if result == 11 else 9 if result == 10 else result
+    if int(normalized[-1]) != expected:
+        raise ValidationError("CUIT checksum is invalid")
+    return normalized
+
+
 class CustomerProfile(models.Model):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, related_name="customer_profile", on_delete=models.CASCADE
@@ -100,7 +131,7 @@ class CustomerProfile(models.Model):
     cuit_hash = models.CharField(max_length=64, blank=True, db_index=True)
 
     def set_dni(self, value):
-        normalized = "".join(filter(str.isdigit, value))
+        normalized = normalize_dni(value)
         self.dni_encrypted = _fernet().encrypt(normalized.encode()).decode()
         self.dni_hash = _identifier_hash(normalized)
 
@@ -108,7 +139,7 @@ class CustomerProfile(models.Model):
         return _fernet().decrypt(self.dni_encrypted.encode()).decode() if self.dni_encrypted else ""
 
     def set_cuit(self, value):
-        normalized = "".join(filter(str.isdigit, value))
+        normalized = normalize_cuit(value)
         self.cuit_encrypted = _fernet().encrypt(normalized.encode()).decode()
         self.cuit_hash = _identifier_hash(normalized)
 
@@ -119,12 +150,18 @@ class CustomerProfile(models.Model):
 
     @property
     def masked_dni(self):
-        value = self.get_dni()
+        try:
+            value = self.get_dni()
+        except Exception:
+            return ""
         return f"{'•' * max(0, len(value) - 4)}{value[-4:]}" if value else ""
 
     @property
     def masked_cuit(self):
-        value = self.get_cuit()
+        try:
+            value = self.get_cuit()
+        except Exception:
+            return ""
         return f"••-••••••••-{value[-1]}" if value else ""
 
 
@@ -140,7 +177,7 @@ class BillingProfile(models.Model):
     is_default = models.BooleanField(default=False)
 
     def set_cuit(self, value):
-        normalized = "".join(filter(str.isdigit, value))
+        normalized = normalize_cuit(value)
         self.cuit_encrypted = _fernet().encrypt(normalized.encode()).decode()
         self.cuit_hash = _identifier_hash(normalized)
 
@@ -148,5 +185,10 @@ class BillingProfile(models.Model):
     def masked_cuit(self):
         if not self.cuit_encrypted:
             return ""
-        value = _fernet().decrypt(self.cuit_encrypted.encode()).decode()
+        try:
+            value = _fernet().decrypt(self.cuit_encrypted.encode()).decode()
+        except Exception:
+            return ""
+        if not value:
+            return ""
         return f"••-••••••••-{value[-1]}"

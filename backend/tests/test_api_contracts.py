@@ -1,6 +1,7 @@
 
 import pytest
 from django.urls import reverse
+from django.utils import timezone
 
 from commerce.services import create_pending_identity_order
 from tests.test_commerce_domain import make_variant
@@ -37,8 +38,12 @@ def test_cart_uses_server_price_and_returns_decimal_string_totals(client):
 
 @pytest.mark.django_db
 def test_order_detail_is_only_visible_to_its_owner(client, django_user_model):
-    owner = django_user_model.objects.create_user(email="owner@example.test", password="pass")
-    other = django_user_model.objects.create_user(email="other@example.test", password="pass")
+    owner = django_user_model.objects.create_user(
+        email="owner@example.test", password="pass", email_verified_at=timezone.now()
+    )
+    other = django_user_model.objects.create_user(
+        email="other@example.test", password="pass", email_verified_at=timezone.now()
+    )
     from commerce.models import Cart, CartLine
 
     cart = Cart.objects.create(user=owner)
@@ -63,8 +68,12 @@ def test_order_detail_is_only_visible_to_its_owner(client, django_user_model):
 def test_address_crud_is_scoped_to_authenticated_owner(client, django_user_model):
     from locations.models import Address
 
-    owner = django_user_model.objects.create_user(email="address-owner@example.test")
-    other = django_user_model.objects.create_user(email="address-other@example.test")
+    owner = django_user_model.objects.create_user(
+        email="address-owner@example.test", email_verified_at=timezone.now()
+    )
+    other = django_user_model.objects.create_user(
+        email="address-other@example.test", email_verified_at=timezone.now()
+    )
     address = Address.objects.create(
         user=owner,
         label="Casa sintetica",
@@ -86,7 +95,9 @@ def test_address_crud_is_scoped_to_authenticated_owner(client, django_user_model
 
 @pytest.mark.django_db
 def test_identity_and_checkout_boundaries_report_not_configured(client, django_user_model):
-    user = django_user_model.objects.create_user(email="boundary@example.test")
+    user = django_user_model.objects.create_user(
+        email="boundary@example.test", email_verified_at=timezone.now()
+    )
     client.force_login(user)
 
     identity = client.get("/api/v1/identity/status/")
