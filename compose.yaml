@@ -19,7 +19,7 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"
-      DB_NAME: ${POSTGRES_DB:-mycdigitalizacion}
+      HEALTH_DB: ${POSTGRES_DB:-mycdigitalizacion}
       DB_USER: ${POSTGRES_USER:-mycdigitalizacion}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-for-local-development}
       LISTEN_PORT: "6432"
@@ -37,7 +37,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -p 6432 -U "$$DB_USER" -d "$$DB_NAME"']
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -p 6432 -U "$$DB_USER" -d "$$HEALTH_DB"']
       interval: 5s
       timeout: 5s
       retries: 10

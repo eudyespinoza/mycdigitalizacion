@@ -97,7 +97,7 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"
-      DB_NAME: ${POSTGRES_DB:?set POSTGRES_DB in .env.production}
+      HEALTH_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env.production}
       DB_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env.production}
       DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
       LISTEN_PORT: "6432"
@@ -114,7 +114,7 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
     healthcheck:
-      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -p 6432 -U "$$DB_USER" -d "$$DB_NAME"']
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -p 6432 -U "$$DB_USER" -d "$$HEALTH_DB"']
       interval: 10s
       timeout: 5s
       retries: 10

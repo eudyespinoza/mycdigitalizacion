@@ -37,6 +37,8 @@ class PgBouncerTopologyTests(unittest.TestCase):
             with self.subTest(filename=filename):
                 services = render_compose(filename)["services"]
                 pool = services["pgbouncer"]
+                self.assertNotIn("DB_NAME", pool["environment"])
+                self.assertIn("HEALTH_DB", pool["environment"])
                 self.assertEqual(pool["environment"]["POOL_MODE"], "transaction")
                 self.assertEqual(str(pool["environment"]["LISTEN_PORT"]), "6432")
                 self.assertEqual(str(pool["environment"]["DEFAULT_POOL_SIZE"]), "10")
