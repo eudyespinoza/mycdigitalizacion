@@ -7,7 +7,12 @@ from django.db.models import Q, Sum
 from django.db.models.functions import Now
 from django.utils import timezone
 
-from config.media import generate_image_derivatives, safe_image_upload_to, validate_image_upload
+from config.media import (
+    delete_image_assets,
+    generate_image_derivatives,
+    safe_image_upload_to,
+    validate_image_upload,
+)
 
 
 class Brand(models.Model):
@@ -164,15 +169,28 @@ class ProductMedia(models.Model):
             raise ValidationError({"alt_text": "Alt text is required when an image is present"})
 
     def save(self, *args, **kwargs):
+        previous = (
+            type(self).objects.filter(pk=self.pk).values("file", "derivatives").first()
+            if self.pk
+            else None
+        ) or {}
         self.full_clean()
         result = super().save(*args, **kwargs)
-        if self.file and not self.derivatives:
+        old_name = previous.get("file", "")
+        old_derivatives = previous.get("derivatives", {})
+        changed = old_name != self.file.name
+        if self.file and (changed or not self.derivatives):
             derivatives = generate_image_derivatives(
                 storage=self.file.storage, name=self.file.name
             )
-            if derivatives:
-                type(self).objects.filter(pk=self.pk).update(derivatives=derivatives)
-                self.derivatives = derivatives
+            type(self).objects.filter(pk=self.pk).update(derivatives=derivatives)
+            self.derivatives = derivatives
+        if changed and old_name:
+            delete_image_assets(
+                storage=self.file.storage,
+                source_name=old_name,
+                derivatives=old_derivatives,
+            )
         return result
 
 

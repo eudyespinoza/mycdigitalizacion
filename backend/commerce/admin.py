@@ -1,5 +1,11 @@
-from django.contrib import admin
+from urllib.parse import urlsplit
+
+from django import forms
+from django.contrib import admin, messages
+from django.contrib.admin.helpers import ActionForm
+from django.core.exceptions import ValidationError
 from django.http import HttpResponse
+from django.utils.html import format_html
 
 from commerce.models import (
     Cart,
@@ -22,6 +28,7 @@ from commerce.models import (
     StaffExportAudit,
     StockReservation,
 )
+from providers import ProviderError
 
 
 class OrderItemInline(admin.TabularInline):
@@ -42,6 +49,37 @@ class OrderAuditInline(admin.TabularInline):
 
     def has_add_permission(self, request, obj=None):
         return False
+
+
+class ShipmentInline(admin.StackedInline):
+    model = Shipment
+    extra = 0
+    max_num = 1
+    can_delete = False
+    fields = ("status", "tracking_number", "safe_label_link", "updated_at", "created_at")
+    readonly_fields = fields
+
+    @admin.display(description="Etiqueta")
+    def safe_label_link(self, shipment):
+        parsed = urlsplit(shipment.label_url or "")
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return "Sin etiqueta"
+        return format_html(
+            '<a href="{}" target="_blank" rel="noopener noreferrer">Abrir etiqueta</a>',
+            shipment.label_url,
+        )
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+class GuardedOrderActionForm(ActionForm):
+    reason = forms.CharField(
+        required=True,
+        max_length=500,
+        label="Motivo auditable",
+        widget=forms.TextInput(attrs={"size": 48}),
+    )
 
 
 class AppendOnlyAdmin(admin.ModelAdmin):
@@ -91,7 +129,7 @@ class OrderAdmin(admin.ModelAdmin):
         "payment_status",
         "fulfillment_status",
     )
-    inlines = (OrderItemInline, OrderAuditInline)
+    inlines = (OrderItemInline, ShipmentInline, OrderAuditInline)
     actions = (
         "approve_identity_selected",
         "resume_selected",
@@ -102,30 +140,54 @@ class OrderAdmin(admin.ModelAdmin):
         "export_selected_csv",
         "export_selected_xlsx",
     )
+    action_form = GuardedOrderActionForm
 
-    def _perform_guarded(self, request, queryset, action, reason):
+    def _perform_guarded(self, request, queryset, action):
         from commerce.admin_services import perform_order_admin_action
         from commerce.provider_config import get_carrier_adapter, get_payment_adapter
         from commerce.services import get_or_create_user_cart
 
         adapters = {}
-        if action in {"resume", "refund"}:
-            adapters["payment"] = get_payment_adapter()
-        if action in {"create_shipment", "refresh_tracking"}:
-            adapters["carrier"] = get_carrier_adapter()
+        try:
+            if action in {"resume", "refund"}:
+                adapters["payment"] = get_payment_adapter()
+            if action in {"create_shipment", "refresh_tracking"}:
+                adapters["carrier"] = get_carrier_adapter()
+        except ProviderError:
+            self.message_user(
+                request,
+                f"{queryset.count()} pedido(s) no eran elegibles; no se modificaron.",
+                messages.WARNING,
+            )
+            return
+        completed = 0
+        failed = 0
+        reason = request.POST.get("reason", "")
         for order in queryset.select_related("user"):
             context = (
                 {"cart": get_or_create_user_cart(user=order.user)}
                 if action == "resume"
                 else {}
             )
-            perform_order_admin_action(
-                action=action,
-                order=order,
-                actor=request.user,
-                reason=reason,
-                adapters=adapters,
-                context=context,
+            try:
+                perform_order_admin_action(
+                    action=action,
+                    order=order,
+                    actor=request.user,
+                    reason=reason,
+                    adapters=adapters,
+                    context=context,
+                )
+                completed += 1
+            except (ProviderError, ValidationError):
+                failed += 1
+        if completed:
+            self.message_user(request, f"{completed} pedido(s) procesado(s).", messages.SUCCESS)
+        if failed:
+            self.message_user(
+                request,
+                f"{failed} pedido(s) no eran elegibles; no se modificaron.",
+                messages.WARNING,
             )
 
     @admin.action(
@@ -133,55 +195,40 @@ class OrderAdmin(admin.ModelAdmin):
         permissions=("approve_identity_order",),
     )
     def approve_identity_selected(self, request, queryset):
-        self._perform_guarded(
-            request, queryset, "approve_identity", "Aprobación seleccionada en Django Admin"
-        )
+        self._perform_guarded(request, queryset, "approve_identity")
 
     @admin.action(
         description="Reanudar checkout mediante servicio guardado",
         permissions=("resume_order",),
     )
     def resume_selected(self, request, queryset):
-        self._perform_guarded(
-            request, queryset, "resume", "Reanudación seleccionada en Django Admin"
-        )
+        self._perform_guarded(request, queryset, "resume")
 
     @admin.action(
         description="Cancelar mediante servicio guardado", permissions=("cancel_order",)
     )
     def cancel_selected(self, request, queryset):
-        self._perform_guarded(
-            request, queryset, "cancel", "Cancelación seleccionada en Django Admin"
-        )
+        self._perform_guarded(request, queryset, "cancel")
 
     @admin.action(
         description="Reembolsar mediante servicio guardado", permissions=("refund_order",)
     )
     def refund_selected(self, request, queryset):
-        self._perform_guarded(
-            request, queryset, "refund", "Reembolso seleccionado en Django Admin"
-        )
+        self._perform_guarded(request, queryset, "refund")
 
     @admin.action(
         description="Crear envío mediante servicio guardado",
         permissions=("create_shipment_order",),
     )
     def create_shipment_selected(self, request, queryset):
-        self._perform_guarded(
-            request, queryset, "create_shipment", "Despacho seleccionado en Django Admin"
-        )
+        self._perform_guarded(request, queryset, "create_shipment")
 
     @admin.action(
         description="Actualizar tracking mediante servicio guardado",
         permissions=("refresh_tracking_order",),
     )
     def refresh_tracking_selected(self, request, queryset):
-        self._perform_guarded(
-            request,
-            queryset,
-            "refresh_tracking",
-            "Actualización de tracking seleccionada en Django Admin",
-        )
+        self._perform_guarded(request, queryset, "refresh_tracking")
 
     def _export(self, request, queryset, export_format):
         from commerce.exports import export_orders
@@ -211,6 +258,10 @@ class OrderAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         del request, obj
+        return False
+
+    def has_add_permission(self, request):
+        del request
         return False
 
     def has_approve_identity_order_permission(self, request):

@@ -1,5 +1,8 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from config.api_serializers import ResponsiveMediaSourceSerializer
+from config.media import public_derivative_sources
 from landing.models import (
     HeroSlide,
     LandingCollection,
@@ -26,6 +29,8 @@ class SiteSettingsSerializer(serializers.ModelSerializer):
 class ScheduledContentSerializer(serializers.ModelSerializer):
     desktop_image_url = serializers.SerializerMethodField()
     mobile_image_url = serializers.SerializerMethodField()
+    desktop_responsive_sources = serializers.SerializerMethodField()
+    mobile_responsive_sources = serializers.SerializerMethodField()
 
     def _media_url(self, file):
         return file.url if file else ""
@@ -36,6 +41,20 @@ class ScheduledContentSerializer(serializers.ModelSerializer):
     def get_mobile_image_url(self, instance) -> str:
         return self._media_url(instance.mobile_image)
 
+    @extend_schema_field(ResponsiveMediaSourceSerializer(many=True))
+    def get_desktop_responsive_sources(self, instance):
+        return public_derivative_sources(
+            storage=instance.desktop_image.storage,
+            derivatives=instance.desktop_derivatives,
+        )
+
+    @extend_schema_field(ResponsiveMediaSourceSerializer(many=True))
+    def get_mobile_responsive_sources(self, instance):
+        return public_derivative_sources(
+            storage=instance.mobile_image.storage,
+            derivatives=instance.mobile_derivatives,
+        )
+
     class Meta:
         fields = (
             "id",
@@ -43,6 +62,8 @@ class ScheduledContentSerializer(serializers.ModelSerializer):
             "alt_text",
             "desktop_image_url",
             "mobile_image_url",
+            "desktop_responsive_sources",
+            "mobile_responsive_sources",
             "cta_label",
             "cta_url",
             "focal_x",

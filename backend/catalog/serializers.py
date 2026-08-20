@@ -5,6 +5,8 @@ from rest_framework import serializers
 
 from catalog.models import Brand, Category, Product, ProductMedia, ProductVariant
 from commerce.services import best_automatic_discount, money
+from config.api_serializers import ResponsiveMediaSourceSerializer
+from config.media import public_derivative_sources
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -21,14 +23,22 @@ class BrandSerializer(serializers.ModelSerializer):
 
 class ProductMediaSerializer(serializers.ModelSerializer):
     file = serializers.SerializerMethodField()
+    responsive_sources = serializers.SerializerMethodField()
 
     @extend_schema_field(serializers.CharField())
     def get_file(self, instance):
         return instance.file.url if instance.file else ""
 
+    @extend_schema_field(ResponsiveMediaSourceSerializer(many=True))
+    def get_responsive_sources(self, instance):
+        return public_derivative_sources(
+            storage=instance.file.storage,
+            derivatives=instance.derivatives,
+        )
+
     class Meta:
         model = ProductMedia
-        fields = ("file", "alt_text", "order")
+        fields = ("file", "responsive_sources", "alt_text", "order")
 
 
 class PublicAttributeSerializer(serializers.Serializer):

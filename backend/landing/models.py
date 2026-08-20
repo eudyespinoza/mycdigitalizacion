@@ -1,11 +1,16 @@
 from urllib.parse import urlsplit
 
 from django.core.exceptions import ValidationError
-from django.core.validators import FileExtensionValidator, MaxValueValidator, MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
-from config.media import generate_image_derivatives, safe_image_upload_to, validate_image_upload
+from config.media import (
+    delete_image_assets,
+    generate_image_derivatives,
+    safe_image_upload_to,
+    validate_image_upload,
+)
 
 
 class SiteSettings(models.Model):
@@ -43,18 +48,12 @@ class ScheduledContent(models.Model):
     desktop_image = models.ImageField(
         upload_to=safe_image_upload_to("landing/desktop"),
         blank=True,
-        validators=[
-            FileExtensionValidator(["png", "jpg", "jpeg", "webp", "avif"]),
-            validate_image_upload,
-        ],
+        validators=[validate_image_upload],
     )
     mobile_image = models.ImageField(
         upload_to=safe_image_upload_to("landing/mobile"),
         blank=True,
-        validators=[
-            FileExtensionValidator(["png", "jpg", "jpeg", "webp", "avif"]),
-            validate_image_upload,
-        ],
+        validators=[validate_image_upload],
     )
     desktop_derivatives = models.JSONField(default=dict, blank=True, editable=False)
     mobile_derivatives = models.JSONField(default=dict, blank=True, editable=False)
@@ -102,17 +101,36 @@ class ScheduledContent(models.Model):
             raise ValidationError({"alt_text": "Alt text is required when an image is present"})
 
     def save(self, *args, **kwargs):
+        previous = {}
+        if self.pk:
+            previous = type(self).objects.filter(pk=self.pk).values(
+                "desktop_image",
+                "mobile_image",
+                "desktop_derivatives",
+                "mobile_derivatives",
+            ).first() or {}
         self.full_clean()
         result = super().save(*args, **kwargs)
         derivative_updates = {}
         for field_name in ("desktop_image", "mobile_image"):
             field = getattr(self, field_name)
             derivatives_name = f"{field_name.replace('_image', '')}_derivatives"
-            if field and not getattr(self, derivatives_name):
+            old_name = previous.get(field_name, "")
+            old_derivatives = previous.get(derivatives_name, {})
+            changed = old_name != field.name
+            if field and (changed or not getattr(self, derivatives_name)):
                 derivatives = generate_image_derivatives(storage=field.storage, name=field.name)
-                if derivatives:
-                    derivative_updates[derivatives_name] = derivatives
-                    setattr(self, derivatives_name, derivatives)
+                derivative_updates[derivatives_name] = derivatives
+                setattr(self, derivatives_name, derivatives)
+            elif not field and getattr(self, derivatives_name):
+                derivative_updates[derivatives_name] = {}
+                setattr(self, derivatives_name, {})
+            if changed and old_name:
+                delete_image_assets(
+                    storage=field.storage,
+                    source_name=old_name,
+                    derivatives=old_derivatives,
+                )
         if derivative_updates:
             type(self).objects.filter(pk=self.pk).update(**derivative_updates)
         return result

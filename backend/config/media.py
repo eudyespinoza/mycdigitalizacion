@@ -1,7 +1,7 @@
 import io
+import posixpath
 import uuid
 import warnings
-from pathlib import Path
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -15,6 +15,7 @@ FORMAT_MIME = {
     "WEBP": "image/webp",
     "AVIF": "image/avif",
 }
+FORMAT_EXTENSION = {"PNG": ".png", "JPEG": ".jpg", "WEBP": ".webp", "AVIF": ".avif"}
 
 
 @deconstructible
@@ -23,13 +24,19 @@ class SafeImageUploadTo:
         self.prefix = prefix.strip("/")
 
     def __call__(self, instance, filename):
-        del instance
-        suffix = Path(filename).suffix.lower()
-        if suffix == ".jpeg":
-            suffix = ".jpg"
-        if suffix not in {".png", ".jpg", ".webp", ".avif"}:
-            suffix = ".bin"
-        return f"{self.prefix}/{uuid.uuid4().hex}{suffix}"
+        extension = None
+        for field in instance._meta.fields:
+            value = getattr(instance, field.name, None)
+            if getattr(value, "name", None) != filename:
+                continue
+            extension = getattr(value, "_detected_extension", None)
+            if not extension and getattr(value, "_file", None) is not None:
+                extension = getattr(value._file, "_detected_extension", None)
+            if extension:
+                break
+        if extension not in set(FORMAT_EXTENSION.values()):
+            raise ValidationError("Image format must be decoded before storage")
+        return f"{self.prefix}/{uuid.uuid4().hex}{extension}"
 
 
 def safe_image_upload_to(prefix):
@@ -42,7 +49,6 @@ def validate_image_upload(value):
         and getattr(value, "name", "")
         and not value.storage.exists(value.name)
     ):
-        # Historical/test rows may refer to externally restored media; validate new uploads only.
         return
     file = getattr(value, "file", value)
     if not hasattr(file, "read"):
@@ -69,10 +75,15 @@ def validate_image_upload(value):
             raise ValidationError("Image dimensions exceed the configured limits")
         supplied_mime = str(getattr(value, "content_type", "") or "").lower()
         detected_mime = FORMAT_MIME.get(image_format)
-        if not detected_mime:
+        extension = FORMAT_EXTENSION.get(image_format)
+        if not detected_mime or not extension:
             raise ValidationError("Unsupported image format")
         if supplied_mime and supplied_mime != detected_mime:
             raise ValidationError("Image MIME type does not match its content")
+        value._detected_extension = extension
+        if getattr(value, "_file", None) is not None:
+            value._file._detected_extension = extension
+        file._detected_extension = extension
     except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
         raise ValidationError("Image decompression limit exceeded") from exc
     except (OSError, SyntaxError) as exc:
@@ -91,26 +102,55 @@ def generate_image_derivatives(*, storage, name, supported_formats=None):
                 image.load()
     except (FileNotFoundError, OSError):
         return {}
-    stem = str(Path(name).with_suffix(""))
-    derivatives = {}
+    requested = tuple(getattr(settings, "MEDIA_RESPONSIVE_WIDTHS", (320, 640, 960, 1440)))
+    widths = sorted({width for width in requested if 0 < width <= image.width} | {image.width})
+    stem = posixpath.splitext(name)[0]
+    sources = []
     extensions = {"AVIF": "avif", "WEBP": "webp"}
-    for image_format in configured:
-        normalized = image_format.upper()
-        if normalized not in supported or normalized not in extensions:
-            continue
-        output = io.BytesIO()
-        try:
-            image.save(output, format=normalized, quality=82, optimize=True)
-        except (KeyError, OSError, ValueError):
-            continue
-        extension = extensions[normalized]
-        derivative_name = storage.save(
-            f"{stem}.{extension}", ContentFile(output.getvalue())
+    for width in widths:
+        height = max(1, round(image.height * width / image.width))
+        resized = (
+            image
+            if width == image.width
+            else image.resize((width, height), Image.Resampling.LANCZOS)
         )
-        derivatives[extension] = derivative_name
-    fallback = io.BytesIO()
-    image.save(fallback, format="JPEG", quality=82, optimize=True)
-    derivatives["fallback"] = storage.save(
-        f"{stem}.optimized.jpg", ContentFile(fallback.getvalue())
-    )
-    return derivatives
+        entry = {"width": width}
+        for image_format in configured:
+            normalized = image_format.upper()
+            if normalized not in supported or normalized not in extensions:
+                continue
+            output = io.BytesIO()
+            try:
+                resized.save(output, format=normalized, quality=82, optimize=True)
+            except (KeyError, OSError, ValueError):
+                continue
+            extension = extensions[normalized]
+            entry[extension] = storage.save(
+                f"{stem}-{width}.{extension}", ContentFile(output.getvalue())
+            )
+        fallback = io.BytesIO()
+        resized.save(fallback, format="JPEG", quality=82, optimize=True)
+        entry["fallback"] = storage.save(
+            f"{stem}-{width}.optimized.jpg", ContentFile(fallback.getvalue())
+        )
+        sources.append(entry)
+    return {"widths": sources}
+
+
+def delete_image_assets(*, storage, source_name, derivatives):
+    paths = {source_name} if source_name else set()
+    for source in (derivatives or {}).get("widths", []):
+        paths.update(value for key, value in source.items() if key != "width")
+    for path in paths:
+        if path and storage.exists(path):
+            storage.delete(path)
+
+
+def public_derivative_sources(*, storage, derivatives):
+    return [
+        {
+            key: storage.url(value) if key != "width" else value
+            for key, value in source.items()
+        }
+        for source in (derivatives or {}).get("widths", [])
+    ]

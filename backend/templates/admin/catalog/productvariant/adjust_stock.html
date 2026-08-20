@@ -1,0 +1,7 @@
+{% extends "admin/base_site.html" %}
+{% block title %}Ajustar stock · {{ variant.sku }}{% endblock %}
+{% block content %}
+  <h1>Ajustar stock · {{ variant.sku }}</h1>
+  <p>Stock actual: <strong>{{ variant.on_hand }}</strong>. El cambio generará un movimiento auditable.</p>
+  <form method="post">{% csrf_token %}{{ form.as_p }}<button type="submit" class="default">Guardar ajuste</button></form>
+{% endblock %}

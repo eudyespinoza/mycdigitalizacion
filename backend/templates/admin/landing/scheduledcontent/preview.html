@@ -1,0 +1,15 @@
+{% extends "admin/base_site.html" %}
+{% load l10n %}
+{% block title %}Vista previa: {{ content_object.title }}{% endblock %}
+{% block content %}
+  <main class="myc-preview" data-focal="{{ content_object.focal_x|unlocalize }}% {{ content_object.focal_y|unlocalize }}%" style="--focal-x:{{ content_object.focal_x|unlocalize }}%;--focal-y:{{ content_object.focal_y|unlocalize }}%;--height-mobile:{{ content_object.safe_height_mobile }}px;--height-tablet:{{ content_object.safe_height_tablet }}px;--height-desktop:{{ content_object.safe_height_desktop }}px">
+    <p><strong>Vista previa protegida</strong> · estado: {% if content_object.enabled %}habilitado{% else %}borrador deshabilitado{% endif %}</p>
+    <picture>
+      {% if content_object.mobile_image %}<source media="(max-width: 767px)" srcset="{{ content_object.mobile_image.url }}">{% endif %}
+      {% if content_object.desktop_image %}<img src="{{ content_object.desktop_image.url }}" alt="{{ content_object.alt_text }}">{% endif %}
+    </picture>
+    <h1>{{ content_object.title }}</h1>
+    <p>{{ content_object.body }}</p>
+    {% if content_object.cta_url %}<a href="{{ content_object.cta_url }}">{{ content_object.cta_label }}</a>{% endif %}
+  </main>
+{% endblock %}

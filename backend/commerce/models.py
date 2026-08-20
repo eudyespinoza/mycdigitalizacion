@@ -210,6 +210,14 @@ class InventoryMovement(AppendOnlyModel):
     kind = models.CharField(max_length=16, choices=Kind.choices)
     quantity_delta = models.IntegerField()
     reference = models.CharField(max_length=160)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        related_name="inventory_adjustments",
+        on_delete=models.PROTECT,
+    )
+    source = models.CharField(max_length=32, default="domain")
     created_at = models.DateTimeField(auto_now_add=True)
 
 

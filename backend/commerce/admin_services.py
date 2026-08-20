@@ -3,11 +3,11 @@ import uuid
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
+from commerce.cancellation import cancel_order
 from commerce.checkout import resume_checkout
 from commerce.identity_service import approve_identity_manually
 from commerce.models import OrderAuditEvent
 from commerce.payments import refund_order
-from commerce.services import transition_order_status
 from commerce.shipping import create_order_shipment
 
 ACTION_PERMISSIONS = {
@@ -33,12 +33,7 @@ def perform_order_admin_action(*, action, order, actor, reason, adapters=None, c
     adapters = adapters or {}
     context = context or {}
     if action == "cancel":
-        result = transition_order_status(
-            order=order,
-            field="fulfillment_status",
-            value=order.FulfillmentStatus.CANCELLED,
-            actor=actor,
-        )
+        result = cancel_order(order=order, actor=actor, reason=normalized_reason)
     elif action == "approve_identity":
         attempt = order.identity_verifications.filter(status="pending_review").first()
         if attempt is None:
@@ -72,11 +67,11 @@ def perform_order_admin_action(*, action, order, actor, reason, adapters=None, c
         shipment.provider_summary = {"last_event": str(last_event.get("event") or "")}
         shipment.save(update_fields=("status", "provider_summary", "updated_at"))
         result = order
-    kind = "admin_cancelled" if action == "cancel" else f"admin_{action}_completed"
-    OrderAuditEvent.objects.create(
-        order=order,
-        kind=kind,
-        data={"reason": normalized_reason},
-        actor=actor,
-    )
+    if action != "cancel":
+        OrderAuditEvent.objects.create(
+            order=order,
+            kind=f"admin_{action}_completed",
+            data={"reason": normalized_reason},
+            actor=actor,
+        )
     return result

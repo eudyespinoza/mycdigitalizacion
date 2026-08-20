@@ -162,3 +162,32 @@ Every RED was observed before the corresponding production implementation.
 - CMS ordering supports pointer drag and keyboard `Alt+ArrowUp/ArrowDown`, while retaining editable numeric ordering as a non-JavaScript fallback.
 - Image validation checks bytes, decoded MIME, dimensions and decompression limits; UUID paths discard client filenames and derivative failure retains the original plus an optimized safe fallback.
 - Order actions require action-specific custom permissions and route through domain/provider services. Export audit rows store metadata only, never exported payloads.
+
+## Fix Round 1 — review remediation
+
+Review source: `task-5a-admin-review.md` at commit `5214afd` (11 REQUIRED, 4 OPTIONAL).
+
+### RED/GREEN by finding cluster
+
+- **R1–R2 admin security:** RED `4 failed`; GREEN `5 passed`. Production uses Django's Redis cache backend under the dedicated `admin_login` alias. Login reservations use atomic `add`/`incr`; development/test has an explicit locmem fallback. Two independent real Redis clients were also exercised concurrently in Docker. Required 2FA now fails startup without `ADMIN_2FA_PROVIDER`; a configured provider executes challenge/callback, rotates the session, binds verification to the staff user and is cleared by logout.
+- **R3 responsive admin:** Playwright RED reproduced the 360 px overlap and 768 px overflow. GREEN measured 360/768/1024/1440 px with no document overflow or header/content overlap and minimum 44 px session/theme controls. Final header/content tops were `254.97/254.97`, `114.58/114.58`, `114.58/114.58`, and `65.78/65.78` px respectively.
+- **R4–R5 and O1 CMS workflow:** RED `2 failed`; GREEN cluster passed. Reorder is a CSRF-protected admin POST using stable record IDs, `select_for_update`, global normalization and idempotent before/after semantics across 205 records. Pointer and `Alt+Arrow` interactions call that endpoint and announce completion through `aria-live`. Preview is permission-protected, record-specific and renders disabled/future content with desktop/mobile image, focal coordinates and responsive safe heights.
+- **R6–R7 media lifecycle:** RED `3 failed`; GREEN `4 passed`. Stored extensions derive from decoded MIME, not the client suffix. Manifests contain bounded responsive widths with AVIF/WebP when supported and optimized JPEG fallback. Replacement/removal regenerates manifests and deletes superseded source/derivatives; landing and product serializers expose documented same-origin responsive source arrays.
+- **R8–R9 and O3 catalog:** RED `3 failed`; GREEN `4 passed`. Admin stock is readonly except for a guarded adjustment route. Admin/CSV stock uses the locked inventory service and creates append-only movements with delta, actor, source and reference. CSV enforces byte/row limits and converts encoding/parser/header/duplicate/incompatible-slug failures to bounded validation results without partial writes.
+- **R10–R11 orders:** RED `8 failed`; GREEN `9 passed`. Cancellation locks the order, is idempotent, releases active reservations, rejects paid/pending payments and shipped/fulfilled returns with stable safe codes, and creates one cancellation audit. Concurrent PostgreSQL cancellation produces one state transition/audit. Order Admin disables add/change bypasses, embeds readonly shipment status/tracking/safe label, and preserves service-only actions.
+- **O2 sensitive action UX:** RED `1 failed`; GREEN passed. A final real-provider regression was then captured RED (`ProviderNotConfigured` escaped the bulk tracking action as HTTP 500) and GREEN (`1 passed`). Service actions require the operator's bounded reason, preserve it in audit, contain both domain and provider failures per order, and report eligible/ineligible outcomes without leaking provider messages or diagnostics.
+- **O4 evidence:** the focused file now contains exactly `37 passed`, plus two PostgreSQL/Redis integration regressions in `test_postgres_task5a_admin.py`.
+
+### Final Fix Round 1 evidence
+
+- Focused SQLite in the locked backend image: `37 passed in 21.64s`.
+- Full SQLite-compatible Docker suite: `205 passed, 17 skipped in 99.02s`; the skipped tests require explicit PostgreSQL/Redis or production-only topology and were exercised in their corresponding selections.
+- PostgreSQL/Redis relevant suite, including the two real concurrency regressions: `53 passed in 104.96s`.
+- Ruff: `All checks passed`.
+- Django check under PostgreSQL Docker: `0 issues`.
+- Migration drift under PostgreSQL Docker: `No changes detected`.
+- OpenAPI JSON validation: exit `0`; responsive source arrays are typed through `ResponsiveMediaSource`.
+- Isolated collectstatic: `166 static files copied`, `478 post-processed`.
+- Playwright keyboard reorder: row ID changed and live status was `Elemento movido a la posición visible 2; orden global guardado.`
+- Playwright responsive assertions at 360/768/1024/1440 showed document widths exactly matching each viewport, header bottom equal to content top (`254.97`, `114.58`, `114.58`, `65.78` px), and minimum interactive header control height `44` px.
+- Playwright screenshots were written only to `%TEMP%`; no generated media/schema/browser artifact is committed.

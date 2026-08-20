@@ -3,6 +3,7 @@ import io
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
+from django.conf import settings
 from django.db import transaction
 from django.utils.text import slugify
 
@@ -63,21 +64,37 @@ def spreadsheet_safe(value):
 
 
 def _uploaded_text(upload):
+    if getattr(upload, "size", 0) > settings.CATALOG_CSV_MAX_BYTES:
+        raise ValueError("CSV file size exceeds the configured limit")
     upload.seek(0)
     raw = upload.read()
     if isinstance(raw, str):
         return raw
-    return raw.decode("utf-8-sig")
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ValueError("CSV file must use UTF-8 encoding") from exc
 
 
 def validate_product_csv(upload):
-    reader = csv.DictReader(io.StringIO(_uploaded_text(upload)))
-    if tuple(reader.fieldnames or ()) != HEADERS:
+    try:
+        text = _uploaded_text(upload)
+        reader = csv.DictReader(io.StringIO(text), strict=True)
+        fieldnames = tuple(reader.fieldnames or ())
+    except (ValueError, csv.Error) as exc:
+        return (), (ProductImportError(1, "file", str(exc)),)
+    if fieldnames != HEADERS or len(fieldnames) != len(set(fieldnames)):
         return (), (ProductImportError(1, "header", "CSV headers do not match the template"),)
     rows = []
     errors = []
     seen_skus = set()
-    for row_number, data in enumerate(reader, start=2):
+    try:
+        data_rows = list(reader)
+    except csv.Error as exc:
+        return (), (ProductImportError(1, "file", f"CSV parser error: {exc}"),)
+    if len(data_rows) > settings.CATALOG_CSV_MAX_ROWS:
+        return (), (ProductImportError(1, "file", "CSV row count exceeds the configured limit"),)
+    for row_number, data in enumerate(data_rows, start=2):
         sku = str(data["sku"] or "").strip()
         product_name = str(data["product_name"] or "").strip()
         product_slug = slugify(str(data["product_slug"] or "").strip())
@@ -98,6 +115,18 @@ def validate_product_csv(upload):
         if category is None:
             errors.append(
                 ProductImportError(row_number, "category_slug", "Category does not exist")
+            )
+        existing_product = Product.objects.filter(slug=product_slug).first()
+        if existing_product and (
+            existing_product.name != product_name
+            or existing_product.category_id != getattr(category, "pk", None)
+        ):
+            errors.append(
+                ProductImportError(
+                    row_number,
+                    "product_slug",
+                    "Existing product slug has incompatible name or category",
+                )
             )
         numeric = {}
         for field in ("price", "cost", "length_cm", "width_cm", "height_cm"):
@@ -137,7 +166,8 @@ def validate_product_csv(upload):
 
 
 def import_products_csv(upload, *, dry_run, actor):
-    del actor
+    from commerce.inventory import adjust_inventory
+
     rows, errors = validate_product_csv(upload)
     if errors or dry_run:
         return ImportResult(len(rows), 0, errors)
@@ -152,18 +182,26 @@ def import_products_csv(upload, *, dry_run, actor):
                     "is_sellable": False,
                 },
             )
-            ProductVariant.objects.create(
+            variant = ProductVariant.objects.create(
                 product=product,
                 sku=row.sku,
                 name=row.variant_name,
                 price=row.price,
                 cost=row.cost,
-                on_hand=row.on_hand,
+                on_hand=0,
                 packaged_weight_grams=row.weight_grams,
                 length_cm=row.length_cm,
                 width_cm=row.width_cm,
                 height_cm=row.height_cm,
             )
+            if row.on_hand:
+                adjust_inventory(
+                    variant=variant,
+                    new_on_hand=row.on_hand,
+                    actor=actor,
+                    source="catalog_csv",
+                    reference=f"CSV import row {row.row_number}: {row.sku}",
+                )
     return ImportResult(len(rows), len(rows), ())
 
 

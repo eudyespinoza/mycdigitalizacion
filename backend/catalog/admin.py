@@ -1,4 +1,5 @@
-from django.contrib import admin
+from django import forms
+from django.contrib import admin, messages
 from django.http import HttpResponse
 from django.urls import path, reverse
 from django.utils.html import format_html
@@ -30,6 +31,7 @@ class ProductVariantInline(admin.TabularInline):
         "height_cm",
         "is_active",
     )
+    readonly_fields = ("on_hand",)
 
 
 class ProductMediaInline(admin.TabularInline):
@@ -50,6 +52,11 @@ class AttributeValueInline(admin.TabularInline):
         "decimal_value",
         "boolean_value",
     )
+
+
+class InventoryAdjustmentForm(forms.Form):
+    new_on_hand = forms.IntegerField(min_value=0, label="Stock físico resultante")
+    reference = forms.CharField(max_length=160, label="Motivo / referencia")
 
 
 @admin.register(Product)
@@ -116,12 +123,58 @@ class ProductVariantAdmin(admin.ModelAdmin):
         "cost",
         "on_hand",
         "available_stock",
+        "stock_adjustment",
         "inventory_history",
         "is_active",
     )
     list_filter = ("is_active", "product__category")
     search_fields = ("sku", "product__name")
     inlines = (AttributeValueInline,)
+    readonly_fields = ("on_hand",)
+
+    def get_urls(self):
+        info = (self.opts.app_label, self.opts.model_name)
+        return [
+            path(
+                "<path:object_id>/adjust-stock/",
+                self.admin_site.admin_view(self.adjust_stock_view),
+                name="{}_{}_adjust_stock".format(*info),
+            )
+        ] + super().get_urls()
+
+    def adjust_stock_view(self, request, object_id):
+        from django.core.exceptions import PermissionDenied
+        from django.shortcuts import get_object_or_404, redirect
+        from django.template.response import TemplateResponse
+
+        from commerce.inventory import adjust_inventory
+
+        variant = get_object_or_404(ProductVariant, pk=object_id)
+        if not self.has_change_permission(request, variant):
+            raise PermissionDenied
+        form = InventoryAdjustmentForm(
+            request.POST or None, initial={"new_on_hand": variant.on_hand}
+        )
+        if request.method == "POST" and form.is_valid():
+            adjust_inventory(
+                variant=variant,
+                new_on_hand=form.cleaned_data["new_on_hand"],
+                actor=request.user,
+                source="admin",
+                reference=form.cleaned_data["reference"],
+            )
+            messages.success(request, "Stock actualizado y movimiento auditado.")
+            return redirect("admin:catalog_productvariant_change", object_id)
+        return TemplateResponse(
+            request,
+            "admin/catalog/productvariant/adjust_stock.html",
+            {**self.admin_site.each_context(request), "form": form, "variant": variant},
+        )
+
+    @admin.display(description="Ajuste")
+    def stock_adjustment(self, obj):
+        url = reverse("admin:catalog_productvariant_adjust_stock", args=(obj.pk,))
+        return format_html('<a href="{}">Ajustar vía servicio</a>', url)
 
     @admin.display(description="Historial")
     def inventory_history(self, obj):

@@ -32,6 +32,19 @@ def strict_boolean(environment: Mapping[str, str], field: str, *, default: str =
     return raw_value == "true"
 
 
+def admin_cache_config(environment: Mapping[str, str]) -> dict[str, str]:
+    if environment.get("APP_ENV", "").strip().lower() == "production":
+        return {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": environment.get("REDIS_URL", "redis://redis:6379/0"),
+            "KEY_PREFIX": "mycd-admin",
+        }
+    return {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "mycd-admin-development-fallback",
+    }
+
+
 def validate_runtime_environment(environment: Mapping[str, str]) -> None:
     """Reject accidental production startup with development configuration."""
     app_env = environment.get("APP_ENV", "").strip().lower()
@@ -212,6 +225,9 @@ MAX_IMAGE_WIDTH = int(environ.get("MAX_IMAGE_WIDTH", "6000"))
 MAX_IMAGE_HEIGHT = int(environ.get("MAX_IMAGE_HEIGHT", "6000"))
 MAX_IMAGE_PIXELS = int(environ.get("MAX_IMAGE_PIXELS", "24000000"))
 MEDIA_DERIVATIVE_FORMATS = ("AVIF", "WEBP")
+MEDIA_RESPONSIVE_WIDTHS = (320, 640, 960, 1440)
+CATALOG_CSV_MAX_BYTES = int(environ.get("CATALOG_CSV_MAX_BYTES", str(2 * 1024 * 1024)))
+CATALOG_CSV_MAX_ROWS = int(environ.get("CATALOG_CSV_MAX_ROWS", "5000"))
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STORAGES = {
     "default": {
@@ -227,7 +243,19 @@ AUTH_USER_MODEL = "accounts.User"
 ADMIN_LOGIN_MAX_ATTEMPTS = int(environ.get("ADMIN_LOGIN_MAX_ATTEMPTS", "5"))
 ADMIN_LOGIN_LOCK_SECONDS = int(environ.get("ADMIN_LOGIN_LOCK_SECONDS", "900"))
 ADMIN_2FA_REQUIRED = environ.get("ADMIN_2FA_REQUIRED", "false").lower() == "true"
-ADMIN_2FA_VERIFICATION_URL = environ.get("ADMIN_2FA_VERIFICATION_URL", "/admin/2fa/")
+ADMIN_2FA_PROVIDER = environ.get("ADMIN_2FA_PROVIDER", "")
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "mycd-default",
+    },
+    "admin_login": admin_cache_config(environ),
+}
+
+if ADMIN_2FA_REQUIRED and not ADMIN_2FA_PROVIDER.strip():
+    raise ImproperlyConfigured(
+        "ADMIN_2FA_PROVIDER is required when ADMIN_2FA_REQUIRED=true"
+    )
 
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
