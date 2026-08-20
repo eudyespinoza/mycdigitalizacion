@@ -107,8 +107,7 @@ def generate_image_derivatives(*, storage, name, supported_formats=None):
         for width in getattr(settings, "MEDIA_RESPONSIVE_WIDTHS", (320, 640, 960, 1440))
         if int(width) > 0
     }
-    width_cap = min(image.width, max(requested, default=image.width))
-    widths = sorted({width for width in requested if width <= width_cap} | {width_cap})
+    widths = sorted(width for width in requested if width < image.width)
     stem = posixpath.splitext(name)[0]
     sources = []
     created_paths = []

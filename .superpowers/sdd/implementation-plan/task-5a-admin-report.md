@@ -216,3 +216,26 @@ Review source: appended **Fix Round 1 independent verdict** in `task-5a-admin-re
 - OpenAPI JSON validation: exit `0`; the existing responsive-source schema is unchanged.
 - Isolated collectstatic: `166 static files copied`, `478 post-processed`.
 - Browser and schema outputs used temporary storage only; the temporary Playwright PostgreSQL database and server were removed after verification.
+
+## Fix Round 3 — final independent-review closure
+
+Review source: final appended verdict in `task-5a-admin-review.md` for the Fix Round 2 boundary.
+
+### Exact RED/GREEN regressions
+
+- **R3 mobile header hit target:** real Playwright at 360 px reproduced RED with the theme button at `x=-12`, width `360`, and `elementFromPoint` over the logo returning `BUTTON.theme-toggle`. The mobile full-width rule now excludes the theme button and gives it an explicit 44 px width. GREEN measured the theme control at `x=304`, `44x44`, with the logo hit returning `IMG`. The same assertions at 360/768/1024/1440 px found exact document widths, no brand/control overlap, minimum 44 px controls, and header/content boundaries of `165.97`, `114.58`, `114.58`, and `65.78` px.
+- **R4 direct order bypasses:** a real Admin change-form POST reproduced RED by accepting `order=0` for the record initially at order 101, creating a duplicate zero. `order` is now readonly on every scheduled-content change form, so the locked stable-ID reorder service is the only write path. GREEN proves the same POST leaves order 101 and exactly one zero. A separate regression GETs the real `?p=2` ChangeList, selects a record from that rendered result page, submits the former formset payload, and proves its order remains unchanged and globally unique at zero.
+- **R6 intermediate source width:** a 1000 px source with configured widths 320/640/960/1440 reproduced RED as `[320, 640, 960, 1000]`, duplicating the original width. GREEN is exactly `[320, 640, 960]`: every generated width is configured and strictly smaller than the source, while the original remains stored and each width retains its optimized fallback. Existing small/replacement tests now assert this same contract instead of expecting an original-width derivative.
+- **O4 exact evidence:** committed negatives cover the actual change URL, an actual `?p=2` result page, and the intermediate-width media case. The 360 px CSS hit-test was executed before and after the selector repair against the real rendered Admin, including `elementFromPoint`, bounding boxes and four viewport sizes.
+
+### Final Fix Round 3 verification
+
+- Focused Task 5A contracts: `49 passed in 41.68s`.
+- Full current shared SQLite-compatible suite: `222 passed, 18 skipped in 174.44s`. The independent review recorded `217 passed, 16 skipped` at its reviewed commit; this larger count is the fresh shared-tree result after the subsequently integrated Task 5B tests and these Fix Round 3 regressions.
+- PostgreSQL/Redis relevant suite: `66 passed in 161.00s`.
+- Ruff after the final test cleanup: `All checks passed`.
+- Django check with `DJANGO_DEBUG=false`: `0 issues`.
+- Migration drift: `No changes detected`; this round requires no migration.
+- OpenAPI JSON generation and validation: exit `0`.
+- Isolated collectstatic: `166 static files copied`, `478 post-processed`.
+- No browser screenshot, schema, temporary database or generated media artifact is included in this change. Concurrent Task 5B infra edits visible in the shared worktree were excluded from the explicit Task 5A commit.

@@ -393,7 +393,10 @@ def test_media_derivatives_keep_original_and_degrade_without_avif(tmp_path):
 
     storage = FileSystemStorage(location=tmp_path, base_url="/media/")
     original_name = storage.save("original/photo.png", image_upload())
-    with override_settings(MEDIA_DERIVATIVE_FORMATS=("AVIF", "WEBP")):
+    with override_settings(
+        MEDIA_DERIVATIVE_FORMATS=("AVIF", "WEBP"),
+        MEDIA_RESPONSIVE_WIDTHS=(16,),
+    ):
         derivatives = generate_image_derivatives(
             storage=storage,
             name=original_name,
@@ -401,7 +404,7 @@ def test_media_derivatives_keep_original_and_degrade_without_avif(tmp_path):
         )
 
     assert storage.exists(original_name)
-    assert [source["width"] for source in derivatives["widths"]] == [32]
+    assert [source["width"] for source in derivatives["widths"]] == [16]
     assert set(derivatives["widths"][0]) == {"width", "webp", "fallback"}
     assert all(
         storage.exists(name)
@@ -478,10 +481,10 @@ def test_landing_image_replacement_regenerates_and_removal_cleans_superseded_ass
         slide.desktop_image = image_upload("replacement", size=(160, 90))
         slide.save()
         assert slide.desktop_image.name.endswith(".png")
-        assert [source["width"] for source in slide.desktop_derivatives["widths"]] == [80, 160]
+        assert [source["width"] for source in slide.desktop_derivatives["widths"]] == [80]
         assert not slide.desktop_image.storage.exists(original_source)
         assert all(not slide.desktop_image.storage.exists(path) for path in old_paths)
-        assert HeroSlideSerializer(slide).data["desktop_responsive_sources"][1]["width"] == 160
+        assert HeroSlideSerializer(slide).data["desktop_responsive_sources"][0]["width"] == 80
 
         current_source = slide.desktop_image.name
         slide.desktop_image = None

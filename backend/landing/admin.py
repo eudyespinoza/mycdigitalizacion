@@ -25,7 +25,13 @@ class ScheduledContentAdmin(admin.ModelAdmin):
     search_fields = ("title", "alt_text", "cta_label")
     ordering = ("order",)
     actions = ("duplicate_selected",)
-    readonly_fields = ("thumbnail", "public_preview", "desktop_derivatives", "mobile_derivatives")
+    readonly_fields = (
+        "order",
+        "thumbnail",
+        "public_preview",
+        "desktop_derivatives",
+        "mobile_derivatives",
+    )
     change_list_template = "admin/landing/scheduledcontent/change_list.html"
 
     class Media:

@@ -46,34 +46,87 @@ def test_mobile_admin_user_tools_render_semantic_groups_without_orphan_separator
         },
     }
 )
-def test_page_two_changelist_cannot_bypass_global_reorder_with_duplicate_zero(
+def test_later_page_changelist_cannot_bypass_global_reorder_with_duplicate_zero(
     client, django_user_model
 ):
     from landing.models import HeroSlide
 
     editor = django_user_model.objects.create_superuser(email="round2-order@example.test")
     client.force_login(editor)
-    slides = HeroSlide.objects.bulk_create(
+    HeroSlide.objects.bulk_create(
         [HeroSlide(title=f"Slide {index}", order=index) for index in range(205)]
     )
-    page_two_first = slides[100]
+    rendered_page = client.get("/admin/landing/heroslide/?p=2")
+    assert rendered_page.status_code == 200
+    later_page_first = list(rendered_page.context["cl"].result_list)[0]
+    original_order = later_page_first.order
+    assert (
+        f'/admin/landing/heroslide/{later_page_first.pk}/change/'
+        in rendered_page.content.decode()
+    )
 
     response = client.post(
-        "/admin/landing/heroslide/?p=1",
+        "/admin/landing/heroslide/?p=2",
         {
             "form-TOTAL_FORMS": "1",
             "form-INITIAL_FORMS": "1",
             "form-MIN_NUM_FORMS": "0",
             "form-MAX_NUM_FORMS": "1000",
-            "form-0-id": str(page_two_first.pk),
+            "form-0-id": str(later_page_first.pk),
             "form-0-order": "0",
             "_save": "Guardar",
         },
     )
 
-    page_two_first.refresh_from_db()
+    later_page_first.refresh_from_db()
     assert response.status_code in {200, 302}
-    assert page_two_first.order == 100
+    assert later_page_first.order == original_order
+    assert HeroSlide.objects.filter(order=0).count() == 1
+
+
+@pytest.mark.django_db
+def test_change_form_cannot_bypass_global_reorder_with_duplicate_zero(
+    client, django_user_model
+):
+    from landing.models import HeroSlide
+
+    editor = django_user_model.objects.create_superuser(email="round3-order@example.test")
+    client.force_login(editor)
+    slides = HeroSlide.objects.bulk_create(
+        [HeroSlide(title=f"Slide {index}", order=index) for index in range(205)]
+    )
+    changed = slides[101]
+
+    response = client.post(
+        f"/admin/landing/heroslide/{changed.pk}/change/",
+        {
+            "title": changed.title,
+            "body": "",
+            "enabled": "on",
+            "order": "0",
+            "starts_at_0": "",
+            "starts_at_1": "",
+            "ends_at_0": "",
+            "ends_at_1": "",
+            "desktop_image": "",
+            "mobile_image": "",
+            "alt_text": "",
+            "cta_label": "",
+            "cta_url": "",
+            "focal_x": "50.00",
+            "focal_y": "50.00",
+            "safe_height_mobile": "320",
+            "safe_height_tablet": "420",
+            "safe_height_desktop": "520",
+            "interval_ms": "6000",
+            "pause_on_reduced_motion": "on",
+            "_save": "Guardar",
+        },
+    )
+
+    changed.refresh_from_db()
+    assert response.status_code == 302
+    assert changed.order == 101
     assert HeroSlide.objects.filter(order=0).count() == 1
 
 
@@ -143,6 +196,31 @@ def test_derivative_widths_stop_at_configured_cap_and_never_duplicate_full_sourc
     assert [entry["width"] for entry in manifest["widths"]] == [320, 640, 960, 1440]
     assert all(
         "-2000." not in path
+        for entry in manifest["widths"]
+        for path in entry.values()
+        if isinstance(path, str)
+    )
+
+
+def test_derivative_widths_are_strictly_smaller_than_intermediate_source(tmp_path):
+    from django.core.files.storage import FileSystemStorage
+
+    from config.media import generate_image_derivatives
+
+    storage = FileSystemStorage(location=tmp_path, base_url="/media/")
+    source = storage.save("intermediate.png", image_upload(size=(1000, 500)))
+
+    with override_settings(MEDIA_RESPONSIVE_WIDTHS=(320, 640, 960, 1440)):
+        manifest = generate_image_derivatives(
+            storage=storage,
+            name=source,
+            supported_formats={"WEBP"},
+        )
+
+    assert [entry["width"] for entry in manifest["widths"]] == [320, 640, 960]
+    assert storage.exists(source)
+    assert all(
+        "-1000." not in path
         for entry in manifest["widths"]
         for path in entry.values()
         if isinstance(path, str)

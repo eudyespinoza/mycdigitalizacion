@@ -34,7 +34,8 @@ a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid 
   #user-tools { border-top: 1px solid rgb(255 255 255 / 25%); display: grid; gap: 0; grid-template-columns: minmax(0, 1fr); padding-top: .35rem; text-align: left; width: 100%; }
   #user-tools .myc-session { min-height: 44px; overflow-wrap: anywhere; }
   .myc-user-links { display: grid; gap: 0 .4rem; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
-  .myc-user-links a, .myc-user-links form, .myc-user-links button { justify-content: flex-start; min-width: 0; width: 100%; }
+  .myc-user-links a, .myc-user-links form, .myc-user-links button:not(.theme-toggle) { justify-content: flex-start; min-width: 0; width: 100%; }
+  .myc-user-links .theme-toggle { width: 44px; }
   .theme-toggle { position: absolute; right: .75rem; top: .65rem; }
   .myc-shortcuts ul { display: grid; grid-template-columns: 1fr; }
   .myc-shortcuts a { width: 100%; }
