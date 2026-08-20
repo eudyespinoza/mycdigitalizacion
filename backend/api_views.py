@@ -94,6 +94,7 @@ from landing.serializers import (
     LandingCollectionSerializer,
     PromotionPopupSerializer,
     PromotionSlideSerializer,
+    SiteSettingsSerializer,
     StorefrontHomeSerializer,
 )
 from locations.models import Address
@@ -401,15 +402,7 @@ class StorefrontHomeView(generics.GenericAPIView):
         settings = SiteSettings.objects.first()
         return Response(
             {
-                "settings": {
-                    "public_name": settings.public_name if settings else "mycdigitalizacion",
-                    "announcement": settings.announcement if settings else "",
-                    "contact_email": settings.contact_email if settings else "",
-                    "pickup_enabled": settings.pickup_enabled if settings else True,
-                    "pickup_label": settings.pickup_label if settings else "Retiro en tienda",
-                    "pickup_address": settings.pickup_address if settings else "",
-                    "pickup_hours": settings.pickup_hours if settings else "",
-                },
+                "settings": SiteSettingsSerializer(settings or SiteSettings()).data,
                 "hero_slides": scheduled(HeroSlide, HeroSlideSerializer),
                 "promotion_slides": scheduled(PromotionSlide, PromotionSlideSerializer),
                 "collections": scheduled(LandingCollection, LandingCollectionSerializer),

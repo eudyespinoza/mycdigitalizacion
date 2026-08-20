@@ -21,10 +21,77 @@ class SiteSettings(models.Model):
     pickup_label = models.CharField(max_length=120, default="Retiro en tienda")
     pickup_address = models.CharField(max_length=240, blank=True)
     pickup_hours = models.CharField(max_length=240, blank=True)
+    logo = models.ImageField(
+        upload_to=safe_image_upload_to("branding/logo"),
+        blank=True,
+        validators=[validate_image_upload],
+    )
+    logo_derivatives = models.JSONField(default=dict, blank=True, editable=False)
+    favicon = models.ImageField(
+        upload_to=safe_image_upload_to("branding/favicon"),
+        blank=True,
+        validators=[validate_image_upload],
+    )
 
     def save(self, *args, **kwargs):
         self.pk = 1
-        return super().save(*args, **kwargs)
+        previous = SiteSettings.objects.filter(pk=1).values(
+            "logo", "logo_derivatives", "favicon"
+        ).first() or {}
+        self.full_clean(exclude={"id"})
+        new_assets = []
+        superseded_assets = []
+        try:
+            with transaction.atomic():
+                result = super().save(*args, **kwargs)
+                changes = {}
+                for field_name in ("logo", "favicon"):
+                    field = getattr(self, field_name)
+                    old_name = previous.get(field_name, "")
+                    if old_name == field.name:
+                        continue
+                    new_asset = {
+                        "storage": field.storage,
+                        "source_name": field.name,
+                        "derivatives": {},
+                    }
+                    if field.name:
+                        new_assets.append(new_asset)
+                    if old_name:
+                        superseded_assets.append(
+                            {
+                                "storage": field.storage,
+                                "source_name": old_name,
+                                "derivatives": (
+                                    previous.get("logo_derivatives", {})
+                                    if field_name == "logo"
+                                    else {}
+                                ),
+                            }
+                        )
+                logo_changed = previous.get("logo", "") != self.logo.name
+                if self.logo and (logo_changed or not self.logo_derivatives):
+                    derivatives = generate_image_derivatives(
+                        storage=self.logo.storage,
+                        name=self.logo.name,
+                    )
+                    self.logo_derivatives = derivatives
+                    changes["logo_derivatives"] = derivatives
+                    for asset in new_assets:
+                        if asset["source_name"] == self.logo.name:
+                            asset["derivatives"] = derivatives
+                elif not self.logo and self.logo_derivatives:
+                    self.logo_derivatives = {}
+                    changes["logo_derivatives"] = {}
+                if changes:
+                    SiteSettings.objects.filter(pk=1).update(**changes)
+        except Exception:
+            for assets in new_assets:
+                delete_image_assets(**assets)
+            raise
+        for assets in superseded_assets:
+            delete_image_assets(**assets)
+        return result
 
     def delete(self, *args, **kwargs):
         raise ValidationError("Site settings cannot be deleted")
@@ -211,3 +278,4 @@ class PromotionPopup(ScheduledContent):
         default=1500, validators=[MaxValueValidator(60000)]
     )
     dismissible = models.BooleanField(default=True)
+    version = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])

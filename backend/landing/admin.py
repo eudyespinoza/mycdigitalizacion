@@ -138,11 +138,39 @@ class ScheduledContentAdmin(admin.ModelAdmin):
 
 @admin.register(SiteSettings)
 class SiteSettingsAdmin(admin.ModelAdmin):
+    readonly_fields = ("logo_preview", "favicon_preview", "logo_derivatives")
+
     def has_add_permission(self, request):
         return not SiteSettings.objects.exists()
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    @admin.display(description="Vista previa del logo activo")
+    def logo_preview(self, obj):
+        url = (
+            obj.logo.url
+            if obj and obj.logo
+            else "/brand/mycdigitalizacion-logo.png"
+        )
+        return format_html(
+            '<img src="{}" alt="Logo activo" '
+            'style="max-height:96px;max-width:100%;object-fit:contain">',
+            url,
+        )
+
+    @admin.display(description="Vista previa del favicon activo")
+    def favicon_preview(self, obj):
+        url = (
+            obj.favicon.url
+            if obj and obj.favicon
+            else "/brand/mycdigitalizacion-logo.png"
+        )
+        return format_html(
+            '<img src="{}" alt="Favicon activo" width="48" height="48" '
+            'style="object-fit:contain">',
+            url,
+        )
 
 
 admin.site.register(HeroSlide, ScheduledContentAdmin)

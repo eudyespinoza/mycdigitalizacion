@@ -73,7 +73,11 @@ def validate_image_upload(value):
             or width * height > settings.MAX_IMAGE_PIXELS
         ):
             raise ValidationError("Image dimensions exceed the configured limits")
-        supplied_mime = str(getattr(value, "content_type", "") or "").lower()
+        supplied_mime = str(
+            getattr(value, "content_type", "")
+            or getattr(file, "content_type", "")
+            or ""
+        ).lower()
         detected_mime = FORMAT_MIME.get(image_format)
         extension = FORMAT_EXTENSION.get(image_format)
         if not detected_mime or not extension:

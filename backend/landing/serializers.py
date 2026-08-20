@@ -13,6 +13,23 @@ from landing.models import (
 
 
 class SiteSettingsSerializer(serializers.ModelSerializer):
+    logo_url = serializers.SerializerMethodField()
+    logo_responsive_sources = serializers.SerializerMethodField()
+    favicon_url = serializers.SerializerMethodField()
+
+    def get_logo_url(self, instance) -> str:
+        return instance.logo.url if instance.logo else "/brand/mycdigitalizacion-logo.png"
+
+    @extend_schema_field(ResponsiveMediaSourceSerializer(many=True))
+    def get_logo_responsive_sources(self, instance):
+        return public_derivative_sources(
+            storage=instance.logo.storage,
+            derivatives=instance.logo_derivatives,
+        )
+
+    def get_favicon_url(self, instance) -> str:
+        return instance.favicon.url if instance.favicon else "/brand/mycdigitalizacion-logo.png"
+
     class Meta:
         model = SiteSettings
         fields = (
@@ -23,6 +40,9 @@ class SiteSettingsSerializer(serializers.ModelSerializer):
             "pickup_label",
             "pickup_address",
             "pickup_hours",
+            "logo_url",
+            "logo_responsive_sources",
+            "favicon_url",
         )
 
 
@@ -111,6 +131,7 @@ class PromotionPopupSerializer(ScheduledContentSerializer):
             "frequency",
             "display_delay_ms",
             "dismissible",
+            "version",
         )
 
 
