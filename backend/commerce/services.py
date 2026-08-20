@@ -1,3 +1,4 @@
+import uuid
 from dataclasses import dataclass
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
@@ -345,6 +346,7 @@ def create_pending_identity_order(
     fulfillment_method,
     shipping_quote=None,
     checkout_idempotency_key=None,
+    public_id=None,
     at=None,
 ):
     checked_at = at or timezone.now()
@@ -381,6 +383,7 @@ def create_pending_identity_order(
     shipping_amount = money(shipping_quote.total_amount if shipping_quote else 0)
     total = money(merchandise_total + shipping_amount)
     order = Order.objects.create(
+        public_id=public_id or uuid.uuid4(),
         user=locked_cart.user,
         checkout_idempotency_key=checkout_idempotency_key,
         customer_snapshot=customer_snapshot,

@@ -15,6 +15,7 @@ from commerce.models import (
 from commerce.payments import PaymentMismatch, apply_payment, process_webhook_event
 from commerce.provider_config import get_carrier_adapter, get_payment_adapter
 from commerce.services import release_reservation
+from commerce.shipping import ShipmentError, create_order_shipment
 from providers import ProviderError
 
 logger = logging.getLogger(__name__)
@@ -135,6 +136,30 @@ def reconcile_tracking():
         shipment.save(update_fields=("status", "provider_summary", "updated_at"))
         reconciled += 1
     return reconciled
+
+
+@shared_task
+def resume_pending_shipments():
+    adapter = get_carrier_adapter()
+    recovered = 0
+    shipment_ids = list(
+        Shipment.objects.filter(status="importing").order_by("pk").values_list("pk", flat=True)
+    )
+    for shipment in Shipment.objects.select_related("order").filter(pk__in=shipment_ids):
+        try:
+            completed = create_order_shipment(order=shipment.order, adapter=adapter)
+        except (ProviderError, ShipmentError) as exc:
+            logger.warning(
+                "shipment_import_recovery_failed",
+                extra={
+                    "shipment_id": shipment.pk,
+                    "failure_code": getattr(exc, "code", "shipment_error"),
+                },
+            )
+            continue
+        if completed.status == "imported":
+            recovered += 1
+    return recovered
 
 
 @shared_task

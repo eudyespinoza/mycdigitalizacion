@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from http.client import HTTPConnection, HTTPSConnection
+from http.client import HTTPConnection, HTTPException, HTTPSConnection
 from typing import Any, Protocol
 from urllib.parse import urlencode, urlsplit
 
@@ -94,6 +94,11 @@ class UrllibJsonTransport:
             return response.status, json_loads(response.read())
         except TimeoutError as exc:
             raise ProviderTimeout("El proveedor tardó demasiado en responder") from exc
+        except HTTPException as exc:
+            raise ProviderUnavailable(
+                "El proveedor no está disponible",
+                diagnostics=f"http_protocol={type(exc).__name__}",
+            ) from exc
         except OSError as exc:
             raise ProviderUnavailable("El proveedor no está disponible") from exc
         finally:
@@ -147,7 +152,7 @@ class ProviderHttpClient:
                 return data
             if status in {408, 429, 500, 502, 503, 504} and attempt + 1 < attempts:
                 continue
-            if status in {401, 403, 404, 409, 422}:
+            if status in {400, 401, 402, 403, 404, 409, 422}:
                 raise ProviderRejected(
                     "El proveedor rechazó la operación", diagnostics=f"http_status={status}"
                 )

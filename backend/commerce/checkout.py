@@ -38,6 +38,20 @@ class CheckoutResult:
     checkout_url: str
 
 
+def _checkout_identifiers(*, user_id, idempotency_key):
+    normalized_key = uuid.UUID(str(idempotency_key))
+    namespace = uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        f"mycdigitalizaciones:checkout:{user_id}:{normalized_key}",
+    )
+    return {
+        "checkout_key": normalized_key,
+        "order_id": uuid.uuid5(namespace, "order"),
+        "external_reference": uuid.uuid5(namespace, "payment-external-reference"),
+        "payment_idempotency_key": uuid.uuid5(namespace, "mercadopago-preference"),
+    }
+
+
 def _fiscal_snapshot(profile):
     return {
         "profile_id": profile.pk,
@@ -136,6 +150,8 @@ def confirm_checkout(
         )
     if idempotency_key is None:
         idempotency_key = uuid.uuid4()
+    identifiers = _checkout_identifiers(user_id=user.pk, idempotency_key=idempotency_key)
+    idempotency_key = identifiers["checkout_key"]
     existing_order = user.orders.filter(checkout_idempotency_key=idempotency_key).first()
     if existing_order:
         existing_transaction = existing_order.payment_transactions.order_by("created_at").first()
@@ -223,6 +239,7 @@ def confirm_checkout(
                 fulfillment_method=fulfillment_method,
                 shipping_quote=effective_quote,
                 checkout_idempotency_key=idempotency_key,
+                public_id=identifiers["order_id"],
                 at=now,
             )
             identity.order = order
@@ -243,8 +260,8 @@ def confirm_checkout(
                 order.reservations.add(reservation)
             payment_transaction = PaymentTransaction.objects.create(
                 order=order,
-                external_reference=uuid.uuid4(),
-                idempotency_key=uuid.uuid4(),
+                external_reference=identifiers["external_reference"],
+                idempotency_key=identifiers["payment_idempotency_key"],
                 amount=order.total_snapshot,
                 currency="ARS",
                 expected_collector_id=getattr(payment_adapter, "collector_id", ""),
@@ -268,6 +285,7 @@ def confirm_checkout(
             order.refresh_from_db()
             return CheckoutResult(order, payment_transaction, preference.checkout_url)
     except IntegrityError:
+        type(identity).objects.filter(pk=identity.pk, order__isnull=True).delete()
         existing_order = user.orders.filter(checkout_idempotency_key=idempotency_key).first()
         if existing_order:
             existing_transaction = existing_order.payment_transactions.order_by(
@@ -280,7 +298,11 @@ def confirm_checkout(
             )
         raise
     except InsufficientStock as exc:
+        type(identity).objects.filter(pk=identity.pk, order__isnull=True).delete()
         raise CheckoutError("insufficient_stock", "No hay stock suficiente") from exc
+    except Exception:
+        type(identity).objects.filter(pk=identity.pk, order__isnull=True).delete()
+        raise
 
 
 def resume_checkout(*, order, cart, user, payment_adapter):
@@ -292,6 +314,10 @@ def resume_checkout(*, order, cart, user, payment_adapter):
     if order.user_id != user.pk or cart.user_id != user.pk:
         raise CheckoutError("cart_owner_mismatch", "No encontramos ese carrito")
     now = timezone.now()
+    identifiers = _checkout_identifiers(
+        user_id=user.pk,
+        idempotency_key=order.checkout_idempotency_key or order.public_id,
+    )
     with transaction.atomic():
         locked_order = type(order).objects.select_for_update().get(pk=order.pk)
         existing = locked_order.payment_transactions.order_by("created_at").first()
@@ -351,6 +377,8 @@ def resume_checkout(*, order, cart, user, payment_adapter):
             locked_order.reservations.add(reservation)
         payment_transaction = PaymentTransaction.objects.create(
             order=locked_order,
+            external_reference=identifiers["external_reference"],
+            idempotency_key=identifiers["payment_idempotency_key"],
             amount=locked_order.total_snapshot,
             currency="ARS",
             expected_collector_id=getattr(payment_adapter, "collector_id", ""),

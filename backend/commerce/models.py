@@ -469,6 +469,35 @@ class Shipment(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
+class ShipmentParcelImport(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        IMPORTED = "imported", "Imported"
+
+    shipment = models.ForeignKey(
+        Shipment,
+        related_name="parcel_imports",
+        on_delete=models.PROTECT,
+    )
+    parcel_index = models.PositiveIntegerField()
+    external_id = models.CharField(max_length=160, unique=True)
+    idempotency_key = models.UUIDField(unique=True)
+    parcel_snapshot = models.JSONField()
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.PENDING)
+    provider_summary = models.JSONField(default=dict)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("parcel_index",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=("shipment", "parcel_index"),
+                name="unique_shipment_parcel_import_index",
+            )
+        ]
+
+
 class Refund(models.Model):
     order = models.ForeignKey(Order, related_name="refunds", on_delete=models.PROTECT)
     transaction = models.ForeignKey(

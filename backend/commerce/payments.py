@@ -281,7 +281,8 @@ def process_webhook_event(*, event, adapter):
         if event.processed_at or event.status == "processing":
             return event
         event.status = "processing"
-        event.save(update_fields=("status",))
+        event.updated_at = timezone.now()
+        event.save(update_fields=("status", "updated_at"))
     payment = adapter.fetch_payment(event.payment_id)
     transaction_record = PaymentTransaction.objects.filter(payment_id=event.payment_id).first()
     if transaction_record is None:
@@ -330,12 +331,32 @@ def refund_order(*, order, adapter, idempotency_key):
             raise RefundError(
                 "refund_not_allowed", "El pedido no tiene un pago aprobado reembolsable"
             )
-        refund = existing or Refund.objects.create(
-            order=order,
-            transaction=payment_transaction,
-            idempotency_key=idempotency_key,
-            amount=payment_transaction.amount,
-        )
+        if existing:
+            refund = existing
+        else:
+            try:
+                with transaction.atomic():
+                    refund = Refund.objects.create(
+                        order=order,
+                        transaction=payment_transaction,
+                        idempotency_key=idempotency_key,
+                        amount=payment_transaction.amount,
+                    )
+            except IntegrityError:
+                winner = Refund.objects.select_for_update().get(
+                    idempotency_key=idempotency_key
+                )
+                if winner.order_id != order.pk:
+                    raise RefundError(
+                        "refund_idempotency_conflict",
+                        "La clave de reembolso ya fue usada",
+                    ) from None
+                refund = winner
+                payment_transaction = PaymentTransaction.objects.select_for_update().get(
+                    pk=winner.transaction_id
+                )
+                if refund.status == "approved":
+                    return refund
         response = adapter.refund(
             payment_transaction.payment_id,
             amount=None,

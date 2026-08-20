@@ -174,7 +174,9 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
         "idempotency_key",
     }
     assert {"address_id", "shipping_quote_id"} <= checkout_request["properties"].keys()
-    assert {"201", "202", "400", "403", "502", "503"} == set(checkout["responses"])
+    assert {"201", "202", "400", "403", "422", "502", "503"} == set(
+        checkout["responses"]
+    )
 
     webhook = paths["/api/v1/payments/mercadopago/webhook/"]["post"]
     assert any(
@@ -214,7 +216,15 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
         ("/api/v1/orders/", "get"): {"200", "403"},
         ("/api/v1/orders/{public_id}/", "get"): {"200", "403", "404"},
         ("/api/v1/identity/status/", "get"): {"200", "403"},
-        ("/api/v1/checkout/", "post"): {"201", "202", "400", "403", "502", "503"},
+        ("/api/v1/checkout/", "post"): {
+            "201",
+            "202",
+            "400",
+            "403",
+            "422",
+            "502",
+            "503",
+        },
     }
     for (path, method), expected_statuses in protected_contracts.items():
         operation = paths[path][method]

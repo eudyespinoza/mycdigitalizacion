@@ -82,8 +82,16 @@ class OrderItemSerializer(serializers.ModelSerializer):
         )
 
 
+class PublicFiscalSnapshotSerializer(serializers.Serializer):
+    label = serializers.CharField(read_only=True)
+    legal_name = serializers.CharField(read_only=True)
+    tax_condition = serializers.CharField(read_only=True)
+    masked_cuit = serializers.CharField(read_only=True)
+
+
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
+    fiscal_snapshot = PublicFiscalSnapshotSerializer(read_only=True)
 
     class Meta:
         model = Order

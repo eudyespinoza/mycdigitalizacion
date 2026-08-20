@@ -320,83 +320,142 @@ class ShipmentError(ValueError):
         self.code = code
 
 
+def _shipment_eligible(order):
+    return (
+        order.fulfillment_method == order.FulfillmentMethod.SHIPPING
+        and order.identity_status == order.IdentityStatus.VERIFIED
+        and order.payment_status == order.PaymentStatus.PAID
+        and order.fulfillment_status == order.FulfillmentStatus.UNFULFILLED
+        and bool(order.shipping_quote_id)
+    )
+
+
+def _parcel_payload(*, order, adapter, parcel, external_id):
+    province_code = _province_code(
+        order.address_snapshot.get("province_code") or order.address_snapshot.get("province")
+    )
+    if not province_code:
+        raise ShipmentError(
+            "shipment_address_invalid",
+            "La provincia del domicilio no es válida para Correo Argentino",
+        )
+    return {
+        "customerId": getattr(adapter, "customer_id", "customer"),
+        "extOrderId": external_id,
+        "orderNumber": str(order.public_id),
+        "recipient": {
+            "name": order.customer_snapshot.get("name")
+            or order.customer_snapshot.get("email", "Cliente"),
+            "email": order.customer_snapshot.get("email", ""),
+        },
+        "shipping": {
+            "deliveryType": "D",
+            "productType": order.shipping_quote.service
+            if order.shipping_quote.service != "multi_parcel"
+            else "CP",
+            "address": {
+                "streetName": order.address_snapshot.get("street", ""),
+                "streetNumber": order.address_snapshot.get("number", ""),
+                "floor": order.address_snapshot.get("floor", "")[:3],
+                "apartment": order.address_snapshot.get("apartment", "")[:3],
+                "city": order.address_snapshot.get("locality", ""),
+                "provinceCode": province_code,
+                "postalCode": order.address_snapshot.get("postal_code", ""),
+            },
+            "weight": int(parcel["weight_grams"]),
+            "declaredValue": float(order.subtotal_snapshot - order.discount_snapshot),
+            "height": int(Decimal(parcel["height_cm"]).to_integral_value(rounding=ROUND_CEILING)),
+            "length": int(Decimal(parcel["length_cm"]).to_integral_value(rounding=ROUND_CEILING)),
+            "width": int(Decimal(parcel["width_cm"]).to_integral_value(rounding=ROUND_CEILING)),
+        },
+    }
+
+
 @transaction.atomic
-def create_order_shipment(*, order, adapter):
-    from commerce.models import Shipment
+def _prepare_shipment(*, order):
+    from commerce.models import Shipment, ShipmentParcelImport
 
     locked = type(order).objects.select_for_update().get(pk=order.pk)
-    existing = Shipment.objects.filter(order=locked).first()
-    if existing:
+    existing = Shipment.objects.select_for_update().filter(order=locked).first()
+    if existing and existing.status == "imported":
         return existing
     if (
-        locked.fulfillment_method != locked.FulfillmentMethod.SHIPPING
-        or locked.identity_status != locked.IdentityStatus.VERIFIED
-        or locked.payment_status != locked.PaymentStatus.PAID
-        or locked.fulfillment_status != locked.FulfillmentStatus.UNFULFILLED
-        or not locked.shipping_quote_id
+        not _shipment_eligible(locked)
     ):
         raise ShipmentError("shipment_not_eligible", "El pedido todavía no puede despacharse")
     parcels = locked.shipping_quote.parcels
     if not parcels:
         raise ShipmentError("shipment_not_eligible", "El pedido no tiene bultos cotizados")
     idempotency_key = uuid.uuid5(uuid.NAMESPACE_URL, f"shipment:{locked.public_id}")
-    shipment_refs = []
+    shipment = existing or Shipment.objects.create(
+        order=locked,
+        provider_id=f"{locked.public_id}-1",
+        idempotency_key=idempotency_key,
+        tracking_number=f"{locked.public_id}-1",
+        status="importing",
+        provider_summary={"shipping_ids": []},
+    )
     for index, parcel in enumerate(parcels, start=1):
         external_id = f"{locked.public_id}-{index}"
-        province_code = _province_code(
-            locked.address_snapshot.get("province_code") or locked.address_snapshot.get("province")
+        ShipmentParcelImport.objects.get_or_create(
+            shipment=shipment,
+            parcel_index=index,
+            defaults={
+                "external_id": external_id,
+                "idempotency_key": uuid.uuid5(idempotency_key, str(index)),
+                "parcel_snapshot": parcel,
+            },
         )
-        if not province_code:
-            raise ShipmentError(
-                "shipment_address_invalid",
-                "La provincia del domicilio no es válida para Correo Argentino",
-            )
-        payload = {
-            "customerId": getattr(adapter, "customer_id", "customer"),
-            "extOrderId": external_id,
-            "orderNumber": str(locked.public_id),
-            "recipient": {
-                "name": locked.customer_snapshot.get("name")
-                or locked.customer_snapshot.get("email", "Cliente"),
-                "email": locked.customer_snapshot.get("email", ""),
-            },
-            "shipping": {
-                "deliveryType": "D",
-                "productType": locked.shipping_quote.service
-                if locked.shipping_quote.service != "multi_parcel"
-                else "CP",
-                "address": {
-                    "streetName": locked.address_snapshot.get("street", ""),
-                    "streetNumber": locked.address_snapshot.get("number", ""),
-                    "floor": locked.address_snapshot.get("floor", "")[:3],
-                    "apartment": locked.address_snapshot.get("apartment", "")[:3],
-                    "city": locked.address_snapshot.get("locality", ""),
-                    "provinceCode": province_code,
-                    "postalCode": locked.address_snapshot.get("postal_code", ""),
-                },
-                "weight": int(parcel["weight_grams"]),
-                "declaredValue": float(locked.subtotal_snapshot - locked.discount_snapshot),
-                "height": int(
-                    Decimal(parcel["height_cm"]).to_integral_value(rounding=ROUND_CEILING)
-                ),
-                "length": int(
-                    Decimal(parcel["length_cm"]).to_integral_value(rounding=ROUND_CEILING)
-                ),
-                "width": int(Decimal(parcel["width_cm"]).to_integral_value(rounding=ROUND_CEILING)),
-            },
-        }
+    return shipment
+
+
+def _import_parcel(*, parcel_import, order, adapter):
+    from commerce.models import ShipmentParcelImport
+
+    with transaction.atomic():
+        locked = ShipmentParcelImport.objects.select_for_update().get(pk=parcel_import.pk)
+        if locked.status == ShipmentParcelImport.Status.IMPORTED:
+            return locked
+        payload = _parcel_payload(
+            order=order,
+            adapter=adapter,
+            parcel=locked.parcel_snapshot,
+            external_id=locked.external_id,
+        )
         response = adapter.import_shipment(
             payload,
-            idempotency_key=str(uuid.uuid5(idempotency_key, str(index))),
+            idempotency_key=str(locked.idempotency_key),
         )
         if not isinstance(response, dict) or not response.get("createdAt"):
             raise ProviderInvalidResponse("Correo Argentino no confirmó la importación del envío")
-        shipment_refs.append(external_id)
-    return Shipment.objects.create(
-        order=locked,
-        provider_id=shipment_refs[0],
-        idempotency_key=idempotency_key,
-        tracking_number=shipment_refs[0],
-        status="imported",
-        provider_summary={"shipping_ids": shipment_refs},
-    )
+        locked.status = ShipmentParcelImport.Status.IMPORTED
+        locked.provider_summary = {"created_at": str(response["createdAt"])}
+        locked.save(update_fields=("status", "provider_summary", "updated_at"))
+        return locked
+
+
+def create_order_shipment(*, order, adapter):
+    from commerce.models import Shipment, ShipmentParcelImport
+
+    shipment = _prepare_shipment(order=order)
+    if shipment.status == "imported":
+        return shipment
+    current_order = type(order).objects.select_related("shipping_quote").get(pk=order.pk)
+    for parcel_import in shipment.parcel_imports.order_by("parcel_index"):
+        _import_parcel(parcel_import=parcel_import, order=current_order, adapter=adapter)
+    with transaction.atomic():
+        locked = Shipment.objects.select_for_update().get(pk=shipment.pk)
+        imports = list(
+            ShipmentParcelImport.objects.select_for_update()
+            .filter(shipment=locked)
+            .order_by("parcel_index")
+        )
+        if not imports or any(
+            parcel.status != ShipmentParcelImport.Status.IMPORTED for parcel in imports
+        ):
+            return locked
+        shipping_ids = [parcel.external_id for parcel in imports]
+        locked.status = "imported"
+        locked.provider_summary = {"shipping_ids": shipping_ids}
+        locked.save(update_fields=("status", "provider_summary", "updated_at"))
+        return locked

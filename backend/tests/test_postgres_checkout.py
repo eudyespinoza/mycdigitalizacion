@@ -1,4 +1,5 @@
 import threading
+import uuid
 
 import pytest
 from django.db import connection
@@ -173,3 +174,103 @@ def test_concurrent_shipment_creation_calls_carrier_once(django_user_model):
     assert len(set(outcomes)) == 1
     assert Shipment.objects.count() == 1
     assert calls == 1
+
+
+@pytest.mark.postgresql
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_refund_key_across_orders_has_stable_conflict_and_one_provider_call(
+    django_user_model,
+):
+    if connection.vendor != "postgresql":
+        pytest.skip("PostgreSQL integration test")
+
+    from commerce.models import Cart, CartLine, Refund
+    from commerce.payments import RefundError, refund_order
+
+    orders = []
+    for index in range(2):
+        user = django_user_model.objects.create_user(email=f"refund-race-{index}@example.test")
+        cart = Cart.objects.create(user=user)
+        CartLine.objects.create(
+            cart=cart,
+            variant=make_variant(sku=f"REFUND-RACE-{index}"),
+            quantity=1,
+        )
+        order = pending_order(cart)
+        payment = make_transaction(order)
+        payment.payment_id = f"payment-refund-race-{index}"
+        payment.status = payment.Status.APPROVED
+        payment.save(update_fields=("payment_id", "status", "updated_at"))
+        orders.append(order)
+
+    key = uuid.UUID("7946e717-8748-4e65-bb9a-38f983da4c04")
+    calls = 0
+    calls_lock = threading.Lock()
+
+    class Adapter:
+        def refund(self, payment_id, *, amount=None, idempotency_key):
+            del payment_id, amount
+            assert idempotency_key == str(key)
+            nonlocal calls
+            with calls_lock:
+                calls += 1
+            return {"id": "refund-race", "status": "approved"}
+
+    adapter = Adapter()
+
+    def refund(index):
+        try:
+            return refund_order(
+                order=type(orders[index]).objects.get(pk=orders[index].pk),
+                adapter=adapter,
+                idempotency_key=key,
+            ).status
+        except RefundError as exc:
+            return exc.code
+
+    outcomes = run_concurrently(lambda: refund(0), lambda: refund(1))
+
+    assert sorted(outcomes) == ["approved", "refund_idempotency_conflict"]
+    assert Refund.objects.filter(idempotency_key=key).count() == 1
+    assert calls == 1
+
+
+@pytest.mark.postgresql
+@pytest.mark.django_db(transaction=True)
+def test_postgresql_multi_parcel_recovery_skips_committed_import(django_user_model):
+    if connection.vendor != "postgresql":
+        pytest.skip("PostgreSQL integration test")
+
+    from commerce.models import ShipmentParcelImport
+    from commerce.shipping import create_order_shipment
+    from providers import ProviderUnavailable
+    from tests.test_task3_round2_regressions import eligible_shipping_order
+
+    order = eligible_shipping_order(django_user_model)
+
+    class Adapter:
+        customer_id = "customer"
+
+        def __init__(self):
+            self.calls = []
+            self.failed = False
+
+        def import_shipment(self, payload, *, idempotency_key):
+            self.calls.append((payload["extOrderId"], idempotency_key))
+            if payload["extOrderId"].endswith("-2") and not self.failed:
+                self.failed = True
+                raise ProviderUnavailable("injected parcel failure")
+            return {"createdAt": "2026-08-20T12:00:00-03:00"}
+
+    adapter = Adapter()
+    with pytest.raises(ProviderUnavailable):
+        create_order_shipment(order=order, adapter=adapter)
+    assert list(
+        ShipmentParcelImport.objects.filter(shipment__order=order).values_list(
+            "status", flat=True
+        )
+    ) == ["imported", "pending"]
+
+    shipment = create_order_shipment(order=order, adapter=adapter)
+    assert shipment.status == "imported"
+    assert [call[0] for call in adapter.calls].count(f"{order.public_id}-1") == 1

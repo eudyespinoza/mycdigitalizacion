@@ -25,11 +25,55 @@ PLACEHOLDER_VALUES = frozenset(
 )
 
 
+def strict_boolean(environment: Mapping[str, str], field: str, *, default: str = "false") -> bool:
+    raw_value = environment.get(field, default).strip().lower()
+    if raw_value not in {"true", "false"}:
+        raise ImproperlyConfigured(f"{field} must be true or false")
+    return raw_value == "true"
+
+
 def validate_runtime_environment(environment: Mapping[str, str]) -> None:
     """Reject accidental production startup with development configuration."""
     app_env = environment.get("APP_ENV", "").strip().lower()
     if app_env not in {"development", "production", "test"}:
         raise ImproperlyConfigured("APP_ENV must be development, production, or test")
+
+    mercado_pago_live_mode = strict_boolean(environment, "MERCADOPAGO_LIVE_MODE")
+    carrier_enabled = strict_boolean(environment, "CORREO_ARGENTINO_ENABLED")
+
+    mp_fields = {
+        field: environment.get(field, "").strip()
+        for field in (
+            "MERCADOPAGO_ACCESS_TOKEN",
+            "MERCADOPAGO_WEBHOOK_SECRET",
+            "MERCADOPAGO_COLLECTOR_ID",
+        )
+    }
+    mercado_pago_enabled = mercado_pago_live_mode or any(mp_fields.values())
+    if mercado_pago_enabled and not all(mp_fields.values()):
+        missing = next(field for field, value in mp_fields.items() if not value)
+        raise ImproperlyConfigured(f"{missing} is required when Mercado Pago is configured")
+
+    if carrier_enabled:
+        carrier_environment = environment.get("CORREO_ARGENTINO_ENVIRONMENT", "").lower()
+        if carrier_environment not in {"qa", "production"}:
+            raise ImproperlyConfigured("CORREO_ARGENTINO_ENVIRONMENT must be qa or production")
+        required = (
+            "CORREO_ARGENTINO_USERNAME",
+            "CORREO_ARGENTINO_PASSWORD",
+            "CORREO_ARGENTINO_CUSTOMER_ID",
+            "CORREO_ARGENTINO_ORIGIN_POSTAL_CODE",
+            "CORREO_ARGENTINO_QA_BASE_URL"
+            if carrier_environment == "qa"
+            else "CORREO_ARGENTINO_PRODUCTION_BASE_URL",
+        )
+        if any(not environment.get(field, "").strip() for field in required):
+            raise ImproperlyConfigured(
+                "CORREO_ARGENTINO credentials, customer, origin, and base URL are required"
+            )
+        base_url = environment[required[-1]].strip()
+        if urlsplit(base_url).scheme != "https":
+            raise ImproperlyConfigured("CORREO_ARGENTINO base URL must use HTTPS")
 
     if app_env != "production":
         return
@@ -63,37 +107,6 @@ def validate_runtime_environment(environment: Mapping[str, str]) -> None:
         ) from exc
     if webhook_tolerance <= 0:
         raise ImproperlyConfigured("MERCADOPAGO_WEBHOOK_TOLERANCE_SECONDS must be positive")
-
-    mp_fields = (
-        environment.get("MERCADOPAGO_ACCESS_TOKEN", "").strip(),
-        environment.get("MERCADOPAGO_WEBHOOK_SECRET", "").strip(),
-    )
-    if any(mp_fields) and not all(mp_fields):
-        raise ImproperlyConfigured(
-            "MERCADOPAGO_ACCESS_TOKEN and MERCADOPAGO_WEBHOOK_SECRET must be configured together"
-        )
-
-    carrier_enabled = environment.get("CORREO_ARGENTINO_ENABLED", "false").lower() == "true"
-    if carrier_enabled:
-        carrier_environment = environment.get("CORREO_ARGENTINO_ENVIRONMENT", "").lower()
-        if carrier_environment not in {"qa", "production"}:
-            raise ImproperlyConfigured("CORREO_ARGENTINO_ENVIRONMENT must be qa or production")
-        required = (
-            "CORREO_ARGENTINO_USERNAME",
-            "CORREO_ARGENTINO_PASSWORD",
-            "CORREO_ARGENTINO_CUSTOMER_ID",
-            "CORREO_ARGENTINO_ORIGIN_POSTAL_CODE",
-            "CORREO_ARGENTINO_QA_BASE_URL"
-            if carrier_environment == "qa"
-            else "CORREO_ARGENTINO_PRODUCTION_BASE_URL",
-        )
-        if any(not environment.get(field, "").strip() for field in required):
-            raise ImproperlyConfigured(
-                "CORREO_ARGENTINO credentials, customer, origin, and base URL are required"
-            )
-        base_url = environment[required[-1]].strip()
-        if urlsplit(base_url).scheme != "https":
-            raise ImproperlyConfigured("CORREO_ARGENTINO base URL must use HTTPS")
 
     surcharge_type = environment.get("SHIPPING_SURCHARGE_TYPE", "exact").lower()
     if surcharge_type not in {"exact", "percentage"}:
@@ -238,11 +251,11 @@ SID_ACCESS_TOKEN = environ.get("SID_ACCESS_TOKEN", "")
 MERCADOPAGO_ACCESS_TOKEN = environ.get("MERCADOPAGO_ACCESS_TOKEN", "")
 MERCADOPAGO_WEBHOOK_SECRET = environ.get("MERCADOPAGO_WEBHOOK_SECRET", "")
 MERCADOPAGO_COLLECTOR_ID = environ.get("MERCADOPAGO_COLLECTOR_ID", "")
-MERCADOPAGO_LIVE_MODE = environ.get("MERCADOPAGO_LIVE_MODE", "false").lower() == "true"
+MERCADOPAGO_LIVE_MODE = strict_boolean(environ, "MERCADOPAGO_LIVE_MODE")
 MERCADOPAGO_WEBHOOK_TOLERANCE_SECONDS = int(
     environ.get("MERCADOPAGO_WEBHOOK_TOLERANCE_SECONDS", "300")
 )
-CORREO_ARGENTINO_ENABLED = environ.get("CORREO_ARGENTINO_ENABLED", "false").lower() == "true"
+CORREO_ARGENTINO_ENABLED = strict_boolean(environ, "CORREO_ARGENTINO_ENABLED")
 CORREO_ARGENTINO_ENVIRONMENT = environ.get("CORREO_ARGENTINO_ENVIRONMENT", "qa").lower()
 CORREO_ARGENTINO_QA_BASE_URL = environ.get(
     "CORREO_ARGENTINO_QA_BASE_URL", "https://apitest.correoargentino.com.ar/micorreo/v1"
@@ -274,6 +287,10 @@ CELERY_BEAT_SCHEDULE = {
     "sweep-stale-webhook-events": {
         "task": "commerce.tasks.sweep_stale_webhook_events",
         "schedule": 60,
+    },
+    "resume-pending-shipments": {
+        "task": "commerce.tasks.resume_pending_shipments",
+        "schedule": 300,
     },
     "reconcile-tracking": {
         "task": "commerce.tasks.reconcile_tracking",

@@ -191,6 +191,99 @@ recovery, shipment/API, and configuration/audit regressions before implementatio
 
 No OPTIONAL review finding was deliberately implemented.
 
+## Fix Round 2 (remaining REQUIRED partials)
+
+### Regression TDD evidence
+
+The eight remaining partials from the appended Fix Round 1 verdict were reproduced before their
+implementations changed:
+
+- RED: `APP_ENV=test python -m pytest -q tests/test_task3_round2_regressions.py --maxfail=20`
+  - Result: `14 failed, 1 passed`.
+  - The failures reproduced the unbound identity/preference rollback boundary, stale active
+    webhook claim, raw HTTP protocol exceptions and misclassified 400/402 responses, lost parcel
+    import progress/finalization, rejected-SID HTML 500, incomplete webhook schema, permissive
+    provider startup, and public fiscal ciphertext/hash leakage.
+- PostgreSQL concurrency regressions were added for a globally reused refund key across two
+  different orders and durable multi-parcel recovery. The original PostgreSQL run also exposed
+  PostgreSQL's prohibition on `SELECT FOR UPDATE` across the nullable `shipping_quote` outer join;
+  the shipment lock was narrowed to the authoritative `Order` row before the final run.
+- GREEN: `APP_ENV=test python -m pytest -q tests/test_task3_round2_regressions.py`
+  - Result: `16 passed in 5.58s`.
+
+### REQUIRED partial resolution map
+
+- **F2 — provider-success/database-failure checkout recovery:** checkout now derives the order
+  UUID, payment external reference, and Mercado Pago preference idempotency key from the user and
+  checkout idempotency key. A retry after rollback therefore reaches the exact same provider
+  preference boundary. Rolled-back attempts delete only their still-unbound identity audit, while
+  successful, pending-review, sequential, and concurrent flows retain one order-bound attempt.
+  Resume uses the same deterministic payment identifiers on the original pending order.
+- **F6 — active webhook claims:** the `queued -> processing` claim now atomically writes an
+  explicit current `updated_at` with the status under the event row lock. A provider-I/O regression
+  invokes the stale sweep during a real active claim and proves it is not requeued.
+- **F9 — cross-order refund-key collision:** refund creation uses an inner savepoint around the
+  global unique insert. A concurrent loser reloads and locks the committed winner, then returns the
+  stable `refund_idempotency_conflict` outcome without an uncaught `IntegrityError` or a second
+  provider refund call. Same-order replay behavior remains unchanged.
+- **F13 — protocol and validation failures:** all `http.client.HTTPException` subclasses,
+  including bad status lines, incomplete reads, and remote disconnects, are converted to typed
+  provider failures without leaking response content. HTTP 400 and 402 are typed rejections and
+  are never retried as availability failures.
+- **F14 — durable multi-parcel import:** migration `0011_shipment_parcel_import` adds a durable
+  per-parcel intent with deterministic external/idempotency identifiers, persisted parcel
+  snapshot, status, and safe provider summary. Shipment and every parcel intent commit before
+  remote I/O; each imported parcel commits independently; retries lock each intent, skip imported
+  parcels, reuse the same key for incomplete ones, and finalize separately. A beat task resumes
+  `importing` shipments. SQLite and PostgreSQL regressions prove parcel-1/provider failure recovery,
+  final-database-failure recovery, no repeated completed-parcel call, and one carrier call under
+  concurrency.
+- **F15 — SID rejection and webhook OpenAPI:** explicit SID rejection at checkout now returns
+  HTTP 422 JSON with stable `identity_rejected` and a safe Spanish detail. The validated webhook
+  operation documents required query `data.id`, required `x-signature` and `x-request-id` headers,
+  the required `id`/`type`/`data.id` body, and 200/202/403 response schemas.
+- **F16 — fail-closed provider startup:** provider booleans accept only literal `true`/`false` in
+  every environment. Any configured/live Mercado Pago instance requires access token, webhook
+  secret, and collector ID; enabled Correo Argentino validates its mode, issued credentials,
+  customer/origin, and HTTPS environment URL before startup. Development Compose now forwards the
+  same provider URLs, webhook tolerance, carrier identity, and shipping-policy fields to backend,
+  worker, and beat; production wiring remains intact.
+- **F17 — public fiscal privacy:** orders retain the protected fiscal snapshot internally for audit
+  and resume validation, but the public order serializer now uses an explicit nested allowlist of
+  label, legal name, tax condition, and masked CUIT. `profile_id`, ciphertext, and hash are absent
+  from list/detail API output and their OpenAPI schema.
+
+All eight REQUIRED partials are resolved. No REQUIRED Fix Round 2 item remains open, and no
+OPTIONAL review item was deliberately implemented.
+
+### Fix Round 2 final verification
+
+- Focused regressions: `16 passed in 5.58s`.
+- Full SQLite suite: `144 passed, 13 skipped in 43.08s`.
+- PostgreSQL 17 suite:
+  `docker compose run --rm -e APP_ENV=test -e USE_POSTGRES_TEST_DB=true backend python -m pytest -q -m postgresql`
+  -> `14 passed, 143 deselected in 83.89s`, including checkout/shipment concurrency,
+  cross-order refund collision, and parcel recovery.
+- `ruff check .` -> `All checks passed!`.
+- Compose/PostgreSQL `python manage.py check` -> `System check identified no issues (0 silenced)`.
+- Compose/PostgreSQL `python manage.py makemigrations --check --dry-run` ->
+  `No changes detected`.
+- `python manage.py spectacular --validate --file /tmp/task3-round2-openapi-final.yaml` ->
+  exit code 0 with no warnings.
+- `docker compose -f compose.yaml config --quiet` and production Compose with required production
+  interpolation values -> both exit code 0.
+- `git diff --check` -> exit code 0; Git emitted only existing Windows CRLF conversion advisories.
+
+### Remaining operational concerns
+
+- SID, MiCorreo QA, and Mercado Pago sandbox credentials were still unavailable. Credential-gated
+  smoke coverage remains skipped; no external success was fabricated.
+- MiCorreo's published v1 contract still exposes no label route, so the existing typed
+  `not_supported` behavior remains the safe boundary.
+- Deterministic Mercado Pago keys and carrier parcel keys assume the providers honor their
+  published idempotency contracts; production rollout should retain provider-side reconciliation
+  monitoring for the small crash window after remote success and before a local commit.
+
 ### Fix Round 1 final verification
 
 - Focused regression suite: `25 passed`.

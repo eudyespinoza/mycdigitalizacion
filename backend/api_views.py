@@ -1028,6 +1028,7 @@ class CheckoutView(generics.GenericAPIView):
             202: CheckoutResponseSerializer,
             201: CheckoutResponseSerializer,
             400: ErrorSerializer,
+            422: ErrorSerializer,
             403: ErrorSerializer,
             502: ErrorSerializer,
             503: ErrorSerializer,
@@ -1063,6 +1064,12 @@ class CheckoutView(generics.GenericAPIView):
                 consent=values["consent"],
                 idempotency_key=values["idempotency_key"],
             )
+        except IdentityRejected as exc:
+            raise DomainError(
+                code=exc.code,
+                detail="No pudimos validar tu identidad.",
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            ) from exc
         except CheckoutError as exc:
             raise DomainError(
                 code=exc.code,
@@ -1137,7 +1144,16 @@ class MercadoPagoWebhookView(generics.GenericAPIView):
         request={
             "application/json": {
                 "type": "object",
-                "properties": {"id": {"type": "string"}, "type": {"type": "string"}},
+                "required": ["id", "type", "data"],
+                "properties": {
+                    "id": {"type": "string"},
+                    "type": {"type": "string"},
+                    "data": {
+                        "type": "object",
+                        "required": ["id"],
+                        "properties": {"id": {"type": "string"}},
+                    },
+                },
             }
         },
         parameters=[
@@ -1147,7 +1163,21 @@ class MercadoPagoWebhookView(generics.GenericAPIView):
                 location=OpenApiParameter.QUERY,
                 required=True,
                 description="Mercado Pago payment identifier included in the signed manifest.",
-            )
+            ),
+            OpenApiParameter(
+                name="x-signature",
+                type=str,
+                location=OpenApiParameter.HEADER,
+                required=True,
+                description="Mercado Pago HMAC signature containing ts and v1 components.",
+            ),
+            OpenApiParameter(
+                name="x-request-id",
+                type=str,
+                location=OpenApiParameter.HEADER,
+                required=True,
+                description="Mercado Pago request identifier included in the signed manifest.",
+            ),
         ],
         responses={200: StatusSerializer, 202: StatusSerializer, 403: ErrorSerializer},
     )
