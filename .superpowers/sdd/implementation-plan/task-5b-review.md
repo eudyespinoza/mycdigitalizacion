@@ -180,3 +180,96 @@ The tests check keys and Caddyfile substrings, so they missed route ordering, vo
 The commit delivers a solid skeleton: all named services exist, automatic TLS configuration validates, same-origin routes and basic security headers are present, images run application processes non-root, liveness/readiness are separated, the example rejects obvious placeholders, happy-path dump/media/checksum/Restic hooks work, new-target restore cleanup works, and the Donweb runbook covers the full operator journey.
 
 It is not safe to accept as Task 5B yet. Three first-order production promises fail in live probes: Django cannot write media, unauthorized clients reach Admin, and request data leaks on proxy errors. Backup success/recovery also cannot be trusted under interruption or a simple retention typo. Those are release blockers even though every committed Task 5B test and image build is green.
+
+## Fix Round 1 independent verdict
+
+Review target: `097fa6236c68ccecc1c048001563bde24038a04e` against R1–R10 and O1–O5 above. The target was exported to an isolated archive and all source/runtime checks below used that exact tree. Concurrent Task 5A Fix Round 3 work in the shared checkout was not read, changed, staged or committed by this review.
+
+### Outcome
+
+- **REQUIRED:** 7 RESOLVED, 3 PARTIAL, 0 UNRESOLVED.
+- **OPTIONAL:** 2 RESOLVED, 1 PARTIAL, 2 UNRESOLVED.
+- **All prior findings:** 9 RESOLVED, 4 PARTIAL, 2 UNRESOLVED.
+- **SPEC COMPLIANCE: FAIL.** R3, R9 and R10 remain partial against their explicit acceptance criteria. The release-blocking ownership, Admin authorization, cache, backup interruption, configuration validation and destructive-restore defects are fixed.
+- **CODE QUALITY: NEEDS WORK.** The runtime test suite is materially stronger and most fixes are robust, but production logs still have two blind/plain-text paths and the advertised 4 GB capacity has not been exercised under the required simultaneous workload.
+
+### Independent verification evidence
+
+- `python -m unittest infra.tests.test_task5b_operations -v`: **21 tests, OK**.
+- `APP_ENV=test ... python -m pytest tests/test_task5b_observability.py tests/test_health.py tests/test_media_topology.py -q`: **8 passed**.
+- `TASK5B_DOCKER_RUNTIME=1 python -m unittest infra.tests.test_task5b_caddy_runtime infra.tests.test_task5b_runtime_boundaries -v`: **5 tests, OK** in real containers. These exercised denied and allowed Admin routes, a sanitized upstream failure, cold/warm Next optimization on a read-only root, media/derivative/static release persistence across Caddy recreation, and kill/restart backup recovery under a 384 MiB limit.
+- Real Caddy adaptation confirmed the blocked-Admin response precedes the backend proxy. A request from the Docker gateway allowed by its exact `/32` reached the backend and returned 404; the same request outside the committed allowed CIDR returned 403.
+- Real ops validation accepted a complete production environment, rejected `BACKUP_RETENTION_DAYS=-1`, and rejected an unreadable `RESTIC_PASSWORD_FILE`.
+- A real PostgreSQL 17 backup/restore drill restored `review_probe.id=7` and `media/probe.txt=media-ok` into new targets. A second restore to the existing database exited 1; a restore to the existing media tree exited 1 and did not create its proposed database.
+- `python scripts/verify-production.py --env-file .env.production.example --skip-runtime` built/validated the production artifacts, ran the real `config-check` service, and correctly exited 1 for example placeholders instead of claiming a deployable configuration.
+- The isolated containers, networks and volumes created by this review were removed after the probes.
+
+### REQUIRED disposition
+
+#### R1 — RESOLVED: media/static ownership and lifecycle
+
+`assets-init` now initializes media as `1000:10001` mode 2750 and backup storage as `10001:10001`, before backend/worker start (`infra/ops/init_assets.py:35-48`; `compose.prod.yaml:106-156`). The real boundary test uploaded an image as UID 1000, generated derivatives, served originals/derivatives through read-only Caddy, switched the static release symlink, and retained both volumes across Caddy recreation (`infra/tests/test_task5b_runtime_boundaries.py:115-152`). This satisfies the fresh-volume and recreation acceptance.
+
+#### R2 — RESOLVED: Admin route ordering and bounded CIDRs
+
+The explicit `route` places the 403 matcher before the backend handle (`infra/caddy/Caddyfile:54-66`). Real adapted configuration and live denied/allowed requests proved the ordering. The validator now normalizes whitespace-separated networks and rejects public/unbounded networks; committed runtime coverage is at `infra/tests/test_task5b_caddy_runtime.py:78-84`. The committed “allowed” fixture uses `0.0.0.0/0` and therefore bypasses production validation, but the independent gateway `/32` probe closes the real bounded-allow gap.
+
+#### R3 — PARTIAL: query/PII is removed, but the error logger is discarded
+
+The privacy leak is fixed: an upstream 502 retained `/api/v1/probe`, status and a UUID request ID without email, query, referrer, cookie or authorization data. However, the global logger explicitly excludes `http.log.error` (`infra/caddy/Caddyfile:6-20`), and the regression test asserts that no error-log event exists (`infra/tests/test_task5b_caddy_runtime.py:86-113`). The prior acceptance required **both access and error loggers** to retain a sanitized method/path/status/request ID. Removing the diagnostic error event avoids disclosure but also removes upstream failure detail and does not meet that contract. Retain a sanitized error event or explicitly revise the operational requirement and prove the remaining access event contains every required diagnostic field.
+
+#### R4 — RESOLVED: static releases refresh atomically
+
+The one-shot initializer runs `collectstatic --clear`, publishes a release directory, and atomically replaces `current` (`infra/ops/init_assets.py:43-69`). Backend and worker depend on its successful completion. The real two-release test found the second release through Caddy using the persistent existing volume (`infra/tests/test_task5b_runtime_boundaries.py:115-152`).
+
+#### R5 — RESOLVED: bounded Next cache on a read-only root
+
+The frontend retains a read-only application filesystem while mounting a UID-1000, 256 MiB tmpfs at `.next/cache` (`compose.prod.yaml:193-215`). Real cold and warm `/_next/image` requests returned identical non-empty content with no EROFS/EACCES errors (`infra/tests/test_task5b_runtime_boundaries.py:154-172`).
+
+#### R6 — RESOLVED: live lock, killed-owner recovery and alert path
+
+The backup lock is now an OS advisory lock rather than a stale-file ownership protocol, while contention calls `post_alert` before returning (`infra/ops/backup.py:63-76`; `infra/ops/locks.py:14-54`). A real runner was killed while holding the lock; the next constrained container acquired it and produced a verified manifest (`infra/tests/test_task5b_runtime_boundaries.py:174-238`). Unit coverage also exercises live contention and its alert hook.
+
+#### R7 — RESOLVED: numeric and Restic configuration validation
+
+All scheduler/local/Restic retention values are parsed and bounded (`infra/ops/validate_env.py:27-33,68-100`), and the password-file mode requires a readable mounted file. Real container probes rejected a negative retention and a missing file; the operations suite covers the remaining numeric bounds. Compose provides the read-only secret-file mount.
+
+#### R8 — RESOLVED: restore is new-target-only
+
+The destructive `--confirm-existing` path is gone. Restore rejects the live source, a present media target and an existing target database before mutation, and drops only a database created by the current failed attempt (`infra/ops/restore.py:80-147`). The real PostgreSQL/media drill described above proved successful new-target restore plus both refusal paths and absence of a side-effect database.
+
+#### R9 — PARTIAL: web/Celery correlation is fixed; native child output bypasses JSON/redaction
+
+Django middleware, JSON formatter/filter and Celery task headers now propagate request/job IDs and redact structured exception fields (`backend/config/observability.py:32-121`; `backend/config/settings.py:289-309`); the focused backend suite passed. Ops events use the same safe JSON helper. But `run()` defaults to inherited stdout/stderr (`infra/ops/common.py:30-40`), and dump/restore/Restic calls normally do not capture it (`infra/ops/backup.py:92,119-126`; `infra/ops/restore.py:109-130`). `collectstatic` also inherits raw streams (`infra/ops/init_assets.py:43-48`). A real failing `PG_DUMP_COMMAND` printed `native email=leak-probe@example.test url=/dump?token=secret` verbatim as a non-JSON line before the sanitized `backup.failed` event. Production still lacks the promised single redacted JSON schema across ops. Capture, bound and re-emit child output as sanitized structured events (or suppress it and expose a safe summary).
+
+#### R10 — PARTIAL: defaults leave nominal headroom, but the required overlap test is absent
+
+Steady-state default limits now total 2912 MiB, leaving 1184 MiB of a nominal 4096 MiB host (`compose.prod.yaml:70-297`; `docs/operations/donweb-production.md:5-10`). That is a substantial correction. Yet the prior acceptance explicitly required a constrained-host **load plus backup overlap** test. The committed check only sums YAML values, and the Docker drills run isolated/sequential containers rather than the full stack on a 4 GB boundary. Deployment-time `assets-init` adds another 256 MiB (3168 MiB total, 928 MiB remaining), before host and old-container/build overlap. Either supply measured full-stack 4 GB overlap evidence or raise the minimum; arithmetic and isolated service limits do not prove the capacity claim.
+
+### OPTIONAL disposition
+
+#### O1 — UNRESOLVED: mutable base tags
+
+Production Dockerfiles/Compose still use mutable upstream tags. The runbook’s instruction to publish immutable application images improves operator behavior but does not make a rebuild of an older revision reproducible. Pin reviewed digests or make immutable registry artifacts the only rollback path.
+
+#### O2 — UNRESOLVED: CSP and modern isolation policy
+
+The edge still has no CSP and no documented/tested COOP/CORP decision (`infra/caddy/Caddyfile:29-37`). This remains optional but open.
+
+#### O3 — PARTIAL: manifest traceability improved but remains incomplete
+
+The manifest now adds immutable `release_id` and a sanitized configuration fingerprint (`infra/ops/backup.py:96-114`). It still omits migration/schema state, database/restore tool versions and provider-mode metadata requested by the original finding, so an operator cannot yet establish full code/schema/tool compatibility from the backup alone.
+
+#### O4 — RESOLVED: Restic password-file mode is operational
+
+Validation now checks existence/readability, Compose mounts the selected file read-only, and both negative and positive config probes cover this mode (`infra/ops/validate_env.py:88-100`; `compose.prod.yaml:221-270`).
+
+#### O5 — RESOLVED: dangerous runtime boundaries are exercised
+
+Verification now runs the actual config-check container (`scripts/verify-production.py:30-38`), while the runtime suites exercise adapted/live Caddy, volume ownership and release upgrades, read-only Next caching and killed-lock recovery (`infra/tests/test_task5b_caddy_runtime.py:78-113`; `infra/tests/test_task5b_runtime_boundaries.py:115-238`). The real checks found the remaining R3/R9/R10 gaps rather than merely asserting strings.
+
+### Final assessment after Fix Round 1
+
+This round closes the dangerous first-deploy and recovery failures: application media is writable with least privilege, static publication is release-safe, Admin is actually CIDR-gated, Next optimization works with a bounded writable cache, killed backups recover, numeric/Restic mistakes fail fast, and restore cannot overwrite existing targets. Those fixes are backed by meaningful live-container and real-PostgreSQL tests.
+
+Task 5B is still not fully compliant. Caddy suppresses rather than sanitizes its diagnostic error stream, native backup/restore commands can emit plain PII-bearing lines outside the JSON contract, and the 4 GB promise is supported by arithmetic rather than the specified simultaneous capacity test. Resolve those three REQUIRED partials before acceptance.
