@@ -13,6 +13,7 @@ PLACEHOLDER_VALUES = frozenset(
         "localhost",
         "example.com",
         "ops@example.com",
+        "development-only-personal-data-key",
     }
 )
 
@@ -31,6 +32,7 @@ def validate_runtime_environment(environment: Mapping[str, str]) -> None:
         ("POSTGRES_PASSWORD", 16),
         ("SITE_ADDRESS", 1),
         ("DJANGO_ALLOWED_HOSTS", 1),
+        ("PERSONAL_DATA_ENCRYPTION_KEY", 32),
     ):
         value = environment.get(field, "").strip()
         if value.lower() in PLACEHOLDER_VALUES or len(value) < minimum_length:
@@ -53,6 +55,12 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "drf_spectacular",
+    "accounts",
+    "catalog",
+    "commerce",
+    "locations",
+    "landing",
 ]
 
 MIDDLEWARE = [
@@ -93,7 +101,7 @@ DATABASES = {
         "PORT": environ.get("POSTGRES_PORT", "5432"),
     }
 }
-if "pytest" in sys.modules:
+if "pytest" in sys.modules and environ.get("USE_POSTGRES_TEST_DB", "false").lower() != "true":
     DATABASES["default"] = {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}
 
 LANGUAGE_CODE = "es-ar"
@@ -108,7 +116,21 @@ STORAGES = {
     }
 }
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+AUTH_USER_MODEL = "accounts.User"
 
-REST_FRAMEWORK = {"DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"]}
+REST_FRAMEWORK = {
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+}
+SPECTACULAR_SETTINGS = {
+    "TITLE": "mycdigitalizacion API",
+    "VERSION": "1.0.0",
+}
+PERSONAL_DATA_ENCRYPTION_KEY = environ.get(
+    "PERSONAL_DATA_ENCRYPTION_KEY", "development-only-personal-data-key"
+)
 CELERY_BROKER_URL = environ.get("REDIS_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL

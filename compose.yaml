@@ -36,6 +36,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       APP_ENV: development
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-unsafe-development-key-change-me}
+      PERSONAL_DATA_ENCRYPTION_KEY: ${PERSONAL_DATA_ENCRYPTION_KEY:-development-only-personal-data-key}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-true}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
     volumes:
@@ -60,6 +61,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       APP_ENV: development
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-unsafe-development-key-change-me}
+      PERSONAL_DATA_ENCRYPTION_KEY: ${PERSONAL_DATA_ENCRYPTION_KEY:-development-only-personal-data-key}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-true}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
     volumes:

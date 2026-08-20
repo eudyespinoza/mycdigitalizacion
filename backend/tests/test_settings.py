@@ -11,6 +11,7 @@ def production_environment(**overrides: str) -> dict[str, str]:
         "POSTGRES_PASSWORD": "a-long-unpredictable-database-password",
         "SITE_ADDRESS": "shop.example.com",
         "DJANGO_ALLOWED_HOSTS": "shop.example.com",
+        "PERSONAL_DATA_ENCRYPTION_KEY": "a-long-unpredictable-personal-data-encryption-key",
     }
     environment.update(overrides)
     return environment
@@ -22,6 +23,7 @@ def production_environment(**overrides: str) -> dict[str, str]:
         ("DJANGO_SECRET_KEY", "unsafe-development-key-change-me"),
         ("POSTGRES_PASSWORD", "change-me-for-local-development"),
         ("SITE_ADDRESS", "localhost"),
+        ("PERSONAL_DATA_ENCRYPTION_KEY", "development-only-personal-data-key"),
     ],
 )
 def test_production_configuration_rejects_known_placeholders(field: str, value: str):
