@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from django.core.exceptions import ImproperlyConfigured
 
-from config.settings import validate_runtime_environment
+from config.settings import database_config, validate_runtime_environment
 
 
 def production_environment(**overrides: str) -> dict[str, str]:
@@ -47,6 +47,7 @@ def test_production_configuration_accepts_non_placeholder_values():
 
 def test_production_settings_pass_django_deploy_checks():
     environment = os.environ | production_environment(
+        DJANGO_DEBUG="false",
         DJANGO_SECRET_KEY=(
             "X9vR2pL7sQ4kN8tB5mC1zH6eW3yU0aF9vR2pL7sQ4kN8tB5mC1zH6eW3"
         )
@@ -61,3 +62,20 @@ def test_production_settings_pass_django_deploy_checks():
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_pooled_database_settings_disable_session_bound_connection_state():
+    database = database_config(
+        {
+            "POSTGRES_DB": "storefront",
+            "POSTGRES_USER": "storefront_app",
+            "POSTGRES_PASSWORD": "secret",
+            "POSTGRES_HOST": "pgbouncer",
+            "POSTGRES_PORT": "6432",
+        }
+    )
+
+    assert database["HOST"] == "pgbouncer"
+    assert database["PORT"] == "6432"
+    assert database["CONN_MAX_AGE"] == 0
+    assert database["DISABLE_SERVER_SIDE_CURSORS"] is True

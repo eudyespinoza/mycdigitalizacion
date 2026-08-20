@@ -195,16 +195,22 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-DATABASES = {
-    "default": {
+def database_config(environment: Mapping[str, str]) -> dict[str, object]:
+    return {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": environ.get("POSTGRES_DB", "mycdigitalizacion"),
-        "USER": environ.get("POSTGRES_USER", "mycdigitalizacion"),
-        "PASSWORD": environ.get("POSTGRES_PASSWORD", "change-me-for-local-development"),
-        "HOST": environ.get("POSTGRES_HOST", "localhost"),
-        "PORT": environ.get("POSTGRES_PORT", "5432"),
+        "NAME": environment.get("POSTGRES_DB", "mycdigitalizacion"),
+        "USER": environment.get("POSTGRES_USER", "mycdigitalizacion"),
+        "PASSWORD": environment.get(
+            "POSTGRES_PASSWORD", "change-me-for-local-development"
+        ),
+        "HOST": environment.get("POSTGRES_HOST", "localhost"),
+        "PORT": environment.get("POSTGRES_PORT", "5432"),
+        "CONN_MAX_AGE": 0,
+        "DISABLE_SERVER_SIDE_CURSORS": True,
     }
-}
+
+
+DATABASES = {"default": database_config(environ)}
 if "pytest" in sys.modules and environ.get("USE_POSTGRES_TEST_DB", "false").lower() != "true":
     DATABASES["default"] = {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}
 

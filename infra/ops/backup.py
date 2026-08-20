@@ -82,8 +82,8 @@ def main() -> int:
         partial.mkdir(mode=0o700)
         database = partial / "database.dump"
         pg_arguments = [
-            "--host", os.environ.get("POSTGRES_HOST", "postgres"),
-            "--port", os.environ.get("POSTGRES_PORT", "5432"),
+            "--host", os.environ.get("POSTGRES_DIRECT_HOST", os.environ.get("POSTGRES_HOST", "postgres")),
+            "--port", os.environ.get("POSTGRES_DIRECT_PORT", os.environ.get("POSTGRES_PORT", "5432")),
             "--username", os.environ["POSTGRES_USER"],
             "--format", "custom",
             "--file", str(database),

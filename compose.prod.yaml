@@ -17,7 +17,10 @@ x-app-environment: &app-environment
   POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env.production}
   POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env.production}
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
-  POSTGRES_HOST: postgres
+  POSTGRES_HOST: pgbouncer
+  POSTGRES_PORT: "6432"
+  POSTGRES_DIRECT_HOST: postgres
+  POSTGRES_DIRECT_PORT: "5432"
   REDIS_URL: redis://:${REDIS_PASSWORD:-REPLACE_ME_REDIS_PASSWORD}@redis:6379/0
   SID_MODE: ${SID_MODE:-disabled}
   SID_BASE_URL: ${SID_BASE_URL:-}
@@ -42,6 +45,7 @@ x-app-dependencies: &app-dependencies
   config-check: {condition: service_completed_successfully}
   assets-init: {condition: service_completed_successfully}
   postgres: {condition: service_healthy}
+  pgbouncer: {condition: service_healthy}
   redis: {condition: service_healthy}
 
 x-app-common: &app-common
@@ -86,6 +90,39 @@ services:
       resources:
         limits: {cpus: "${POSTGRES_CPUS:-1.0}", memory: "${POSTGRES_MEMORY:-640M}"}
 
+  pgbouncer:
+    <<: *service-defaults
+    image: edoburu/pgbouncer:v1.25.2-p0
+    user: "70:70"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:?set POSTGRES_DB in .env.production}
+      DB_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env.production}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
+      LISTEN_PORT: "6432"
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      DEFAULT_POOL_SIZE: "10"
+      MIN_POOL_SIZE: "2"
+      RESERVE_POOL_SIZE: "2"
+      MAX_CLIENT_CONN: "100"
+      MAX_DB_CONNECTIONS: "20"
+      SERVER_IDLE_TIMEOUT: "60"
+      QUERY_WAIT_TIMEOUT: "15"
+      SERVER_RESET_QUERY: DISCARD ALL
+    depends_on:
+      postgres: {condition: service_healthy}
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -p 6432 -U "$$DB_USER" -d "$$DB_NAME"']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    deploy:
+      resources:
+        limits: {cpus: "${PGBOUNCER_CPUS:-0.25}", memory: "${PGBOUNCER_MEMORY:-32M}"}
+
   redis:
     <<: *service-defaults
     image: redis:7-alpine
@@ -111,6 +148,8 @@ services:
     restart: "no"
     environment:
       <<: *app-environment
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
       MEDIA_ROOT: /app/media
       STATIC_DATA_ROOT: /static-data
       BACKUP_ROOT: /backups
@@ -239,6 +278,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env.production}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
       POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DIRECT_HOST: postgres
+      POSTGRES_DIRECT_PORT: "5432"
       REDIS_PASSWORD: ${REDIS_PASSWORD:-REPLACE_ME_REDIS_PASSWORD}
       MEDIA_ROOT: /srv/media
       BACKUP_ROOT: /backups

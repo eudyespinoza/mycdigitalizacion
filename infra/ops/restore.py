@@ -16,6 +16,13 @@ from validate_env import validate
 DATABASE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
 
+def direct_postgres_endpoint() -> tuple[str, str]:
+    return (
+        os.environ.get("POSTGRES_DIRECT_HOST", os.environ.get("POSTGRES_HOST", "postgres")),
+        os.environ.get("POSTGRES_DIRECT_PORT", os.environ.get("POSTGRES_PORT", "5432")),
+    )
+
+
 def verify(backup: Path) -> dict[str, object]:
     manifest = json.loads((backup / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("format_version") != 1:
@@ -81,6 +88,7 @@ def main() -> int:
     target_media = Path(arguments.target_media).resolve()
     database_created = False
     try:
+        direct_host, direct_port = direct_postgres_endpoint()
         if not DATABASE_NAME.fullmatch(arguments.target_db):
             raise ValueError("invalid target database name")
         manifest = verify(backup)
@@ -90,7 +98,7 @@ def main() -> int:
             raise ValueError("target media already exists; restore requires a new target")
         exists_result = run(
             os.environ.get("PG_DATABASE_EXISTS_COMMAND", "psql"),
-            ["--host", os.environ.get("POSTGRES_HOST", "postgres"), "--port", os.environ.get("POSTGRES_PORT", "5432"), "--username", os.environ["POSTGRES_USER"], "--dbname", "postgres", "--tuples-only", "--no-align", "--command", f"SELECT 1 FROM pg_database WHERE datname = '{arguments.target_db}'"],
+            ["--host", direct_host, "--port", direct_port, "--username", os.environ["POSTGRES_USER"], "--dbname", "postgres", "--tuples-only", "--no-align", "--command", f"SELECT 1 FROM pg_database WHERE datname = '{arguments.target_db}'"],
             mode="exists",
             capture=True,
             service="restore",
@@ -108,9 +116,9 @@ def main() -> int:
             )
             return 0
         if not database_exists:
-            run(os.environ.get("PG_CREATEDB_COMMAND", "createdb"), ["--host", os.environ.get("POSTGRES_HOST", "postgres"), "--port", os.environ.get("POSTGRES_PORT", "5432"), "--username", os.environ["POSTGRES_USER"], arguments.target_db], mode="createdb", service="restore")
+            run(os.environ.get("PG_CREATEDB_COMMAND", "createdb"), ["--host", direct_host, "--port", direct_port, "--username", os.environ["POSTGRES_USER"], arguments.target_db], mode="createdb", service="restore")
             database_created = True
-        restore_arguments = ["--host", os.environ.get("POSTGRES_HOST", "postgres"), "--port", os.environ.get("POSTGRES_PORT", "5432"), "--username", os.environ["POSTGRES_USER"], "--dbname", arguments.target_db]
+        restore_arguments = ["--host", direct_host, "--port", direct_port, "--username", os.environ["POSTGRES_USER"], "--dbname", arguments.target_db]
         restore_arguments.append(str(backup / str(manifest["database"]["file"])))
         run(
             os.environ.get("PG_RESTORE_COMMAND", "pg_restore"),
@@ -131,7 +139,7 @@ def main() -> int:
             try:
                 run(
                     os.environ.get("PG_DROPDB_COMMAND", "dropdb"),
-                    ["--host", os.environ.get("POSTGRES_HOST", "postgres"), "--port", os.environ.get("POSTGRES_PORT", "5432"), "--username", os.environ["POSTGRES_USER"], arguments.target_db],
+                    ["--host", direct_host, "--port", direct_port, "--username", os.environ["POSTGRES_USER"], arguments.target_db],
                     mode="dropdb",
                     service="restore",
                 )

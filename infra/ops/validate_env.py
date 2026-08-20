@@ -43,6 +43,12 @@ def require(name: str, errors: list[str], minimum: int = 1) -> str:
 def validate() -> list[str]:
     errors: list[str] = []
     values = {name: require(name, errors, minimum) for name, minimum in CORE_REQUIRED.items()}
+    direct_host = os.environ.get("POSTGRES_DIRECT_HOST", "postgres").strip()
+    direct_port = os.environ.get("POSTGRES_DIRECT_PORT", "5432").strip()
+    if not direct_host or direct_host == "pgbouncer":
+        errors.append("POSTGRES_DIRECT_HOST must name the direct PostgreSQL service")
+    if not direct_port.isdigit() or not 1 <= int(direct_port) <= 65535:
+        errors.append("POSTGRES_DIRECT_PORT must be a valid TCP port")
     if values["APP_ENV"] != "production":
         errors.append("APP_ENV must be production")
     if values["RELEASE_ID"].lower().startswith("replace_me") or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{6,79}", values["RELEASE_ID"]):
