@@ -8,13 +8,13 @@ from backoffice.catalog_views import (
     ProductListCreateView,
     StockAdjustmentView,
 )
-from backoffice.views import (
-    GeneralSettingsView,
-    IntegrationDetailView,
-    IntegrationListView,
-    IntegrationTestView,
-    ManagementDashboardView,
-    ManagementSessionView,
+from backoffice.content_views import (
+    ContentDetailView,
+    ContentListCreateView,
+    CouponDetailView,
+    CouponListCreateView,
+    PromotionRuleDetailView,
+    PromotionRuleListCreateView,
 )
 from backoffice.operations_views import (
     ManagementCustomerDetailView,
@@ -24,6 +24,14 @@ from backoffice.operations_views import (
     ManagementOrderListView,
     PackageBoxDetailView,
     PackageBoxListCreateView,
+)
+from backoffice.views import (
+    GeneralSettingsView,
+    IntegrationDetailView,
+    IntegrationListView,
+    IntegrationTestView,
+    ManagementDashboardView,
+    ManagementSessionView,
 )
 
 urlpatterns = [
@@ -87,5 +95,35 @@ urlpatterns = [
         "shipping/boxes/<int:pk>/",
         PackageBoxDetailView.as_view(),
         name="management-shipping-box-detail",
+    ),
+    path(
+        "content/<slug:content_type>/",
+        ContentListCreateView.as_view(),
+        name="management-content-list",
+    ),
+    path(
+        "content/<slug:content_type>/<int:pk>/",
+        ContentDetailView.as_view(),
+        name="management-content-detail",
+    ),
+    path(
+        "promotions/rules/",
+        PromotionRuleListCreateView.as_view(),
+        name="management-promotion-rules",
+    ),
+    path(
+        "promotions/rules/<int:pk>/",
+        PromotionRuleDetailView.as_view(),
+        name="management-promotion-rule-detail",
+    ),
+    path(
+        "promotions/coupons/",
+        CouponListCreateView.as_view(),
+        name="management-coupons",
+    ),
+    path(
+        "promotions/coupons/<int:pk>/",
+        CouponDetailView.as_view(),
+        name="management-coupon-detail",
     ),
 ]

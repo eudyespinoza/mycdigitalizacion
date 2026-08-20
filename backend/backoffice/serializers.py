@@ -50,6 +50,15 @@ class IntegrationUpdateSerializer(serializers.Serializer):
 
 
 class GeneralSettingsSerializer(serializers.ModelSerializer):
+    logo_url = serializers.SerializerMethodField()
+    favicon_url = serializers.SerializerMethodField()
+
+    def get_logo_url(self, settings) -> str:
+        return settings.logo.url if settings.logo else "/brand/mycdigitalizacion-logo.png"
+
+    def get_favicon_url(self, settings) -> str:
+        return settings.favicon.url if settings.favicon else "/brand/mycdigitalizacion-logo.png"
+
     class Meta:
         model = SiteSettings
         fields = (
@@ -60,7 +69,15 @@ class GeneralSettingsSerializer(serializers.ModelSerializer):
             "pickup_label",
             "pickup_address",
             "pickup_hours",
+            "logo",
+            "favicon",
+            "logo_url",
+            "favicon_url",
         )
+        extra_kwargs = {
+            "logo": {"write_only": True, "required": False},
+            "favicon": {"write_only": True, "required": False},
+        }
 
 
 class ManagementSessionResponseSerializer(serializers.Serializer):

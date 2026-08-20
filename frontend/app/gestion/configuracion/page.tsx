@@ -1,4 +1,5 @@
 import { GeneralSettingsPanel } from "@/components/management/general-settings-panel";
+import { BrandingPanel } from "@/components/management/branding-panel";
 import { managementServerGet } from "@/lib/management/server-api";
 import type { GeneralSettings } from "@/lib/management/types";
 
@@ -15,6 +16,12 @@ export default async function GeneralSettingsPage() {
         </div>
       </header>
       <GeneralSettingsPanel initial={settings} />
+      <div className="management-content-gap">
+        <BrandingPanel
+          faviconUrl={settings.favicon_url ?? "/brand/mycdigitalizacion-logo.png"}
+          logoUrl={settings.logo_url ?? "/brand/mycdigitalizacion-logo.png"}
+        />
+      </div>
     </div>
   );
 }

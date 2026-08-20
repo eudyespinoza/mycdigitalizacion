@@ -61,4 +61,6 @@ export type GeneralSettings = {
   pickup_label: string;
   pickup_address: string;
   pickup_hours: string;
+  logo_url?: string;
+  favicon_url?: string;
 };
