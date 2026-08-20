@@ -143,6 +143,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = environ.get("DJANGO_SECRET_KEY", "unsafe-development-key-change-me")
 DEBUG = environ.get("DJANGO_DEBUG", "false").lower() == "true"
 ALLOWED_HOSTS = environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in environ.get(
+        "DJANGO_CSRF_TRUSTED_ORIGINS",
+        "" if APP_ENV == "production" else "http://localhost:3000,http://127.0.0.1:3000",
+    ).split(",")
+    if origin.strip()
+]
 CURRENT_CONSENT_VERSION = "privacy-v1"
 
 SESSION_COOKIE_SECURE = APP_ENV == "production"

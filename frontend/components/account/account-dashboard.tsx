@@ -7,6 +7,15 @@ import { formatMoney } from "@/lib/format";
 import type { BillingProfile, Customer, Order } from "@/lib/types";
 import { ProfileForm } from "./profile-form";
 
+const paymentCopy: Record<string, string> = {
+  not_started: "Pago no iniciado",
+  pending: "Pago pendiente",
+  paid: "Pagado",
+  failed: "Pago no completado",
+  refunded: "Reembolsado",
+  needs_attention: "En revisión",
+};
+
 export function AccountDashboard() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -74,7 +83,7 @@ export function AccountDashboard() {
         <div className="section-heading"><h2>Pedidos</h2><Link href="/cuenta/direcciones">Direcciones</Link></div>
         {orders.length ? orders.map((order) => (
           <Link className="order-row" key={order.public_id} href={`/pedidos/${order.public_id}`}>
-            <span>Pedido {order.public_id.slice(0, 8)}</span><span>{order.payment_status}</span><strong>{formatMoney(order.total_snapshot)}</strong>
+            <span>Pedido {order.public_id.slice(0, 8)}</span><span>{paymentCopy[order.payment_status] ?? "En actualización"}</span><strong>{formatMoney(order.total_snapshot)}</strong>
           </Link>
         )) : <div className="empty-compact"><p>Todavía no hay pedidos.</p><Link href="/catalogo">Explorar catálogo</Link></div>}
       </section>

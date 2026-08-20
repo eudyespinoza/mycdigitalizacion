@@ -11,7 +11,9 @@ import { normalizeMediaUrl } from "@/lib/api";
 import type { StorefrontSettings } from "@/lib/types";
 
 function BrandImage({ branding, sizes }: { branding: StorefrontSettings; sizes: string }) {
-  const logo = normalizeMediaUrl(branding.logo_url) || "/brand/mycdigitalizacion-logo.png";
+  const authoredLogo = normalizeMediaUrl(branding.logo_url);
+  const logo = authoredLogo || "/brand/mycdigitalizacion-logo.png";
+  const usesBundledStackedLogo = !authoredLogo || authoredLogo === "/brand/mycdigitalizacion-logo.png";
   const sources = branding.logo_responsive_sources;
   const srcSet = (format: "avif" | "webp" | "fallback") => sources.map((source) => {
     const value = normalizeMediaUrl(source[format]);
@@ -20,7 +22,7 @@ function BrandImage({ branding, sizes }: { branding: StorefrontSettings; sizes: 
   const avif = srcSet("avif");
   const webp = srcSet("webp");
   const fallback = srcSet("fallback");
-  return <picture className="brand-lockup-media">{avif && <source type="image/avif" srcSet={avif} sizes={sizes} />}{webp && <source type="image/webp" srcSet={webp} sizes={sizes} />}{fallback && <source data-format="fallback" srcSet={fallback} sizes={sizes} />}<img className="brand-logo" src={logo} alt="" loading="eager" decoding="async" fetchPriority="high" /></picture>;
+  return <picture className={`brand-lockup-media${usesBundledStackedLogo ? " brand-lockup-fallback" : ""}`}>{avif && <source type="image/avif" srcSet={avif} sizes={sizes} />}{webp && <source type="image/webp" srcSet={webp} sizes={sizes} />}{fallback && <source data-format="fallback" srcSet={fallback} sizes={sizes} />}<img className="brand-logo" src={logo} alt="" loading="eager" decoding="async" fetchPriority="high" /></picture>;
 }
 
 export function SiteHeader({ categories, branding: brandingOverride }: { categories: Category[]; branding?: StorefrontSettings }) {
@@ -33,7 +35,7 @@ export function SiteHeader({ categories, branding: brandingOverride }: { categor
     <>
       <a className="skip-link" href="#contenido">Saltar al contenido</a>
       <div className="trust-rail" aria-label="Beneficios de compra">
-        <span>Envíos a todo el país</span><span>Pagos por Mercado Pago</span><span>Retiro configurable</span>
+        <span>Envíos a todo el país</span><span>Pagos por Mercado Pago</span><span>Envío o retiro</span>
       </div>
       <header className="site-header">
         <div className="header-main shell">

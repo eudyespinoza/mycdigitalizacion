@@ -19,7 +19,21 @@ export class ApiError extends Error {
 function normalizeError(status: number, body: unknown) {
   if (body && typeof body === "object") {
     const record = body as Record<string, unknown>;
-    if (typeof record.detail === "string") return new ApiError(status, String(record.code ?? "request_failed"), record.detail);
+    if (typeof record.detail === "string") {
+      const detail = record.detail;
+      const code = String(record.code ?? "request_failed");
+      if (code === "email_not_verified" || /email verification is required/i.test(detail)) {
+        return new ApiError(status, "email_not_verified", "Verificá tu email para continuar.");
+      }
+      if (code === "invalid_credentials" || /invalid credentials/i.test(detail)) {
+        return new ApiError(status, "invalid_credentials", "El email o la contraseña no son correctos.");
+      }
+      if ((status === 401 || status === 403) && /authentication|credentials|not authenticated/i.test(detail)) {
+        return new ApiError(status, "authentication_required", "Ingresá a tu cuenta para continuar.");
+      }
+      if (status >= 500) return new ApiError(status, "service_unavailable", "No pudimos completar la solicitud. Intentá nuevamente en unos minutos.");
+      return new ApiError(status, code, detail);
+    }
     const fields = Object.fromEntries(Object.entries(record).map(([key, value]) => [key, Array.isArray(value) ? value.map(String) : [String(value)]]));
     return new ApiError(status, "validation_error", "Revisá los datos ingresados.", fields);
   }
@@ -29,6 +43,14 @@ function normalizeError(status: number, body: unknown) {
 async function readBody(response: Response) {
   if (response.status === 204) return undefined;
   return response.json().catch(() => null);
+}
+
+async function publicFetch(input: string, init?: RequestInit) {
+  try {
+    return await fetch(input, init);
+  } catch {
+    throw new ApiError(0, "network_error", "No pudimos conectarnos. Revisá tu conexión e intentá nuevamente.");
+  }
 }
 
 async function parse<T>(response: Response): Promise<T> {
@@ -58,7 +80,7 @@ export function clearCsrfToken() { csrfToken = ""; }
 
 async function csrf() {
   if (csrfToken) return csrfToken;
-  const response = await fetch(`${PUBLIC_API_ROOT}/auth/csrf/`, { credentials: "include" });
+  const response = await publicFetch(`${PUBLIC_API_ROOT}/auth/csrf/`, { credentials: "include" });
   const body = await parse<{ csrf_token: string }>(response);
   csrfToken = body.csrf_token;
   return csrfToken;
@@ -79,7 +101,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}, cartTo
     if (init.body) headers.set("Content-Type", "application/json");
     if (cartToken) headers.set("X-Cart-Token", cartToken);
     if (unsafe) headers.set("X-CSRFToken", await csrf());
-    const response = await fetch(`${PUBLIC_API_ROOT}${path}`, { ...init, headers, credentials: "include" });
+    const response = await publicFetch(`${PUBLIC_API_ROOT}${path}`, { ...init, headers, credentials: "include" });
     const body = await readBody(response);
     if (!response.ok && unsafe && !retried && isNamedCsrfFailure(response.status, body)) {
       clearCsrfToken();

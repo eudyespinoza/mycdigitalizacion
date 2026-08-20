@@ -6,6 +6,7 @@ from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import F
 from django.middleware.csrf import get_token
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -120,7 +121,11 @@ from providers import ProviderError
 class CategoryListView(generics.ListAPIView):
     permission_classes = (permissions.AllowAny,)
     serializer_class = CategorySerializer
-    queryset = Category.objects.filter(is_active=True).select_related("parent")
+    queryset = (
+        Category.objects.filter(is_active=True)
+        .select_related("parent")
+        .order_by(F("parent_id").asc(nulls_first=True), "parent_id", "name")
+    )
 
 
 CATALOG_PARAMETERS = [

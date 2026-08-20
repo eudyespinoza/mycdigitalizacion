@@ -61,8 +61,8 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
               </div>
             </details>
             <div className="shipping-estimator">
-              <h2>Calculá el envío en checkout</h2>
-              <p>La cotización real necesita una dirección confirmada y el carrito completo.</p>
+              <h2>Calculá el envío al finalizar</h2>
+              <p>Ingresá tu dirección para conocer el costo y el plazo de entrega.</p>
             </div>
           </section>
         </div>
