@@ -626,6 +626,9 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .management-field-grid input, .integration-enable-row select { width: 100%; min-height: 48px; border: 1px solid #aab8ce; border-radius: 11px; padding: 10px 13px; background: white; color: var(--ink); font: inherit; }
 .management-field-grid input:focus, .integration-enable-row select:focus { outline: 3px solid rgba(8,174,205,.24); border-color: var(--cyan-action); }
 .management-field-grid .field-wide { grid-column: 1 / -1; }
+.management-sku-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; min-width: 0; }
+.management-sku-field label { min-width: 0; }
+.management-sku-field .button { min-height: 48px; padding-inline: 16px; white-space: nowrap; }
 .management-check { min-height: 48px; display: flex; align-items: center; gap: 11px; font-weight: 850; }
 .management-check input { width: 21px; min-height: 21px; accent-color: var(--blue); }
 .integration-enable-row { display: grid; grid-template-columns: 1fr 240px; align-items: end; gap: 24px; }
@@ -637,6 +640,8 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
   .integration-card { min-height: 190px; }
   .management-form-section { padding: 20px; }
   .management-field-grid .field-wide { grid-column: auto; }
+  .management-sku-field { grid-template-columns: 1fr; }
+  .management-sku-field .button { width: 100%; }
   .management-section-heading { display: grid; }
   .management-media-grid { grid-template-columns: 1fr; }
 }

@@ -16,6 +16,22 @@ function slugify(value: string) {
     .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
+function skuTokens(value: string, limit: number) {
+  return slugify(value).split("-").filter(Boolean).slice(0, limit)
+    .map((token) => token.slice(0, 3).toUpperCase());
+}
+
+function generateSku(brandName: string, productName: string, variantName: string, index: number) {
+  const brand = skuTokens(brandName, 1);
+  const product = skuTokens(productName, 2);
+  const variant = skuTokens(variantName, 1);
+  return [
+    ...(brand.length ? brand : ["MYC"]),
+    ...(product.length ? product : ["PRO"]),
+    ...(variant.length ? variant : [`V${String(index + 1).padStart(2, "0")}`]),
+  ].join("-");
+}
+
 type VariantDraft = {
   key: string;
   id?: number;
@@ -77,6 +93,10 @@ export function ManagementProductEditor({
       ? initial.variants.map((variant) => draftFromVariant(variant))
       : [draftFromVariant()],
   );
+  const [name, setName] = useState(initial?.name ?? "");
+  const [slug, setSlug] = useState(initial?.slug ?? "");
+  const [slugWasEdited, setSlugWasEdited] = useState(false);
+  const [brandId, setBrandId] = useState(String(initial?.brand?.id ?? ""));
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   const updateVariant = <K extends keyof VariantDraft>(
@@ -94,14 +114,30 @@ export function ManagementProductEditor({
     } : row));
   };
 
+  const updateName = (value: string) => {
+    setName(value);
+    if (!slugWasEdited) setSlug(slugify(value));
+  };
+
+  const generateVariantSku = (index: number) => {
+    const brandName = brands.find((brand) => String(brand.id) === brandId)?.name ?? "";
+    const base = generateSku(brandName, name, variants[index].name, index);
+    const used = new Set(
+      variants.filter((_, rowIndex) => rowIndex !== index).map((row) => row.sku.toUpperCase()),
+    );
+    let candidate = base;
+    let suffix = 2;
+    while (used.has(candidate)) candidate = `${base}-${suffix++}`;
+    updateVariant(index, "sku", candidate);
+  };
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setState("saving");
     const form = new FormData(event.currentTarget);
-    const name = String(form.get("name") ?? "");
     const payload: ProductEditorPayload = {
       name,
-      slug: String(form.get("slug") || slugify(name)),
+      slug: slug || slugify(name),
       description: String(form.get("description") ?? ""),
       category_id: Number(form.get("category_id")),
       brand_id: form.get("brand_id") ? Number(form.get("brand_id")) : null,
@@ -139,10 +175,10 @@ export function ManagementProductEditor({
       <section className="management-form-section">
         <h2>Información</h2>
         <div className="management-field-grid">
-          <label><span>Nombre del producto</span><input defaultValue={initial?.name} name="name" required /></label>
-          <label><span>Identificador para la web</span><input defaultValue={initial?.slug} name="slug" placeholder="Se genera desde el nombre" /></label>
+          <label><span>Nombre del producto</span><input name="name" onChange={(event) => updateName(event.target.value)} required value={name} /></label>
+          <label><span>Identificador para la web</span><input name="slug" onChange={(event) => { setSlugWasEdited(true); setSlug(slugify(event.target.value)); }} placeholder="Se genera desde el nombre" value={slug} /></label>
           <label><span>Categoría</span><select defaultValue={initial?.category.id ?? categories[0]?.id} name="category_id" required>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
-          <label><span>Marca</span><select defaultValue={initial?.brand?.id ?? ""} name="brand_id"><option value="">Sin marca</option>{brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></label>
+          <label><span>Marca</span><select name="brand_id" onChange={(event) => setBrandId(event.target.value)} value={brandId}><option value="">Sin marca</option>{brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></label>
           <label className="field-wide"><span>Descripción</span><textarea defaultValue={initial?.description} name="description" rows={5} /></label>
           <label className="management-check field-wide"><input defaultChecked={initial?.is_sellable} name="publish" type="checkbox" /><span>Publicar para la venta</span></label>
         </div>
@@ -158,7 +194,10 @@ export function ManagementProductEditor({
             <fieldset className="management-variant-card" key={variant.key}>
               <legend>Variante {index + 1}</legend>
               <div className="management-field-grid">
-                <label><span>SKU</span><input aria-label={accessibleLabel("SKU", index)} onChange={(event) => updateVariant(index, "sku", event.target.value)} required value={variant.sku} /></label>
+                <div className="management-sku-field">
+                  <label><span>SKU</span><input aria-label={accessibleLabel("SKU", index)} onChange={(event) => updateVariant(index, "sku", event.target.value)} required value={variant.sku} /></label>
+                  <button aria-label={accessibleLabel("Generar SKU", index)} className="button secondary" onClick={() => generateVariantSku(index)} type="button">Generar SKU</button>
+                </div>
                 <label><span>Nombre de la variante</span><input aria-label={accessibleLabel("Nombre de la variante", index)} onChange={(event) => updateVariant(index, "name", event.target.value)} placeholder="Ej.: Azul, A4 o Pack x6" value={variant.name} /></label>
                 <label><span>Precio</span><input aria-label={accessibleLabel("Precio", index)} min="0" onChange={(event) => updateVariant(index, "price", event.target.value)} required step="0.01" type="number" value={variant.price} /></label>
                 <label><span>Costo</span><input aria-label={accessibleLabel("Costo", index)} min="0" onChange={(event) => updateVariant(index, "cost", event.target.value)} required step="0.01" type="number" value={variant.cost} /></label>

@@ -69,6 +69,51 @@ describe("gestión de catálogo e inventario", () => {
     ));
   });
 
+  test("actualiza el identificador web con el nombre hasta que se edita manualmente", () => {
+    render(
+      <ManagementProductEditor
+        brands={[product.brand!]}
+        categories={[product.category]}
+        initial={product}
+        onSave={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Nombre del producto"), {
+      target: { value: "Cuaderno cuadriculado" },
+    });
+    expect(screen.getByLabelText("Identificador para la web")).toHaveValue("cuaderno-cuadriculado");
+
+    fireEvent.change(screen.getByLabelText("Identificador para la web"), {
+      target: { value: "cuaderno-escolar-personalizado" },
+    });
+    fireEvent.change(screen.getByLabelText("Nombre del producto"), {
+      target: { value: "Cuaderno escolar" },
+    });
+    expect(screen.getByLabelText("Identificador para la web")).toHaveValue("cuaderno-escolar-personalizado");
+  });
+
+  test("genera un SKU desde la marca, el producto y la variante", () => {
+    render(
+      <ManagementProductEditor
+        brands={[product.brand!]}
+        categories={[product.category]}
+        initial={product}
+        onSave={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Nombre del producto"), {
+      target: { value: "Cuaderno cuadriculado" },
+    });
+    fireEvent.change(screen.getByLabelText("Nombre de la variante"), {
+      target: { value: "Celeste" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Generar SKU" }));
+
+    expect(screen.getByLabelText("SKU")).toHaveValue("MYC-CUA-CUA-CEL");
+  });
+
   test("agrega y guarda varias variantes sin texto de funcionalidad futura", async () => {
     const onSave = vi.fn().mockResolvedValue(product);
     render(
