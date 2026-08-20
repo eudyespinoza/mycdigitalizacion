@@ -279,3 +279,53 @@ proporción renderizada de un logo reemplazado.
    y móvil. El favicon y el nombre accesible ya correctos no deben regresar.
 4. Repetir los 8 unitarios, 4 contratos backend y 12 browser CMS, añadiendo los tres casos
    adversariales anteriores. No hace falta una nueva dirección visual ni ejecutar el detector.
+
+---
+
+## Re-revisión final acotada: Fix Round 2
+
+Fecha: 2026-08-20
+
+Commit revisado: `0450b12e073bf101d9bb422c6f0891f9f1ba98da`, sobre
+`721c1cffe7d53f5d27589a0786971924306f79ed` y backend
+`b1b5ad904270a6676a949d94d83c4488b91bcdb1`.
+
+Alcance: exclusivamente las reproducciones adversariales R1, R2 y R3 del dictamen anterior y la
+no regresión de O1/O2. Se revisó código y se volvieron a ejecutar los gates focalizados. No se
+reabrieron capturas, no se modificó producto, no se ejecutó el detector Impeccable y no se creó
+`DESIGN.md`.
+
+### Veredicto definitivo
+
+- **SPEC: APPROVED.** Los tres REQUIRED anteriores satisfacen sus criterios adversariales exactos.
+- **QUALITY: APPROVED.** No queda desborde en 360 px, el estado táctil es veraz y el branding CMS
+  conserva proporción en los dos formatos probados.
+- **Resultado agregado, sobre los cinco hallazgos originales:** `resolved 5`, `partial 0`,
+  `unresolved 0`.
+- **REQUIRED restantes:** 0. **OPTIONAL restantes:** 0.
+
+### Cierre por hallazgo
+
+| Hallazgo | Estado | Before | After verificado | Why / evidencia exacta |
+| --- | --- | --- | --- | --- |
+| R1 | **RESOLVED** | A 360 px el documento medía 387 px, el botón siguiente terminaba fuera del viewport y un scroll/snap al segundo slide seguía anunciando `Promoción 1 de 2`. | La cabecera de promociones se apila bajo 420 px (`frontend/app/styles.css:425-426`). La pista calcula el slide más cercano tras scroll asentado y llama al estado autoritativo (`frontend/components/home/promotion-carousel.tsx:12-37`). | El browser test mide `scrollWidth <= clientWidth`, bounds completos de controles/botones y, después de mover la pista al final, observa `Promoción 2 de 2` (`frontend/tests/e2e/cms-finish.spec.ts:33-66`). Pasó en la matriz 36/36; el caso adversarial relevante pasó en 360 y el estado táctil también en 768. |
+| R2 | **RESOLVED** | Un popup no descartable nunca ejecutaba `dismiss()`, no escribía la impresión y reaparecía en cada reload. | La impresión se registra en el efecto posterior al render visible para `once_session`, `daily` y `weekly`; `always` no escribe clave (`frontend/components/home/promotion-popup.tsx:20-42`). | Vitest remonta y valida las tres políticas no descartables más `always` (`frontend/tests/cms-campaigns.test.tsx:149-176`). Playwright repite el flujo con reload para `once_session`, `daily`, `weekly` y confirma recurrencia sin clave para `always` (`frontend/tests/e2e/cms-finish.spec.ts:89-109`). Todos pasaron. |
+| R3 | **RESOLVED** | El mismo raster se dibujaba dos veces con crops y ancho/alto forzados, deformando reemplazos cuadrados u horizontales. | El header presenta un solo `picture/img`; el contenedor limita la caja y la imagen usa dimensiones automáticas más `object-fit: contain` (`frontend/components/layout/site-header.tsx:12-24`, `frontend/app/styles.css:60-62`). | El browser test exige un único `img`, compara `renderedRatio` contra `naturalRatio` con tolerancia menor a `0.02` y lo ejecuta con logo cuadrado y horizontal (`frontend/tests/e2e/cms-finish.spec.ts:111-128`). Pasó en los cuatro viewports. Favicon y nombre accesible permanecen cubiertos por el test base. |
+| O1 | **RESOLVED, sin regresión** | El enlace de descubrimiento competía con el título en móvil. | El título y enlace conservan filas separadas bajo 420 px (`frontend/app/styles.css:423-424`). | El test mide que el enlace comienza después del final del título en móvil (`frontend/tests/e2e/cms-finish.spec.ts:130-141`). Pasó 36/36. |
+| O2 | **RESOLVED, sin regresión** | Los chips tenían una altura mínima inferior a 44 px. | `min-height: 44px` permanece en `frontend/app/styles.css:184`. | El test vuelve a medir `height >= 44` (`frontend/tests/e2e/cms-finish.spec.ts:141-145`). Pasó en los cuatro viewports. |
+
+### Evidencia independiente final
+
+| Gate | Resultado fresco |
+| --- | --- |
+| Vitest CMS focalizado | **PASS 13/13**: `pnpm exec vitest run tests/cms-campaigns.test.tsx`. |
+| Backend CMS focalizado | **PASS 4/4**: `APP_ENV=test ... pytest tests/test_task6_finish_cms_contracts.py -q`. |
+| Playwright CMS | **PASS 36/36**: `pnpm exec playwright test tests/e2e/cms-finish.spec.ts`, proyectos 360/768/1024/1440. |
+| R1 adversarial | **PASS**: ancho y bounds en 360; snap anunciado en móvil. |
+| R2 adversarial | **PASS**: impresión inmediata + reload para no descartable `once_session`, `daily`, `weekly`; `always` recurre sin clave. |
+| R3 adversarial | **PASS**: una sola imagen y proporción conservada para logo cuadrado/horizontal. |
+| O1/O2 | **PASS**: segunda fila móvil y objetivo de 44 px. |
+| Detector Impeccable | No ejecutado por instrucción; el resultado previo sigue siendo `[]`. |
+
+No se encontraron REQUIRED ni OPTIONAL nuevos dentro del alcance acotado. La reparación preserva la
+dirección Pulso Comercial ya aprobada y cierra el finish review.
