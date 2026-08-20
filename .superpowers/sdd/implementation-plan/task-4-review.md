@@ -176,3 +176,35 @@ No new standalone REQUIRED regression was opened. The only release-blocking evid
 | Running-home HTML preload and computed-style inspection | FAIL for F7 only: both hero assets are preloaded and mobile focal is overridden to 66%/center. |
 
 Green checks do not override the reproduced F7 network/CSS defect.
+
+## Fix Round 3 verdict
+
+Reviewed frontend commit `99427c8e643a99d3cf53ace21c25c3f1cd58cfa5` only against the sole remaining REQUIRED F7 from review commit `918679192a3f3a03ca34cff47faba05c2e1c0b08`. Concurrent Task5A work was not reviewed or modified. The four required design skill floors were applied again; the Impeccable detector was **not** run and `DESIGN.md` was **not** created.
+
+- **Status count:** 1 RESOLVED, 0 PARTIAL, 0 UNRESOLVED.
+- **SPEC COMPLIANCE:** **PASS.** No Task 4 REQUIRED finding remains.
+- **CODE QUALITY:** **PASS.** F7 now has effective-CSS, selected-source, standalone-HTML, optimizer, and four-viewport regression evidence rather than DOM-intent coverage alone.
+
+| Finding | Status | Before | After | Why / exact evidence / reproduction |
+| ---: | --- | --- | --- | --- |
+| F7 | **RESOLVED** | Mobile CSS replaced the CMS focal point with `66% center !important`, while two priority Next images caused desktop and mobile hero candidates to be emitted/preloaded together. | The override and breakpoint display rules are removed (`frontend/app/styles.css:86-89,355-358`). `CampaignImage` now renders one accessible Next `<Image>` inside a positioned `<picture>`, derives the optimized mobile `srcSet` with `getImageProps`, preserves authored `focal_x/focal_y`, and assigns `fetchPriority="high"` only to the one selected image (`frontend/components/home/campaign-image.tsx:1-13`). | Real standalone browser probe: at **360**, `currentSrc` was `/_next/image?url=%2Fmedia%2Fcms%2Fhero-mobile.png&w=384&q=75`; at **1024**, it was the desktop `hero.png&w=640`. Both returned **200 image/png**. At both sizes the hero contained exactly one `img` and one `source`, exposed `fetchPriority=high`, and computed `object-position: 58% 50%`. The standalone HTML test independently found one hero image, one mobile source, and zero duplicate hero preloads (`frontend/tests/production/media-optimizer.spec.ts:10-22`). The original same-origin optimizer request also remains 200 (`:3-8`). |
+
+No new REQUIRED regression was found. The refreshed `360.png`, `768.png`, `1024.png`, `1440.png`, and `hero-repro.png` retain the accepted logo, hero hierarchy, crop, mobile scale, and sparse merchandising composition; the authored focal now controls every breakpoint.
+
+### Fix Round 3 OPTIONAL finding
+
+| # | Severity | Before | After | Why / evidence |
+| ---: | --- | --- | --- | --- |
+| O3 | **P3** | The production harness invoked unsupported `next start` for a standalone build. | It now starts the correct generated entrypoint, `node .next/standalone/frontend/server.js` (`frontend/playwright.production.config.ts:9-21`), and the warning is gone. | This is a material improvement and closes prior O1. If this harness later performs full visual/browser production tests, copy `.next/static` and `public` beside the standalone artifact as the Dockerfile already does (`frontend/Dockerfile:19-27`); the current request/HTML/media tests do not require those local assets. This is test-topology hardening, not a Task 4 blocker. |
+
+### Fix Round 3 verification
+
+| Command / check | Result |
+| --- | --- |
+| `pnpm lint`, `pnpm typecheck`, `pnpm test:ci` from `frontend/` | PASS; **5 files / 25 tests**. |
+| `pnpm test:e2e:production` from `frontend/` | PASS; **2/2** using the actual standalone server entrypoint. |
+| Standalone Chromium probe at 360 and 1024 | PASS; mobile/desktop optimized `currentSrc` selected correctly, each HTTP 200; one image, one source, high fetch priority, authored 58%/50% focal. |
+| `pnpm exec playwright test tests/e2e/storefront.spec.ts:10` | PASS; **4/4** across exact 360/768/1024/1440 projects. |
+| Refreshed five-image visual review | PASS under `design-taste-frontend`, `ui-ux-pro-max`, `emil-design-eng`, and `impeccable` craft floors. |
+
+The collection LCP advisory appeared only after the intentionally full-page screenshot scrolled the sparse fixture; it is unrelated to the above-fold hero selection and does not reopen F7.
