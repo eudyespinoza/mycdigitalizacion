@@ -103,3 +103,71 @@ Each was followed by a targeted GREEN run. The final local suite result is `31 p
 - No Task 3 provider workflows are present by design; identity and checkout boundaries explicitly report `not_configured`.
 - A complete production image export was not used as completion evidence because the final ownership layer was stopped on coordinator direction. Its required WhiteNoise `collectstatic` stage did complete successfully.
 - The PostgreSQL concurrency contract was verified through Compose and is not inferred from SQLite.
+
+---
+
+## Fix Round 1
+
+### Summary
+
+Resolved every required review finding F1-F17 and the straightforward optional singleton finding F19 without adding Task 3 providers or frontend work. The fix commit is `4e8709d fix(backend): harden commerce domain invariants`.
+
+The production image no longer inherits the build-time personal-data key. Login/logout session mutations enforce CSRF; verified email is a central permission at PII, identity, order, and checkout boundaries; verification challenges now have atomic one-time consumption, bounded attempts, lockout, and email/IP throttling. Registration canonicalizes email, validates passwords and consent, and returns a stable conflict response. DNI/CUIT input and admin replacement paths validate before encryption and expose only resilient masks.
+
+Catalog invariants now use explicit transactional services for category reparenting and product/variant state transitions. Direct reparent, bulk parent update, and unsafe last-active-variant deactivation/deletion are blocked. Typed attributes require exactly one declared storage type and same-definition options. Product variants, discounts, schedules, money, weight, and dimensions have model validators and database constraints.
+
+Commerce now has one authenticated cart per user, atomic line adds, stable-order cart locking/merge, expiry-safe reservation transitions, coherent locked order pricing, deterministic cent allocation, and a persisted item/order reconciliation invariant. Order snapshots, items, audit events, and inventory movements are immutable; status changes go through an atomic audited service; logistics permissions and admin mutation paths are restricted.
+
+Landing content now uses validated image fields, safe CTA schemes, focal and height bounds, ordered schedules, positive unique product IDs, explicit serializers, stable media URLs, and a complete typed home response. `SiteSettings` is enforced as a single keyed record and the admin cannot add a second record or delete it. OpenAPI operations use dedicated request/response schemas and explicit success/error status codes. Production cookies, proxy TLS handling, HTTPS redirect, and HSTS pass Django's deploy checks.
+
+### Architecture, models, and API
+
+- `accounts.services.consume_email_verification_challenge` owns the locked verification transition; `accounts.permissions.IsVerifiedEmail` owns the protected boundary; throttles hash canonical email plus client IP.
+- `catalog.services.move_category`, `activate_product`, `set_variant_active`, and `delete_variant` own tree and sellability transitions. Queryset/model guards prevent ordinary bypasses.
+- `commerce.services` owns atomic cart creation/add/merge, reservation transitions, one-timestamp priced-line snapshots, coupon allocation, order creation, and audited status transitions. No model signals were introduced.
+- Append-only commerce records reject direct update/delete in models/querysets and are read-only/non-deletable in admin. The logistics group retains view access but loses unsafe default mutation permissions.
+- Public catalog serializers include active variants only and still omit `cost`; product and cart routes require active, sellable product state.
+- Landing serializers explicitly cover settings, hero/promotion slides, collections, and popups, including media URLs, body/product IDs, focal coordinates, safe heights, CTA, order, and schedules.
+- Auth, cart, identity, checkout, and other `/api/v1` operations publish semantically dedicated OpenAPI request/response/status contracts; the schema contract has a structural regression test.
+
+### Migrations and dependencies
+
+- `accounts.0002` adds verification attempts/lockout and case-insensitive email uniqueness; `accounts.0003` preserves inherited Django user metadata.
+- `catalog.0002` adds product-variant validators/database constraints and exact-one attribute storage.
+- `commerce.0004` adds discount/schedule constraints, `0005` adds unique authenticated carts and positive cart quantities, and `0006` removes unsafe logistics mutation permissions.
+- `landing.0002` migrates image, CTA, focal, and responsive-height validation fields.
+- `Pillow==12.1.0` was added for Django `ImageField`. Both production and development locks were regenerated with pip-tools and hashes; both locks installed successfully during the development/production Docker builds with `--require-hashes`.
+- Fresh PostgreSQL migration application completed through `sessions.0001`; `migrate --check` succeeded and `makemigrations --check --dry-run` returned `No changes detected`.
+
+### TDD red/green evidence
+
+Round 1 behavior was developed through focused failing tests before implementation:
+
+- Security/auth initial RED: `11 failed, 1 passed`; focused GREEN: `12 passed` (later expanded with masked-admin and deploy tests).
+- Catalog/CMS initial RED: `10 failed, 4 passed`; focused GREEN: `14 passed` (later expanded to 15 with complete settings/product-ID validation).
+- Commerce initial RED: `7 failed, 1 passed`; focused GREEN: `8 passed`; append-only/queryset hardening additionally recorded `3 failed` then `3 passed`.
+- OpenAPI semantic RED: registration exposed only the success response and incorrect shared schemas; GREEN: `1 passed` over all expected `/api/v1` paths and dedicated auth/cart/checkout contracts.
+- Full-suite regression RED after adding the verified-email/permission boundary: `4 failed, 64 passed, 5 deselected`; fixtures/expectations were corrected to the new security contract, then the suite passed.
+- PostgreSQL RED: the first order/cart race run found Django/PostgreSQL's `FOR UPDATE cannot be applied to the nullable side of an outer join` (`1 failed, 4 passed`). Cart and coupon locks were separated; the focused regression passed, followed by the complete marked run.
+
+Final GREEN evidence:
+
+- `APP_ENV=test pytest -q` — `69 passed, 7 skipped in 18.32s`; every skip is explicitly PostgreSQL-marked.
+- `docker compose run --rm -e APP_ENV=test -e USE_POSTGRES_TEST_DB=true backend pytest -q -m postgresql` — `7 passed, 69 deselected in 36.50s` against PostgreSQL 17. This covers oversell protection, one-time challenge consumption, lossless concurrent failed attempts, unique cart creation, concurrent adds, simultaneous merges, coherent order/cart snapshots, and expired reservation reuse.
+- `APP_ENV=test pytest -q tests/test_catalog_cms_round1.py tests/test_openapi_semantics.py` — `15 passed`; includes the semantic schema gate and complete public CMS contract.
+
+### Verification commands and results
+
+- `ruff check backend` — `All checks passed!`.
+- `git diff --check` — passed (only Git's Windows line-ending notices were printed).
+- `APP_ENV=test python manage.py check` — no system-check issues.
+- Production `python manage.py check --deploy --fail-level WARNING` with non-placeholder runtime values — no issues; also enforced by `test_production_settings_pass_django_deploy_checks`.
+- Compose migration apply/check and `makemigrations --check --dry-run` — all migrations applied, no unapplied or ungenerated changes.
+- `docker build --target production -t mycdigitalizaciones-backend-round1 backend` — completed, including `163 static files copied` and `426 post-processed` through WhiteNoise.
+- `docker image inspect ... .Config.Env` — final image contains only Python/pip runtime environment entries; no `APP_ENV`, signing key, database password, site value, or personal-data key is inherited.
+- Starting that final image in production with all required values except `PERSONAL_DATA_ENCRYPTION_KEY` exits `1` with `ImproperlyConfigured: PERSONAL_DATA_ENCRYPTION_KEY must be a non-placeholder production value`, proving runtime fail-fast.
+
+### Concerns
+
+- F18 key rotation remains intentionally unimplemented because it was optional and outside this fix-round scope. Current encrypted/hash data still requires an operationally coordinated key migration if the personal-data key changes.
+- Provider/checkout/identity orchestration remains explicitly `not_configured` for Task 3; no provider calls were added.
