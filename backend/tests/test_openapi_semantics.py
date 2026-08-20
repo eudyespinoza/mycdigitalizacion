@@ -167,9 +167,22 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
     assert set(paths["/api/v1/auth/logout/"]["post"]["responses"]) == {"204", "403"}
     checkout = paths["/api/v1/checkout/"]["post"]
     checkout_request = request_schema(checkout, components)
-    assert set(checkout_request["required"]) == {"fulfillment_method"}
+    assert set(checkout_request["required"]) == {
+        "fulfillment_method",
+        "billing_profile_id",
+        "consent",
+        "idempotency_key",
+    }
     assert {"address_id", "shipping_quote_id"} <= checkout_request["properties"].keys()
-    assert {"201", "202", "400", "403", "503"} == set(checkout["responses"])
+    assert {"201", "202", "400", "403", "502", "503"} == set(checkout["responses"])
+
+    webhook = paths["/api/v1/payments/mercadopago/webhook/"]["post"]
+    assert any(
+        parameter["name"] == "data.id"
+        and parameter["in"] == "query"
+        and parameter["required"] is True
+        for parameter in webhook["parameters"]
+    )
 
     cart_post = request_schema(paths["/api/v1/cart/"]["post"], components)
     assert {"variant_id", "quantity", "coupon"} <= cart_post["properties"].keys()
@@ -201,7 +214,7 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
         ("/api/v1/orders/", "get"): {"200", "403"},
         ("/api/v1/orders/{public_id}/", "get"): {"200", "403", "404"},
         ("/api/v1/identity/status/", "get"): {"200", "403"},
-        ("/api/v1/checkout/", "post"): {"201", "202", "400", "403", "503"},
+        ("/api/v1/checkout/", "post"): {"201", "202", "400", "403", "502", "503"},
     }
     for (path, method), expected_statuses in protected_contracts.items():
         operation = paths[path][method]

@@ -4,7 +4,7 @@ import pytest
 from django.test import override_settings
 from django.utils import timezone
 
-from tests.test_checkout_domain import make_customer
+from tests.test_checkout_domain import make_billing_profile, make_customer
 from tests.test_commerce_domain import make_variant
 
 
@@ -52,13 +52,19 @@ def test_checkout_api_enters_review_without_payment_when_sid_disabled(client, dj
         email="api-checkout@example.test", email_verified_at=timezone.now()
     )
     make_customer(user)
+    billing_profile = make_billing_profile(user)
     cart = Cart.objects.create(user=user)
     CartLine.objects.create(cart=cart, variant=make_variant(sku="API-CHECKOUT"), quantity=1)
     client.force_login(user)
 
     response = client.post(
         "/api/v1/checkout/",
-        {"fulfillment_method": "pickup"},
+        {
+            "fulfillment_method": "pickup",
+            "billing_profile_id": billing_profile.pk,
+            "consent": True,
+            "idempotency_key": "3b88cc2a-3484-4d9e-892a-60fc8cb0949c",
+        },
         content_type="application/json",
     )
 
@@ -74,7 +80,7 @@ def test_webhook_api_persists_invalid_signature_with_stable_safe_error(client):
 
     body = {"id": "evt-api", "type": "payment", "data": {"id": "99"}}
     response = client.post(
-        "/api/v1/payments/mercadopago/webhook/",
+        "/api/v1/payments/mercadopago/webhook/?data.id=99",
         data=json.dumps(body),
         content_type="application/json",
         HTTP_X_REQUEST_ID="req-api",

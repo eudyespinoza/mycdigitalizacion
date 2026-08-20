@@ -57,9 +57,7 @@ def sync_localities(*, adapter):
 
 def lookup_localities(postal_code, *, limit=20):
     normalized = normalize_postal_code(postal_code)
-    query = Q(postal_code=postal_code_cp4(normalized))
-    if len(normalized) == 8:
-        query |= Q(cpa=normalized)
+    query = Q(cpa=normalized) if len(normalized) == 8 else Q(postal_code=normalized)
     return list(PostalLocality.objects.filter(query).order_by("locality", "pk")[:limit])
 
 

@@ -54,6 +54,7 @@ class MercadoPagoAdapter:
         self,
         *,
         external_reference,
+        order_id,
         amount,
         description,
         payer_email,
@@ -77,6 +78,7 @@ class MercadoPagoAdapter:
             ],
             "payer": {"email": payer_email},
             "external_reference": str(external_reference),
+            "metadata": {"order_id": str(order_id)},
             "notification_url": f"{self.back_url_base}/api/v1/payments/mercadopago/webhook/",
             "back_urls": {
                 "success": return_url,
@@ -110,6 +112,19 @@ class MercadoPagoAdapter:
         return self.http.request_json(
             "GET", f"{self.base_url}/v1/payments/{payment_id}", headers=self._headers()
         )
+
+    def find_payment(self, *, external_reference, preference_id=None):
+        del preference_id
+        data = self.http.request_json(
+            "GET",
+            f"{self.base_url}/v1/payments/search",
+            headers=self._headers(),
+            params={"external_reference": str(external_reference)},
+        )
+        results = data.get("results") if isinstance(data, dict) else None
+        if not isinstance(results, list) or not results:
+            return None
+        return results[0]
 
     def refund(self, payment_id, *, amount=None, idempotency_key):
         payload = {} if amount is None else {"amount": float(Decimal(amount))}

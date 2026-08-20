@@ -16,6 +16,18 @@ class UnconfiguredPaymentAdapter:
         del kwargs
         raise ProviderNotConfigured("Mercado Pago no está configurado")
 
+    def fetch_payment(self, *args, **kwargs):
+        del args, kwargs
+        raise ProviderNotConfigured("Mercado Pago no está configurado")
+
+    def find_payment(self, *args, **kwargs):
+        del args, kwargs
+        raise ProviderNotConfigured("Mercado Pago no está configurado")
+
+    def refund(self, *args, **kwargs):
+        del args, kwargs
+        raise ProviderNotConfigured("Mercado Pago no está configurado")
+
 
 def get_sid_adapter():
     if settings.SID_MODE == "disabled":
@@ -48,6 +60,8 @@ def get_carrier_adapter():
         base_url=base_url,
         username=settings.CORREO_ARGENTINO_USERNAME,
         password=settings.CORREO_ARGENTINO_PASSWORD,
+        customer_id=settings.CORREO_ARGENTINO_CUSTOMER_ID,
+        origin_postal_code=settings.CORREO_ARGENTINO_ORIGIN_POSTAL_CODE,
     )
 
 

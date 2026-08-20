@@ -1,7 +1,7 @@
 import logging
 
 from celery import shared_task
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 
 from accounts.models import EmailVerificationChallenge
@@ -32,7 +32,13 @@ def release_expired_reservations():
     return len(ids)
 
 
-@shared_task
+@shared_task(
+    autoretry_for=(ProviderError,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+    max_retries=5,
+)
 def process_payment_webhook(event_id):
     event = PaymentWebhookEvent.objects.get(pk=event_id)
     try:
@@ -47,6 +53,32 @@ def process_payment_webhook(event_id):
             extra={"event_id": event_id, "failure_code": getattr(exc, "code", "mismatch")},
         )
         raise
+    except Exception:
+        PaymentWebhookEvent.objects.filter(pk=event_id).update(
+            status="queued", staff_diagnostics="unexpected_processing_failure"
+        )
+        raise
+
+
+@shared_task
+def sweep_stale_webhook_events(*, enqueue=None, now=None):
+    checked_at = now or timezone.now()
+    cutoff = checked_at - timezone.timedelta(minutes=5)
+    event_ids = list(
+        PaymentWebhookEvent.objects.filter(updated_at__lte=cutoff)
+        .filter(Q(status="processing") | Q(status="queued"))
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
+    PaymentWebhookEvent.objects.filter(pk__in=event_ids).update(
+        status="queued",
+        staff_diagnostics="stale_processing_recovered",
+        updated_at=checked_at,
+    )
+    enqueue_event = enqueue or process_payment_webhook.delay
+    for event_id in event_ids:
+        enqueue_event(event_id)
+    return len(event_ids)
 
 
 @shared_task
@@ -55,15 +87,27 @@ def reconcile_pending_payments():
     reconciled = 0
     for payment_transaction in PaymentTransaction.objects.filter(
         status=PaymentTransaction.Status.PENDING
-    ).exclude(payment_id__isnull=True):
+    ):
         try:
-            payment = adapter.fetch_payment(payment_transaction.payment_id)
+            payment = (
+                adapter.fetch_payment(payment_transaction.payment_id)
+                if payment_transaction.payment_id
+                else adapter.find_payment(
+                    external_reference=str(payment_transaction.external_reference),
+                    preference_id=payment_transaction.preference_id,
+                )
+            )
+            if not payment:
+                continue
             apply_payment(transaction=payment_transaction, payment=payment)
             reconciled += 1
-        except ProviderError as exc:
+        except (ProviderError, PaymentMismatch) as exc:
             logger.warning(
                 "payment_reconciliation_failed",
-                extra={"transaction_id": payment_transaction.pk, "failure_code": exc.code},
+                extra={
+                    "transaction_id": payment_transaction.pk,
+                    "failure_code": getattr(exc, "code", "payment_mismatch"),
+                },
             )
     return reconciled
 
@@ -83,8 +127,11 @@ def reconcile_tracking():
                 extra={"shipment_id": shipment.pk, "failure_code": exc.code},
             )
             continue
-        shipment.status = str(result.get("status") or shipment.status)
-        shipment.provider_summary = {"last_event": str(result.get("last_event") or "")}
+        tracking = result[0] if isinstance(result, list) and result else result
+        events = tracking.get("events", []) if isinstance(tracking, dict) else []
+        last_event = events[0] if events else {}
+        shipment.status = str(last_event.get("event") or shipment.status).lower()
+        shipment.provider_summary = {"last_event": str(last_event.get("event") or "")}
         shipment.save(update_fields=("status", "provider_summary", "updated_at"))
         reconciled += 1
     return reconciled

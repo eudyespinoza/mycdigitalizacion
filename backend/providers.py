@@ -3,10 +3,9 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+from http.client import HTTPConnection, HTTPSConnection
 from typing import Any, Protocol
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.parse import urlencode, urlsplit
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +40,10 @@ class ProviderNotConfigured(ProviderError):
     code = "not_configured"
 
 
+class ProviderNotSupported(ProviderError):
+    code = "not_supported"
+
+
 class JsonTransport(Protocol):
     def request(
         self,
@@ -68,24 +71,33 @@ class UrllibJsonTransport:
         timeout: tuple[float, float] = DEFAULT_TIMEOUT,
     ) -> tuple[int, Any]:
         if params:
-            url = f"{url}?{urlencode(params)}"
+            separator = "&" if "?" in url else "?"
+            url = f"{url}{separator}{urlencode(params)}"
         body = None if json is None else __import__("json").dumps(json).encode()
         request_headers = {"Accept": "application/json", **(headers or {})}
         if body is not None:
             request_headers["Content-Type"] = "application/json"
-        request = Request(url, data=body, method=method, headers=request_headers)
+        parsed = urlsplit(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ProviderInvalidResponse("La URL del proveedor es inválida")
+        connection_type = HTTPSConnection if parsed.scheme == "https" else HTTPConnection
+        connection = connection_type(parsed.hostname, parsed.port, timeout=timeout[0])
+        path = parsed.path or "/"
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
         try:
-            # urllib exposes a single socket timeout; the adapter contract still carries
-            # explicit connect/read values for richer injected transports.
-            with urlopen(request, timeout=max(timeout)) as response:  # noqa: S310
-                raw = response.read()
-                return response.status, json_loads(raw)
-        except HTTPError as exc:
-            return exc.code, json_loads(exc.read())
+            connection.connect()
+            if connection.sock is not None:
+                connection.sock.settimeout(timeout[1])
+            connection.request(method, path, body=body, headers=request_headers)
+            response = connection.getresponse()
+            return response.status, json_loads(response.read())
         except TimeoutError as exc:
             raise ProviderTimeout("El proveedor tardó demasiado en responder") from exc
-        except URLError as exc:
+        except OSError as exc:
             raise ProviderUnavailable("El proveedor no está disponible") from exc
+        finally:
+            connection.close()
 
 
 def json_loads(raw: bytes) -> Any:
@@ -130,7 +142,7 @@ class ProviderHttpClient:
                     continue
                 raise
             if status in expected:
-                if not isinstance(data, (dict, list)):
+                if not isinstance(data, dict | list):
                     raise ProviderInvalidResponse("El proveedor devolvió una respuesta inválida")
                 return data
             if status in {408, 429, 500, 502, 503, 504} and attempt + 1 < attempts:

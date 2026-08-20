@@ -10,7 +10,12 @@ from django.middleware.csrf import get_token
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import generics, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
@@ -39,9 +44,10 @@ from commerce.models import (
     IdentityVerification,
     Order,
     PaymentTransaction,
+    Shipment,
     ShippingQuote,
 )
-from commerce.payments import WebhookRejected, ingest_webhook, refund_order
+from commerce.payments import RefundError, WebhookRejected, ingest_webhook, refund_order
 from commerce.provider_config import (
     get_carrier_adapter,
     get_payment_adapter,
@@ -68,7 +74,7 @@ from commerce.serializers import (
     ShippingQuoteSerializer,
 )
 from commerce.services import add_cart_line, apply_coupon, get_or_create_user_cart, merge_carts
-from commerce.shipping import create_order_shipment, create_shipping_quote
+from commerce.shipping import ShipmentError, create_order_shipment, create_shipping_quote
 from landing.models import (
     HeroSlide,
     LandingCollection,
@@ -619,11 +625,25 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
     def _staff_order(self):
         if not self.request.user.is_staff:
             raise DRFPermissionDenied("Staff access is required")
-        return Order.objects.get(public_id=self.kwargs["public_id"])
+        order = Order.objects.filter(public_id=self.kwargs["public_id"]).first()
+        if not order:
+            raise DomainError(
+                code="order_not_found",
+                detail="No encontramos ese pedido.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        return order
 
     @extend_schema(
         request=None,
-        responses={201: ShipmentResponseSerializer, 403: ErrorSerializer, 503: ErrorSerializer},
+        responses={
+            201: ShipmentResponseSerializer,
+            400: ErrorSerializer,
+            403: ErrorSerializer,
+            404: ErrorSerializer,
+            502: ErrorSerializer,
+            503: ErrorSerializer,
+        },
     )
     @action(detail=True, methods=("post",), url_path="shipment")
     def create_shipment(self, request, public_id=None):
@@ -634,6 +654,12 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
             )
         except ProviderError as exc:
             raise provider_domain_error(exc) from exc
+        except ShipmentError as exc:
+            raise DomainError(
+                code=exc.code,
+                detail=str(exc),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            ) from exc
         return Response(
             {
                 "provider_id": shipment.provider_id,
@@ -645,12 +671,26 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
 
     @extend_schema(
         request=None,
-        responses={200: LabelResponseSerializer, 403: ErrorSerializer, 503: ErrorSerializer},
+        responses={
+            200: LabelResponseSerializer,
+            403: ErrorSerializer,
+            404: ErrorSerializer,
+            501: ErrorSerializer,
+            502: ErrorSerializer,
+            503: ErrorSerializer,
+        },
     )
     @action(detail=True, methods=("post",), url_path="label")
     def label(self, request, public_id=None):
         del public_id
-        shipment = self._staff_order().shipment
+        order = self._staff_order()
+        shipment = Shipment.objects.filter(order=order).first()
+        if not shipment:
+            raise DomainError(
+                code="shipment_not_found",
+                detail="El pedido todavía no tiene un envío.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
         try:
             result = get_carrier_adapter().label(shipment.provider_id)
         except ProviderError as exc:
@@ -661,18 +701,34 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
 
     @extend_schema(
         request=None,
-        responses={200: StatusSerializer, 403: ErrorSerializer, 503: ErrorSerializer},
+        responses={
+            200: StatusSerializer,
+            403: ErrorSerializer,
+            404: ErrorSerializer,
+            502: ErrorSerializer,
+            503: ErrorSerializer,
+        },
     )
     @action(detail=True, methods=("post",), url_path="tracking")
     def tracking(self, request, public_id=None):
         del public_id
-        shipment = self._staff_order().shipment
+        order = self._staff_order()
+        shipment = Shipment.objects.filter(order=order).first()
+        if not shipment:
+            raise DomainError(
+                code="shipment_not_found",
+                detail="El pedido todavía no tiene un envío.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
         try:
             result = get_carrier_adapter().tracking(shipment.tracking_number)
         except ProviderError as exc:
             raise provider_domain_error(exc) from exc
-        shipment.status = str(result.get("status") or shipment.status)
-        shipment.provider_summary = {"last_event": str(result.get("last_event") or "")}
+        tracking = result[0] if isinstance(result, list) and result else result
+        events = tracking.get("events", []) if isinstance(tracking, dict) else []
+        last_event = events[0] if events else {}
+        shipment.status = str(last_event.get("event") or shipment.status).lower()
+        shipment.provider_summary = {"last_event": str(last_event.get("event") or "")}
         shipment.save(update_fields=("status", "provider_summary", "updated_at"))
         return Response({"status": shipment.status})
 
@@ -682,6 +738,9 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
             200: RefundResponseSerializer,
             400: VALIDATION_ERROR_SCHEMA,
             403: ErrorSerializer,
+            404: ErrorSerializer,
+            409: ErrorSerializer,
+            502: ErrorSerializer,
             503: ErrorSerializer,
         },
     )
@@ -698,6 +757,12 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
             )
         except ProviderError as exc:
             raise provider_domain_error(exc) from exc
+        except RefundError as exc:
+            raise DomainError(
+                code=exc.code,
+                detail=str(exc),
+                status_code=status.HTTP_409_CONFLICT,
+            ) from exc
         return Response(
             {
                 "status": refund.status,
@@ -713,17 +778,19 @@ def provider_domain_error(exc):
         code=exc.code,
         staff_diagnostics=exc.diagnostics,
     )
-    status_code = (
-        status.HTTP_503_SERVICE_UNAVAILABLE
-        if exc.code in {"not_configured", "unavailable", "timeout"}
-        else status.HTTP_502_BAD_GATEWAY
-    )
+    if exc.code == "not_supported":
+        status_code = status.HTTP_501_NOT_IMPLEMENTED
+    elif exc.code in {"not_configured", "unavailable", "timeout"}:
+        status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    else:
+        status_code = status.HTTP_502_BAD_GATEWAY
     messages = {
         "not_configured": "Este servicio todavía no está configurado.",
         "unavailable": "El servicio externo no está disponible. Intentá nuevamente.",
         "timeout": "El servicio externo tardó demasiado. Intentá nuevamente.",
         "invalid_response": "El servicio externo devolvió una respuesta inválida.",
         "rejected": "El servicio externo rechazó la operación.",
+        "not_supported": "El proveedor no ofrece esta operación en su contrato público.",
     }
     return DomainError(
         code=exc.code,
@@ -868,6 +935,8 @@ class IdentityValidateView(generics.GenericAPIView):
                 detail="No pudimos validar tu identidad.",
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             ) from exc
+        except ProviderError as exc:
+            raise provider_domain_error(exc) from exc
         return Response(IdentityVerificationSerializer(attempt).data)
 
 
@@ -881,17 +950,25 @@ class ManualIdentityReviewView(generics.GenericAPIView):
             400: VALIDATION_ERROR_SCHEMA,
             403: ErrorSerializer,
             404: ErrorSerializer,
+            409: ErrorSerializer,
         }
     )
     def post(self, request, pk):
         request_serializer = self.get_serializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         attempt = generics.get_object_or_404(IdentityVerification, pk=pk)
-        approved = approve_identity_manually(
-            attempt=attempt,
-            actor=request.user,
-            reason=request_serializer.validated_data["reason"],
-        )
+        try:
+            approved = approve_identity_manually(
+                attempt=attempt,
+                actor=request.user,
+                reason=request_serializer.validated_data["reason"],
+            )
+        except DjangoValidationError as exc:
+            raise DomainError(
+                code="identity_review_not_allowed",
+                detail="Esta validación de identidad no admite aprobación manual.",
+                status_code=status.HTTP_409_CONFLICT,
+            ) from exc
         return Response(IdentityVerificationSerializer(approved).data)
 
 
@@ -952,6 +1029,7 @@ class CheckoutView(generics.GenericAPIView):
             201: CheckoutResponseSerializer,
             400: ErrorSerializer,
             403: ErrorSerializer,
+            502: ErrorSerializer,
             503: ErrorSerializer,
         },
     )
@@ -959,6 +1037,9 @@ class CheckoutView(generics.GenericAPIView):
         request_serializer = self.get_serializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         values = request_serializer.validated_data
+        billing_profile = BillingProfile.objects.filter(
+            pk=values["billing_profile_id"], customer__user=request.user
+        ).first()
         quote = None
         if values.get("shipping_quote_id"):
             quote = ShippingQuote.objects.filter(
@@ -978,6 +1059,9 @@ class CheckoutView(generics.GenericAPIView):
                 payment_adapter=get_payment_adapter(),
                 address=address,
                 shipping_quote=quote,
+                billing_profile=billing_profile,
+                consent=values["consent"],
+                idempotency_key=values["idempotency_key"],
             )
         except CheckoutError as exc:
             raise DomainError(
@@ -1012,6 +1096,7 @@ class CheckoutResumeView(generics.GenericAPIView):
             400: ErrorSerializer,
             403: ErrorSerializer,
             404: ErrorSerializer,
+            502: ErrorSerializer,
             503: ErrorSerializer,
         },
     )
@@ -1030,6 +1115,8 @@ class CheckoutResumeView(generics.GenericAPIView):
                 detail=str(exc),
                 status_code=status.HTTP_400_BAD_REQUEST,
             ) from exc
+        except ProviderError as exc:
+            raise provider_domain_error(exc) from exc
         return Response(
             {
                 "order_id": result.order.public_id,
@@ -1047,7 +1134,21 @@ class MercadoPagoWebhookView(generics.GenericAPIView):
     serializer_class = EmptySerializer
 
     @extend_schema(
-        request=None,
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {"id": {"type": "string"}, "type": {"type": "string"}},
+            }
+        },
+        parameters=[
+            OpenApiParameter(
+                name="data.id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Mercado Pago payment identifier included in the signed manifest.",
+            )
+        ],
         responses={200: StatusSerializer, 202: StatusSerializer, 403: ErrorSerializer},
     )
     def post(self, request):
@@ -1056,9 +1157,11 @@ class MercadoPagoWebhookView(generics.GenericAPIView):
         try:
             result = ingest_webhook(
                 raw_body=request.body,
+                data_id=request.query_params.get("data.id", ""),
                 headers={key.lower(): value for key, value in request.headers.items()},
                 secret=settings.MERCADOPAGO_WEBHOOK_SECRET,
                 enqueue=process_payment_webhook.delay,
+                tolerance_seconds=settings.MERCADOPAGO_WEBHOOK_TOLERANCE_SECONDS,
             )
         except WebhookRejected as exc:
             raise DomainError(

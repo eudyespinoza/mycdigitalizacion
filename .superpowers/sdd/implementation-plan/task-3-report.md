@@ -107,3 +107,113 @@ All commands were run from the current worktree after the final implementation c
   webhook/refund run.
 - Provider modes default to disabled/QA. Production credentials remain environment-only and are
   never stored in database rows.
+
+## Fix Round 1 (independent review `5d7f070`)
+
+### Regression TDD evidence
+
+The 19 REQUIRED findings were grouped into observable provider, checkout/identity, payment
+recovery, shipment/API, and configuration/audit regressions before implementation changes:
+
+- RED: `APP_ENV=test python -m pytest -q tests/test_task3_round1_regressions.py`
+  - Result: `22 failed`.
+  - The failures reproduced the MiCorreo wire mismatch, non-idempotent confirmation/resume,
+    incomplete quote binding, packing order dependence, webhook poisoning/query mismatch,
+    missing retry sweep/reconciliation, tautological payment binding, unsafe refund finality,
+    consent/identity audit defects, non-exact CPA8, incomplete disabled/timeout boundaries,
+    shipment/API races, startup validation gaps, and mutable operational admin records.
+- Additional focused RED cases were captured before their recovery slices:
+  - stale queued webhook recovery, fiscal-profile resume revalidation, and pending-refund replay:
+    `3 failed`;
+  - typed SID API failure: `1 failed`;
+  - stable missing-order API code: `1 failed`.
+- GREEN: `APP_ENV=test python -m pytest -q tests/test_task3_round1_regressions.py`
+  - Result: `25 passed in 2.70s`.
+
+### REQUIRED finding resolution map
+
+1. **MiCorreo v1 contract** — QA defaults to
+   `https://apitest.correoargentino.com.ar/micorreo/v1`; `/token` uses HTTP Basic and reads
+   `token`; rates send `customerId`, origin/destination CP and integer dimensions and parse the
+   documented `rates` array; import uses `/shipping/import`; tracking uses GET
+   `/shipping/tracking` with `shippingId`. The public PDF exposes no label route, so label now
+   returns typed `not_supported`/HTTP 501 instead of inventing one.
+2. **Checkout/resume idempotency** — checkout accepts a required UUID idempotency key, enforced
+   uniquely per user. Sequential and concurrent retries return the same order/transaction; resume
+   locks and advances the original order and cannot create a replacement.
+3. **Authoritative quote fingerprint** — the digest now includes variant prices, dimensions,
+   weight, calculated discount/totals, coupon, address fields and final parcel dimensions.
+4. **Packing determinism/dimensions** — equal-volume units use a canonical dimension/SKU/weight
+   tiebreak; parcels retain selected box length/width/height for carrier rating.
+5. **Webhook signed-ID/poisoning** — ingestion receives signed query `data.id`, lowercases it for
+   the manifest, uses configured tolerance, and allows a correctly signed retry to replace a prior
+   rejected collision without suppressing processing.
+6. **Durable webhook retries** — provider failures have bounded Celery autoretry; unexpected
+   failures return events to `queued`; a beat sweeper re-enqueues stale `queued` and `processing`
+   events and refreshes their claim timestamp.
+7. **Lost webhook reconciliation** — pending transactions without `payment_id` are searched by
+   provider `external_reference`; transactions with an ID continue to use direct payment fetch.
+8. **Independent order binding/terminal states** — preferences store provider metadata
+   `order_id`; payment application requires it to match the local public order UUID. Expired
+   payments fail; refunded/chargeback terminal states become `needs_attention` rather than being
+   ignored or silently mutating stock.
+9. **Refund safety/idempotency** — the order and existing idempotency record are locked before
+   provider I/O; total refunds send an empty body (`amount=None`); stock/order/payment transitions
+   occur only after provider `status=approved`; a pending result can be safely replayed with the
+   same key to observe later approval.
+10. **Consent/SID timeout** — checkout and direct SID validation require an explicit boolean and
+    only affirmative consent creates an attempt with `consented_at`; timeout joins unavailable and
+    not-configured in `pending_review`.
+11. **Order-bound identity review** — checkout attempts reference their order; manual approval is
+    limited to order-bound `pending_review` attempts with staff actor/reason; rejected attempts
+    cannot be overridden; resume accepts only approval attached to that order.
+12. **Exact CPA8** — CPA8 lookup filters only exact `cpa`; CP4 retains bounded postal-code lookup.
+13. **Timeout/disabled contracts** — the standard-library transport applies the connect timeout
+    while opening the socket and the read timeout after connect, with typed timeout/unavailable
+    errors. Disabled carrier/payment adapters implement every scheduled/action interface and raise
+    typed `not_configured`.
+14. **Shipment locking/eligibility** — shipment creation locks the order, uses deterministic
+    per-order/per-parcel idempotency identifiers, and requires shipping + verified identity + paid
+    + unfulfilled + quoted parcels. PostgreSQL concurrency proves one carrier import/local row.
+15. **Stable API/OpenAPI errors** — staff missing-order/shipment, ineligible shipment, refund,
+    provider and unsupported-label paths return JSON codes; signed webhook query/body and all
+    action response statuses are represented in validated OpenAPI.
+16. **Compose/startup validation** — backend/worker/beat receive both MiCorreo URLs, customer/origin,
+    surcharge/free-shipping values and webhook tolerance. Production startup validates provider
+    modes, paired credentials, required enabled-carrier fields, HTTPS URLs and numeric policy.
+17. **Fiscal ownership/snapshot** — checkout requires an owned billing profile, locks/revalidates
+    it at confirmation, stores encrypted/hash/masked fiscal snapshot fields, and rejects resume if
+    ownership or current fiscal fields changed.
+18. **Append-only admin** — payment, webhook, refund, shipment, provider-failure, notification and
+    identity audit models have all fields read-only and no add/change/delete admin permissions.
+19. **Ruff** — the original `UP038` defect and all new lint findings are resolved; final
+    `ruff check .` is clean.
+
+No OPTIONAL review finding was deliberately implemented.
+
+### Fix Round 1 final verification
+
+- Focused regression suite: `25 passed`.
+- Full SQLite suite: `128 passed, 11 skipped in 23.83s`.
+- PostgreSQL 17 suite:
+  `docker compose run --rm -e APP_ENV=test -e USE_POSTGRES_TEST_DB=true backend python -m pytest -q -m postgresql`
+  -> `12 passed, 127 deselected in 63.13s`, including concurrent checkout idempotency and
+  concurrent shipment creation/provider-call locking.
+- `ruff check .` -> `All checks passed!`.
+- `python manage.py check` -> `System check identified no issues (0 silenced).`.
+- Compose/PostgreSQL `python manage.py makemigrations --check --dry-run` ->
+  `No changes detected`.
+- `python manage.py spectacular --validate --file <temporary-path>` -> exit 0.
+- `docker compose -f compose.yaml config --quiet` and production Compose with required production
+  interpolation values -> both exit 0.
+- `git diff --check` -> exit 0.
+
+### Remaining operational concerns
+
+- No SID, MiCorreo QA, or Mercado Pago sandbox credentials were available, so credential-gated
+  smoke tests remain skipped and no external success was fabricated.
+- MiCorreo's published v1 PDF has no label endpoint. The API now fails safely with
+  `not_supported`; label generation must remain disabled until Correo Argentino provides a
+  documented account-specific contract.
+- Provider secrets remain environment-only; request logs and persisted summaries contain no raw
+  credentials, DNI/CUIT plaintext, webhook bodies, or arbitrary provider payloads.

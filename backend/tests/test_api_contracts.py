@@ -105,7 +105,12 @@ def test_identity_and_checkout_boundaries_require_checkout_input(client, django_
     assert identity.status_code == 200
     assert identity.json() == {"status": "not_started"}
     assert checkout.status_code == 400
-    assert checkout.json() == {"fulfillment_method": ["Este campo es requerido."]}
+    assert checkout.json() == {
+        "fulfillment_method": ["Este campo es requerido."],
+        "billing_profile_id": ["Este campo es requerido."],
+        "consent": ["Este campo es requerido."],
+        "idempotency_key": ["Este campo es requerido."],
+    }
 
 
 @pytest.mark.django_db

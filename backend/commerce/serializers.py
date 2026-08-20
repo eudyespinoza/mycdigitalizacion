@@ -110,6 +110,9 @@ class CheckoutRequestSerializer(serializers.Serializer):
     fulfillment_method = serializers.ChoiceField(choices=Order.FulfillmentMethod.choices)
     address_id = serializers.IntegerField(required=False)
     shipping_quote_id = serializers.UUIDField(required=False)
+    billing_profile_id = serializers.IntegerField()
+    consent = serializers.BooleanField()
+    idempotency_key = serializers.UUIDField()
 
 
 class CheckoutResponseSerializer(serializers.Serializer):
@@ -120,7 +123,7 @@ class CheckoutResponseSerializer(serializers.Serializer):
 
 
 class IdentityValidationRequestSerializer(serializers.Serializer):
-    consent = serializers.BooleanField(default=True)
+    consent = serializers.BooleanField()
 
 
 class ManualIdentityReviewSerializer(serializers.Serializer):

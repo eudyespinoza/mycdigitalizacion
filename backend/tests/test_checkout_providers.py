@@ -150,17 +150,36 @@ def test_correo_aggregates_parcel_rates_and_applies_surcharge():
         base_url="https://correo.example.test",
         username="user",
         password="pass",
+        customer_id="customer",
+        origin_postal_code="1000",
         transport=SequenceTransport(
             [
-                (200, {"access_token": "carrier-token", "expires_in": 300}),
-                (200, {"price": "100.00", "service": "standard"}),
-                (200, {"price": "50.00", "service": "standard"}),
+                (200, {"token": "carrier-token"}),
+                (
+                    200,
+                    {
+                        "rates": [
+                            {"deliveredType": "D", "price": "100.00", "productType": "CP"}
+                        ]
+                    },
+                ),
+                (
+                    200,
+                    {
+                        "rates": [
+                            {"deliveredType": "D", "price": "50.00", "productType": "CP"}
+                        ]
+                    },
+                ),
             ]
         ),
     )
     quote = adapter.quote(
         postal_code="1414",
-        parcels=[{"weight_grams": 1000}, {"weight_grams": 500}],
+        parcels=[
+            {"weight_grams": 1000, "length_cm": 10, "width_cm": 10, "height_cm": 10},
+            {"weight_grams": 500, "length_cm": 10, "width_cm": 10, "height_cm": 10},
+        ],
         policy=ShippingPolicy(surcharge_type="percentage", surcharge_value=Decimal("10")),
     )
 
@@ -185,6 +204,7 @@ def test_mercadopago_preference_is_ars_expiring_and_idempotent():
         live_mode=True,
     ).create_preference(
         external_reference="8c28ebaf-3b83-47be-9ddb-ec1c054f46df",
+        order_id="27539126-0d2d-4a7e-af10-dc959160328c",
         amount=Decimal("123.45"),
         description="Pedido 123",
         payer_email="buyer@example.test",

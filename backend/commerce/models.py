@@ -219,6 +219,7 @@ class OrderQuerySet(models.QuerySet):
 
 class Order(models.Model):
     IMMUTABLE_FIELDS = (
+        "checkout_idempotency_key",
         "user_id",
         "fulfillment_method",
         "customer_snapshot",
@@ -257,6 +258,7 @@ class Order(models.Model):
         PICKUP = "pickup", "Pickup"
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    checkout_idempotency_key = models.UUIDField(null=True, blank=True, editable=False)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, related_name="orders", on_delete=models.PROTECT
     )
@@ -284,6 +286,15 @@ class Order(models.Model):
     reservations = models.ManyToManyField(StockReservation, related_name="orders", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     objects = OrderQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("user", "checkout_idempotency_key"),
+                condition=models.Q(checkout_idempotency_key__isnull=False),
+                name="unique_user_checkout_idempotency_key",
+            )
+        ]
 
     def save(self, *args, **kwargs):
         if self.pk:
@@ -340,6 +351,13 @@ class IdentityVerification(models.Model):
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, related_name="identity_verifications", on_delete=models.PROTECT
+    )
+    order = models.ForeignKey(
+        Order,
+        related_name="identity_verifications",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
     )
     consent_version = models.CharField(max_length=64)
     consented_at = models.DateTimeField()
@@ -427,6 +445,7 @@ class PaymentWebhookEvent(models.Model):
     status = models.CharField(max_length=24, default="received")
     staff_diagnostics = models.TextField(blank=True)
     received_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     processed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

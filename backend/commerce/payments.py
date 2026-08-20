@@ -42,7 +42,7 @@ def validate_webhook_signature(
     timestamp_seconds = raw_timestamp / 1000 if raw_timestamp > 9_999_999_999 else raw_timestamp
     if abs(now.timestamp() - timestamp_seconds) > tolerance_seconds:
         return False
-    manifest = f"id:{data_id};request-id:{request_id};ts:{timestamp};"
+    manifest = f"id:{str(data_id).lower()};request-id:{request_id};ts:{timestamp};"
     expected = hmac.new(secret.encode(), manifest.encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature)
 
@@ -78,13 +78,31 @@ def _nested(payload, *keys):
     return value
 
 
-def ingest_webhook(*, raw_body, headers, secret, enqueue, now=None):
+def ingest_webhook(
+    *,
+    raw_body,
+    data_id,
+    headers,
+    secret,
+    enqueue,
+    now=None,
+    tolerance_seconds=300,
+):
     checked_at = now or timezone.now()
     payload = _event_payload(raw_body)
     raw_hash = hashlib.sha256(raw_body).hexdigest()
-    payment_id = str(_nested(payload, "data", "id") or payload.get("payment_id") or "")
+    payment_id = str(data_id or "")
     event_id = str(payload.get("id") or f"body-{raw_hash}")
     request_id = str(headers.get("x-request-id") or headers.get("X-Request-Id") or "")
+    valid = validate_webhook_signature(
+        data_id=payment_id,
+        request_id=request_id,
+        signature_header=headers.get("x-signature") or headers.get("X-Signature"),
+        secret=secret,
+        now=checked_at,
+        tolerance_seconds=tolerance_seconds,
+    )
+    created = False
     try:
         with transaction.atomic():
             event = PaymentWebhookEvent.objects.create(
@@ -93,23 +111,41 @@ def ingest_webhook(*, raw_body, headers, secret, enqueue, now=None):
                 payment_id=payment_id,
                 raw_body_hash=raw_hash,
             )
+            created = True
     except IntegrityError:
-        return WebhookIngestResult(
-            PaymentWebhookEvent.objects.get(provider="mercadopago", event_id=event_id), True
-        )
-    valid = validate_webhook_signature(
-        data_id=payment_id,
-        request_id=request_id,
-        signature_header=headers.get("x-signature") or headers.get("X-Signature"),
-        secret=secret,
-        now=checked_at,
-    )
-    event.signature_valid = valid
-    event.status = "queued" if valid else "rejected"
-    event.staff_diagnostics = "" if valid else "signature_or_timestamp_invalid"
-    event.save(update_fields=("signature_valid", "status", "staff_diagnostics"))
+        event = PaymentWebhookEvent.objects.get(provider="mercadopago", event_id=event_id)
+        if event.signature_valid:
+            return WebhookIngestResult(event, True)
+        if not valid:
+            return WebhookIngestResult(event, True)
     if not valid:
+        if created:
+            event.signature_valid = False
+            event.status = "rejected"
+            event.staff_diagnostics = "signature_or_timestamp_invalid"
+            event.save(
+                update_fields=("signature_valid", "status", "staff_diagnostics", "updated_at")
+            )
         raise WebhookRejected("Firma de webhook inválida")
+    event.request_id = request_id
+    event.payment_id = payment_id
+    event.raw_body_hash = raw_hash
+    event.signature_valid = True
+    event.status = "queued"
+    event.staff_diagnostics = ""
+    event.processed_at = None
+    event.save(
+        update_fields=(
+            "request_id",
+            "payment_id",
+            "raw_body_hash",
+            "signature_valid",
+            "status",
+            "staff_diagnostics",
+            "processed_at",
+            "updated_at",
+        )
+    )
     transaction.on_commit(lambda: enqueue(event.pk))
     return WebhookIngestResult(event, False)
 
@@ -139,7 +175,8 @@ def _mismatch_reason(transaction, payment):
         return "collector_mismatch"
     if payment.get("live_mode") is None or bool(payment["live_mode"]) != transaction.live_mode:
         return "live_mode_mismatch"
-    if transaction.order_id != transaction.order.pk:
+    provider_order_id = _nested(payment, "metadata", "order_id")
+    if str(provider_order_id or "") != str(transaction.order.public_id):
         return "order_mismatch"
     return ""
 
@@ -166,8 +203,10 @@ def _apply_payment_atomic(*, payment_transaction, payment):
         .select_related("order")
         .get(pk=payment_transaction.pk)
     )
-    order = type(payment_transaction.order).objects.select_for_update().get(
-        pk=payment_transaction.order_id
+    order = (
+        type(payment_transaction.order)
+        .objects.select_for_update()
+        .get(pk=payment_transaction.order_id)
     )
     payment_transaction.order = order
     mismatch = _mismatch_reason(payment_transaction, payment)
@@ -210,12 +249,20 @@ def _apply_payment_atomic(*, payment_transaction, payment):
         payment_transaction.staff_diagnostics = ""
         payment_transaction.save()
         transition_order_status(order=order, field="payment_status", value=order.PaymentStatus.PAID)
-    elif provider_status in {"rejected", "cancelled"}:
+    elif provider_status in {"rejected", "cancelled", "expired"}:
         payment_transaction.status = PaymentTransaction.Status.REJECTED
         payment_transaction.save()
         transition_order_status(
             order=order, field="payment_status", value=order.PaymentStatus.FAILED
         )
+    elif provider_status in {"refunded", "charged_back", "charged_back_pending"}:
+        payment_transaction.status = PaymentTransaction.Status.NEEDS_ATTENTION
+        payment_transaction.staff_diagnostics = f"provider_terminal_{provider_status}"
+        payment_transaction.save()
+        transition_order_status(
+            order=order, field="payment_status", value=order.PaymentStatus.NEEDS_ATTENTION
+        )
+        return payment_transaction, True
     return payment_transaction, False
 
 
@@ -257,21 +304,33 @@ def process_webhook_event(*, event, adapter):
     return event
 
 
+class RefundError(ValueError):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
 def refund_order(*, order, adapter, idempotency_key):
-    existing = Refund.objects.filter(idempotency_key=idempotency_key).first()
-    if existing:
-        return existing
     with transaction.atomic():
         order = type(order).objects.select_for_update().get(pk=order.pk)
+        existing = Refund.objects.filter(idempotency_key=idempotency_key).first()
+        if existing and existing.order_id != order.pk:
+            raise RefundError("refund_idempotency_conflict", "La clave de reembolso ya fue usada")
+        if existing and existing.status == "approved":
+            return existing
         payment_transaction = (
-            order.payment_transactions.select_for_update()
+            PaymentTransaction.objects.select_for_update().get(pk=existing.transaction_id)
+            if existing
+            else order.payment_transactions.select_for_update()
             .filter(status=PaymentTransaction.Status.APPROVED)
             .order_by("-created_at")
             .first()
         )
         if not payment_transaction or not payment_transaction.payment_id:
-            raise ValueError("An approved provider payment is required")
-        refund = Refund.objects.create(
+            raise RefundError(
+                "refund_not_allowed", "El pedido no tiene un pago aprobado reembolsable"
+            )
+        refund = existing or Refund.objects.create(
             order=order,
             transaction=payment_transaction,
             idempotency_key=idempotency_key,
@@ -279,11 +338,14 @@ def refund_order(*, order, adapter, idempotency_key):
         )
         response = adapter.refund(
             payment_transaction.payment_id,
-            amount=payment_transaction.amount,
+            amount=None,
             idempotency_key=str(idempotency_key),
         )
         refund.provider_refund_id = str(response.get("id") or "")
         refund.status = str(response.get("status") or "pending")
+        if refund.status != "approved":
+            refund.save(update_fields=("provider_refund_id", "status", "updated_at"))
+            return refund
         if order.fulfillment_status in {
             order.FulfillmentStatus.SHIPPED,
             order.FulfillmentStatus.FULFILLED,

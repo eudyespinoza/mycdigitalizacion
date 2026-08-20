@@ -344,6 +344,7 @@ def create_pending_identity_order(
     fiscal_snapshot,
     fulfillment_method,
     shipping_quote=None,
+    checkout_idempotency_key=None,
     at=None,
 ):
     checked_at = at or timezone.now()
@@ -381,6 +382,7 @@ def create_pending_identity_order(
     total = money(merchandise_total + shipping_amount)
     order = Order.objects.create(
         user=locked_cart.user,
+        checkout_idempotency_key=checkout_idempotency_key,
         customer_snapshot=customer_snapshot,
         address_snapshot=address_snapshot,
         fiscal_snapshot=fiscal_snapshot,

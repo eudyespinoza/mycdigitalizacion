@@ -1,9 +1,9 @@
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
 from commerce.models import IdentityVerification
-from providers import ProviderNotConfigured, ProviderRejected, ProviderUnavailable
+from providers import ProviderNotConfigured, ProviderRejected, ProviderTimeout, ProviderUnavailable
 
 
 class IdentityRejected(ValueError):
@@ -15,10 +15,13 @@ def _masked_document(customer):
     return f"••••{value[-4:]}"
 
 
-def validate_identity(*, customer, adapter, consent):
+def validate_identity(*, customer, adapter, consent, order=None):
+    if consent is not True:
+        raise ValidationError("Affirmative identity consent is required")
     now = timezone.now()
     base = {
         "user": customer.user,
+        "order": order,
         "consent_version": customer.consent_version,
         "consented_at": now,
         "attempt_number": customer.user.identity_verifications.count() + 1,
@@ -26,7 +29,7 @@ def validate_identity(*, customer, adapter, consent):
     }
     try:
         result = adapter.verify(dni=customer.get_dni(), consent=consent)
-    except (ProviderNotConfigured, ProviderUnavailable) as exc:
+    except (ProviderNotConfigured, ProviderUnavailable, ProviderTimeout) as exc:
         return IdentityVerification.objects.create(
             **base,
             status=IdentityVerification.Status.PENDING_REVIEW,
@@ -55,6 +58,8 @@ def approve_identity_manually(*, attempt, actor, reason):
     if not normalized_reason:
         raise ValueError("Manual approval requires a reason")
     locked = IdentityVerification.objects.select_for_update().get(pk=attempt.pk)
+    if locked.status != IdentityVerification.Status.PENDING_REVIEW or locked.order_id is None:
+        raise ValidationError("Only an order-bound pending review can be approved")
     locked.status = IdentityVerification.Status.APPROVED
     locked.reviewed_by = actor
     locked.review_reason = normalized_reason

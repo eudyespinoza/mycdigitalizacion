@@ -33,7 +33,16 @@ def test_sid_unavailable_persists_pending_review_and_manual_approval_requires_st
 
     user = django_user_model.objects.create_user(email="identity@example.test")
     customer = make_customer(user)
-    attempt = validate_identity(customer=customer, adapter=UnavailableSID(), consent=True)
+    from commerce.models import Cart, CartLine
+
+    cart = Cart.objects.create(user=user)
+    CartLine.objects.create(cart=cart, variant=make_variant(sku="IDENTITY-REVIEW"), quantity=1)
+    attempt = validate_identity(
+        customer=customer,
+        adapter=UnavailableSID(),
+        consent=True,
+        order=pending_order(cart),
+    )
 
     assert attempt.status == "pending_review"
     assert attempt.masked_audit == {"document": "••••5678"}
@@ -60,6 +69,7 @@ def test_pending_identity_checkout_has_no_payment_or_reservation(django_user_mod
         email="pending@example.test", email_verified_at=timezone.now()
     )
     make_customer(user)
+    billing_profile = make_billing_profile(user)
     cart = Cart.objects.create(user=user)
     CartLine.objects.create(cart=cart, variant=make_variant(sku="PENDING-ID"), quantity=1)
 
@@ -69,6 +79,9 @@ def test_pending_identity_checkout_has_no_payment_or_reservation(django_user_mod
         fulfillment_method="pickup",
         sid_adapter=UnavailableSID(),
         payment_adapter=MustNotBeCalled(),
+        billing_profile=billing_profile,
+        consent=True,
+        idempotency_key="ff9f8ddd-e6d0-4ebf-868d-011b639f3789",
     )
 
     assert result.order.identity_status == "pending_identity"
@@ -88,6 +101,7 @@ def test_confirm_checkout_rechecks_stock_and_creates_twenty_minute_reservation(
         email="approved@example.test", email_verified_at=timezone.now()
     )
     make_customer(user)
+    billing_profile = make_billing_profile(user)
     cart = Cart.objects.create(user=user)
     variant = make_variant(sku="CHECKOUT", price="120.00", on_hand=1)
     CartLine.objects.create(cart=cart, variant=variant, quantity=1)
@@ -99,6 +113,9 @@ def test_confirm_checkout_rechecks_stock_and_creates_twenty_minute_reservation(
         fulfillment_method="pickup",
         sid_adapter=ApprovedSID(),
         payment_adapter=payment,
+        billing_profile=billing_profile,
+        consent=True,
+        idempotency_key="2afab25a-eedb-4ff5-9d8f-ef7a39652479",
     )
 
     reservation = result.order.reservations.get()
@@ -114,6 +131,7 @@ def test_confirm_checkout_rechecks_stock_and_creates_twenty_minute_reservation(
         )
     )
     make_customer(second_cart.user)
+    second_profile = make_billing_profile(second_cart.user)
     CartLine.objects.create(cart=second_cart, variant=variant, quantity=1)
     with pytest.raises(CheckoutError) as error:
         confirm_checkout(
@@ -122,6 +140,9 @@ def test_confirm_checkout_rechecks_stock_and_creates_twenty_minute_reservation(
             fulfillment_method="pickup",
             sid_adapter=ApprovedSID(),
             payment_adapter=payment,
+            billing_profile=second_profile,
+            consent=True,
+            idempotency_key="065b3c46-eb16-44e6-a3ad-55f184d9cf3a",
         )
     assert error.value.code == "insufficient_stock"
 
@@ -134,13 +155,23 @@ def test_webhook_is_stored_before_validation_and_deduplicated(django_user_model)
     raw = json.dumps({"id": "evt-1", "type": "payment", "data": {"id": "42"}}).encode()
     headers = {"x-request-id": "req-1", "x-signature": "ts=1,v1=bad"}
     with pytest.raises(WebhookRejected):
-        ingest_webhook(raw_body=raw, headers=headers, secret="secret", enqueue=lambda pk: None)
+        ingest_webhook(
+            raw_body=raw,
+            data_id="42",
+            headers=headers,
+            secret="secret",
+            enqueue=lambda pk: None,
+        )
 
     event = PaymentWebhookEvent.objects.get()
     assert event.raw_body_hash == hashlib.sha256(raw).hexdigest()
     assert event.signature_valid is False
     duplicate = ingest_webhook(
-        raw_body=raw, headers=headers, secret="secret", enqueue=lambda pk: None
+        raw_body=raw,
+        data_id="42",
+        headers=headers,
+        secret="secret",
+        enqueue=lambda pk: None,
     )
     assert duplicate.duplicate is True
     assert PaymentWebhookEvent.objects.count() == 1
@@ -203,6 +234,20 @@ def make_customer(user):
     return customer
 
 
+def make_billing_profile(user):
+    from accounts.models import BillingProfile
+
+    profile = BillingProfile.objects.create(
+        customer=user.customer_profile,
+        label="Consumidor final",
+        legal_name="Cliente de prueba",
+        tax_condition="consumidor_final",
+    )
+    profile.set_cuit("20-12345678-6")
+    profile.save()
+    return profile
+
+
 def pending_order(cart):
     from commerce.services import create_pending_identity_order
 
@@ -240,6 +285,7 @@ def valid_payment(transaction):
         "currency_id": "ARS",
         "collector_id": "collector",
         "live_mode": False,
+        "metadata": {"order_id": str(transaction.order.public_id)},
     }
 
 

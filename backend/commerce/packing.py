@@ -34,6 +34,9 @@ class Parcel:
     box_code: str
     item_skus: tuple[str, ...]
     total_weight_grams: int
+    length_cm: Decimal
+    width_cm: Decimal
+    height_cm: Decimal
 
 
 @dataclass(frozen=True)
@@ -96,7 +99,16 @@ def pack_items(items: list[PackItem], boxes: list[Box]) -> PackingResult:
         for item in items
         for _ in range(item.quantity)
     ]
-    units.sort(key=lambda item: item.length_cm * item.width_cm * item.height_cm, reverse=True)
+    units.sort(
+        key=lambda item: (
+            -(item.length_cm * item.width_cm * item.height_cm),
+            tuple(-side for side in sorted(
+                (item.length_cm, item.width_cm, item.height_cm), reverse=True
+            )),
+            item.sku,
+            item.weight_grams,
+        )
+    )
     ordered_boxes = sorted(boxes, key=lambda box: (box.volume, box.max_weight_grams, box.code))
     parcel_states: list[_ParcelState] = []
     for unit in units:
@@ -120,6 +132,9 @@ def pack_items(items: list[PackItem], boxes: list[Box]) -> PackingResult:
             state.box.code,
             tuple(state.item_skus),
             state.box.tare_weight_grams + state.item_weight_grams,
+            state.box.inner_length_cm,
+            state.box.inner_width_cm,
+            state.box.inner_height_cm,
         )
         for state in parcel_states
     ]

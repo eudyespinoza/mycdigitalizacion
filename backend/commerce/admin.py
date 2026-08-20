@@ -42,6 +42,24 @@ class OrderAuditInline(admin.TabularInline):
         return False
 
 
+class AppendOnlyAdmin(admin.ModelAdmin):
+    def get_readonly_fields(self, request, obj=None):
+        del request, obj
+        return [field.name for field in self.model._meta.fields]
+
+    def has_add_permission(self, request):
+        del request
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        del request, obj
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        del request, obj
+        return False
+
+
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     list_display = (
@@ -112,12 +130,12 @@ admin.site.register(PromotionRule)
 admin.site.register(Coupon)
 admin.site.register(Cart)
 admin.site.register(CartLine)
-admin.site.register(IdentityVerification)
+admin.site.register(IdentityVerification, AppendOnlyAdmin)
 admin.site.register(PackageBox)
 admin.site.register(ShippingQuote)
-admin.site.register(PaymentTransaction)
-admin.site.register(PaymentWebhookEvent)
-admin.site.register(Shipment)
-admin.site.register(Refund)
-admin.site.register(NotificationAttempt)
-admin.site.register(ExternalProviderFailure)
+admin.site.register(PaymentTransaction, AppendOnlyAdmin)
+admin.site.register(PaymentWebhookEvent, AppendOnlyAdmin)
+admin.site.register(Shipment, AppendOnlyAdmin)
+admin.site.register(Refund, AppendOnlyAdmin)
+admin.site.register(NotificationAttempt, AppendOnlyAdmin)
+admin.site.register(ExternalProviderFailure, AppendOnlyAdmin)
