@@ -127,3 +127,23 @@ pnpm lint && pnpm typecheck && pnpm test:ci
 - Frontend: lint/typecheck PASS, Vitest **5 archivos/25 tests**, Next production build/standalone PASS.
 - `docker compose ... build`: backend, worker, beat, frontend, ops/config-check y Caddy PASS. Compose config y Caddy real validan; config-check con entorno production sintético válido emitió `config.valid`.
 - Al cierre no quedaron contenedores, redes ni volúmenes `task5b-*`; `frontend/next-env.d.ts` fue restaurado y no existen `AGENTS.md`, `CLAUDE.md` ni `tsconfig.tsbuildinfo` generados.
+
+## Fix Round 3 — correlación y capacidad materialmente confinada
+
+- **R3:** Caddy 2.10 no incorpora `{http.request.uuid}` al runtime error logger. El borde ahora genera el UUID y hace un hop exclusivamente loopback dentro del mismo proceso Caddy; el listener interno lo recibe como Host técnico, el filtro lo conserva como `request.request_id`, elimina todo el mapa de headers y deja el `error_id` de Caddy separado. El Host externo con puerto se restaura antes del backend, sólo se confía el hop loopback para preservar cliente/protocolo y Admin se autoriza antes del hop. Un único 502 real exige igualdad exacta entre access/error y ausencia del probe PII/query/referrer; otro upstream real exige Host, request ID y forwarding preservados.
+- **R9:** `scheduler.py` genera/importa un único `OPS_JOB_ID`, lo pasa explícitamente al proceso backup y éste lo conserva en subprocess, completion y alert webhook. Dos schedulers concurrentes reciben IDs distintos. `common.run` dejó de bufferizar stdout/stderr sin límite: dos readers concurrentes retienen como máximo 1 MiB por stream, matan el child al excederlo y emiten `subprocess.output_limit_exceeded` JSON con conteos, sin contenido crudo.
+- **R10:** se eliminó el drill de nueve `alpine sleep` independientes sobre el host grande. El reemplazo crea un único cgroup Docker con `memory.max=4294967296` y sin swap adicional; dentro ejecuta simultáneamente las nueve cargas nombradas según los límites Compose, toca páginas/CPU y superpone un backup I/O de 64 MiB con SHA-256. La medición dirigida registró `memory.current=memory.peak=3181531136`, `oom_kill_delta=0` y las nueve cargas concurrentes.
+
+### RED → GREEN de Fix Round 3
+
+- **R3 RED:** error `cm…` y access UUID no coincidían; **GREEN:** ambos streams comparten el UUID del mismo request y `error_id` permanece separado.
+- **R9 RED:** scheduler/backup emitían dos IDs; quitar temporalmente la propagación hizo fallar las pruebas simple y concurrente. El child >1 MiB también completaba con éxito bajo `capture_output=True`; **GREEN:** correlación única y overflow fail-closed/saneado.
+- **R10 RED:** el nuevo gate falló sin una carga confinada; **GREEN:** cgroup agregado real de 4 GiB con presión medida y backup overlap, sin OOM.
+
+### Verificación final de Fix Round 3
+
+- `python -m unittest discover -s infra/tests -p "test_task5b_*.py" -v`: **26 passed, 7 runtime-gated skipped** en 12.822 s; los siete gates Docker se ejecutaron inmediatamente después.
+- `TASK5B_DOCKER_RUNTIME=1 python -m unittest infra.tests.test_task5b_caddy_runtime infra.tests.test_task5b_runtime_boundaries -v`: **7/7 PASS** en 308.325 s. Incluye 502 correlacionado, forwarding real, CIDR Admin, cgroup agregado, cache Next, backup kill/restart y persistencia media/static/Caddy.
+- Backend compartido: **224 passed, 16 skipped**; Ruff, Django check y migration drift PASS.
+- Frontend: lint/typecheck PASS, Vitest **5 archivos/25 tests**, build Next production/standalone PASS.
+- Build Compose completo backend/worker/beat/frontend/ops/config-check/Caddy PASS; la imagen Caddy se reconstruyó nuevamente tras el ajuste final de forwarding. Compose, Caddy real y config-check production validan.

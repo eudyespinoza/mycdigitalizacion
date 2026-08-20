@@ -37,7 +37,40 @@ class CaddyRuntimeTests(unittest.TestCase):
             capture_output=True,
         )
 
-    def start_caddy(self, allowed_cidrs: str) -> str:
+    def start_echo_backend(self) -> None:
+        script = """
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        payload = json.dumps({
+            'host': self.headers.get('Host'),
+            'request_id': self.headers.get('X-Request-ID'),
+            'forwarded_for': self.headers.get('X-Forwarded-For'),
+            'forwarded_proto': self.headers.get('X-Forwarded-Proto'),
+        }).encode()
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, format, *args):
+        return
+
+HTTPServer(('0.0.0.0', 8000), Handler).serve_forever()
+"""
+        subprocess.run(
+            [
+                "docker", "run", "-d", "--name", self.backend, "--network", self.network,
+                "--network-alias", "backend", "python:3.13-alpine", "python", "-c", script,
+            ],
+            check=True,
+            capture_output=True,
+        )
+
+    def start_caddy(self, allowed_cidrs: str, *, backend_upstream: str = "backend:8000") -> str:
         caddyfile = str(ROOT / "infra" / "caddy" / "Caddyfile")
         subprocess.run(
             [
@@ -46,6 +79,8 @@ class CaddyRuntimeTests(unittest.TestCase):
                 "-e", "SITE_ADDRESS=http://:8080",
                 "-e", "ACME_EMAIL=ops@mycdigitalizacion.com.ar",
                 "-e", f"ADMIN_ALLOWED_CIDRS={allowed_cidrs}",
+                "-e", f"BACKEND_UPSTREAM={backend_upstream}",
+                "-e", "FRONTEND_UPSTREAM=frontend:3000",
                 "--mount", f"type=bind,src={caddyfile},dst=/etc/caddy/Caddyfile,readonly",
                 "caddy:2.10-alpine", "caddy", "run", "--config", "/etc/caddy/Caddyfile",
             ],
@@ -84,7 +119,7 @@ class CaddyRuntimeTests(unittest.TestCase):
         self.assertEqual(self.status(allowed_url, "/admin/"), 404)
 
     def test_proxy_failure_logs_path_status_request_id_without_request_pii(self) -> None:
-        url = self.start_caddy("203.0.113.10/32")
+        url = self.start_caddy("203.0.113.10/32", backend_upstream="127.0.0.1:65534")
         secret = "leak-probe@example.test"
         self.assertEqual(
             self.status(url, f"/api/v1/probe?email={secret}", {"Referer": f"https://referrer.test/?token={secret}"}),
@@ -112,7 +147,19 @@ class CaddyRuntimeTests(unittest.TestCase):
         self.assertEqual(proxy_error["request"]["method"], "GET")
         self.assertNotIn("headers", proxy_error["request"])
         self.assertRegex(access["request_id"], r"^[0-9a-f-]{36}$", combined)
-        self.assertRegex(proxy_error["request_id"], r"^[a-z0-9]+$", combined)
+        self.assertEqual(proxy_error["request"]["request_id"], access["request_id"], combined)
+        self.assertRegex(proxy_error["error_id"], r"^[a-z0-9]+$", combined)
+
+    def test_loopback_hop_restores_host_and_preserves_trusted_forwarding(self) -> None:
+        self.start_echo_backend()
+        url = self.start_caddy("0.0.0.0/0")
+        with request.urlopen(f"{url}/api/v1/probe", timeout=5) as response:
+            payload = json.loads(response.read())
+            response_request_id = response.headers["X-Request-ID"]
+        self.assertEqual(payload["host"], url.removeprefix("http://"))
+        self.assertEqual(payload["request_id"], response_request_id)
+        self.assertEqual(payload["forwarded_proto"], "http")
+        self.assertNotEqual(payload["forwarded_for"], "127.0.0.1")
 
 
 if __name__ == "__main__":

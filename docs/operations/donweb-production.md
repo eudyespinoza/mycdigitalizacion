@@ -4,7 +4,7 @@ Este runbook despliega una única instancia de mycdigitalizacion con TLS automá
 
 ## 1. Prerrequisitos y borde de red
 
-- VPS Donweb con Ubuntu 24.04 LTS, mínimo recomendado 2 vCPU, 4 GB RAM, 40 GB SSD y swap acotada. Los límites steady-state suman 2816 MiB; aun durante un `assets-init` de release el overlap máximo declarado es 3072 MiB y reserva 1 GiB para SO/Docker/page cache. No construyas imágenes durante un pico: usá CI/registry o una ventana con servicios no esenciales detenidos.
+- VPS Donweb con Ubuntu 24.04 LTS, mínimo recomendado 2 vCPU, 4 GB RAM, 40 GB SSD y swap acotada. Los límites steady-state suman 2816 MiB; aun durante un `assets-init` de release el overlap máximo declarado es 3072 MiB y reserva 1 GiB para SO/Docker/page cache. El gate runtime confina las nueve cargas representativas dentro de un único cgroup de 4 GiB, toca memoria/CPU simultáneamente y superpone 64 MiB de I/O de backup; debe terminar sin `oom_kill`. No construyas imágenes durante un pico: usá CI/registry o una ventana con servicios no esenciales detenidos.
 - Usuario operador con sudo y acceso SSH por clave. Deshabilitá contraseña y root remoto después de comprobar una segunda sesión.
 - Docker Engine y plugin Compose actuales. Confirmá con `docker version` y `docker compose version`.
 - Registro horario UTC y sincronización NTP activa. Reservá espacio fuera del volumen PostgreSQL para `backup_data`.
@@ -78,7 +78,7 @@ $dc ps
 $dc logs --since=10m backend worker beat caddy
 ```
 
-Web, worker, beat y operaciones emiten JSON con `timestamp`, `level`, `service`, `event` y `request_id` o `job_id` cuando aplica. Caddy genera un UUID, Django sólo acepta ese formato y Celery lo propaga al publicar trabajos. Los logs omiten query strings, cookies, autorización, referrer y PII detectada; aun así, tratá todo log como dato operativo sensible.
+Web, worker, beat y operaciones emiten JSON con `timestamp`, `level`, `service`, `event` y `request_id` o `job_id` cuando aplica. Caddy genera un UUID en el borde; un listener loopback del mismo proceso lo conserva en access/error sin confiar en IDs del cliente, mantiene `error_id` separado, restaura el Host externo con puerto y sólo confía en ese loopback para preservar cliente/protocolo antes del backend. El puerto interno nunca se publica. Django sólo acepta ese formato y Celery lo propaga al publicar trabajos. El scheduler genera un `job_id` por ejecución y lo heredan backup, herramientas y alertas; dos ejecuciones concurrentes no lo comparten. Los logs omiten query strings, cookies, autorización, referrer y PII detectada; aun así, tratá todo log como dato operativo sensible.
 
 Caddy solicita certificados públicos automáticamente. Si falla, comprobá DNS, reloj y acceso entrante 80/443 antes de reintentar; no habilites `tls internal` en producción.
 
@@ -106,7 +106,7 @@ Los cuerpos esperados son `{"status":"ok"}` en liveness y, con dependencias sana
 
 ## 6. Backups y alertas
 
-El servicio `backup` ejecuta `pg_dump` en formato custom, archiva media, calcula SHA-256 y escribe `manifest.json` mediante un directorio parcial y lock de sistema operativo. El manifiesto incluye `RELEASE_ID` y fingerprint sanitizado. Un kill libera el lock; la contención dispara alerta. Conserva copias locales por `BACKUP_RETENTION_DAYS`; si Restic está configurado, aplica retención diaria/semanal/mensual, confirma el snapshot JSON y cifra el repositorio.
+El servicio `backup` ejecuta `pg_dump` en formato custom, archiva media, calcula SHA-256 y escribe `manifest.json` mediante un directorio parcial y lock de sistema operativo. El manifiesto incluye `RELEASE_ID` y fingerprint sanitizado. Todo child stdout/stderr se lee concurrentemente con un límite duro de 1 MiB por stream: al excederlo, el proceso se termina y sólo se emite un resumen JSON saneado. Un kill libera el lock; la contención dispara alerta con el mismo `job_id`. Conserva copias locales por `BACKUP_RETENTION_DAYS`; si Restic está configurado, aplica retención diaria/semanal/mensual, confirma el snapshot JSON y cifra el repositorio.
 
 Inicializá Restic una sola vez y hacé la primera copia manual:
 
@@ -150,7 +150,7 @@ Nunca uses `docker compose down -v`, `docker volume prune` ni una restauración 
 1. Registrá revisión actual: `git rev-parse HEAD`.
 2. Confirmá backup local/remoto reciente y espacio libre.
 3. Descargá y fijá la nueva revisión, sin ejecutar código no revisado, y actualizá `RELEASE_ID` al identificador exacto.
-4. Ejecutá `python scripts/verify-production.py --env-file .env.production --build`. El comando ejecuta config-check real y drills Docker aislados de Caddy, volúmenes, cache y backup; reservá capacidad y no uses `--skip-runtime` para aprobar una release.
+4. Ejecutá `python scripts/verify-production.py --env-file .env.production --build`. El comando ejecuta config-check real y drills Docker aislados de Caddy, volúmenes, cache, backup y el cgroup agregado de 4 GiB; reservá capacidad y no uses `--skip-runtime` para aprobar una release.
 5. Construí imágenes, migrá y recreá servicios:
 
 ```sh

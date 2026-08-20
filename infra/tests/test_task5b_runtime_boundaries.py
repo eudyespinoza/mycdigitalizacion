@@ -58,7 +58,6 @@ class RuntimeBoundaryTests(unittest.TestCase):
             "frontend": f"task5b-runtime-frontend-{suffix}",
             "backup_runner": f"task5b-runtime-backup-{suffix}",
         }
-        self.budget_containers: list[str] = []
         for volume in ("media", "static", "caddy_data", "caddy_config", "backup"):
             docker("volume", "create", self.names[volume])
         docker("network", "create", self.names["network"])
@@ -66,8 +65,6 @@ class RuntimeBoundaryTests(unittest.TestCase):
     def tearDown(self) -> None:
         for name in ("caddy", "frontend", "backend", "frontend_stub", "backup_runner"):
             docker("rm", "-f", self.names[name], check=False)
-        for container in self.budget_containers:
-            docker("rm", "-f", container, check=False)
         docker("network", "rm", self.names["network"], check=False)
         for volume in ("media", "static", "caddy_data", "caddy_config", "backup"):
             docker("volume", "rm", "-f", self.names[volume], check=False)
@@ -99,6 +96,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
             "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m", "-p", "127.0.0.1::8080",
             "-e", "SITE_ADDRESS=http://:8080", "-e", "ACME_EMAIL=ops@mycdigitalizacion.com.ar",
             "-e", "ADMIN_ALLOWED_CIDRS=203.0.113.10/32",
+            "-e", "BACKEND_UPSTREAM=backend:8000", "-e", "FRONTEND_UPSTREAM=frontend:3000",
             "-v", f"{self.names['media']}:/srv/media:ro",
             "-v", f"{self.names['static']}:/srv/static:ro",
             "-v", f"{self.names['caddy_data']}:/data",
@@ -266,24 +264,23 @@ class RuntimeBoundaryTests(unittest.TestCase):
         }
         self.assertLessEqual(sum(limits.values()), 3 * 1024**3)
 
-        suffix = uuid.uuid4().hex[:8]
-        for service, memory in limits.items():
-            name = f"task5b-budget-{service}-{suffix}"
-            self.budget_containers.append(name)
-            docker(
-                "create", "--name", name, "--memory", str(memory),
-                "alpine:3.21", "sleep", "60",
-            )
-        docker("start", *self.budget_containers)
-        for container, expected in zip(self.budget_containers, limits.values(), strict=True):
-            actual = int(
-                docker("inspect", container, "--format", "{{.HostConfig.Memory}}").stdout.strip()
-            )
-            self.assertEqual(actual, expected)
-            self.assertEqual(
-                docker("inspect", container, "--format", "{{.State.Running}}").stdout.strip(),
-                "true",
-            )
+        probe = ROOT / "infra" / "tests" / "fixtures" / "task5b_capacity_probe.py"
+        result = docker(
+            "run", "--rm", "--memory", "4g", "--memory-swap", "4g",
+            "--cpus", "2", "--pids-limit", "128",
+            "-e", f"SERVICE_LIMITS_JSON={json.dumps(limits)}",
+            "--mount", f"type=bind,src={probe},dst=/probe.py,readonly",
+            "python:3.13-alpine", "python", "/probe.py",
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        measurement = json.loads(result.stdout.strip().splitlines()[-1])
+        self.assertEqual(measurement["memory_max_bytes"], 4 * 1024**3)
+        self.assertGreaterEqual(measurement["memory_peak_bytes"], 2800 * 1024**2)
+        self.assertEqual(measurement["oom_kill_delta"], 0)
+        self.assertEqual(set(measurement["concurrent_services"]), set(overlap))
+        self.assertEqual(measurement["backup_bytes"], 64 * 1024**2)
+        self.assertEqual(len(measurement["backup_sha256"]), 64)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import subprocess
@@ -8,6 +9,7 @@ import sys
 import tarfile
 import tempfile
 import textwrap
+import threading
 import time
 import unittest
 
@@ -227,6 +229,10 @@ class BackupRestoreTests(unittest.TestCase):
                 print("diagnostic https://provider.test/path?email=ana@example.com&token=stdout-secret")
                 print("credential " + os.environ["POSTGRES_PASSWORD"])
                 print("password=stderr-secret cookie=session-secret", file=sys.stderr)
+            if os.environ.get("FAKE_EMIT_OVERSIZED") == "true":
+                payload = "email=oversized@example.test token=oversized-secret " + ("x" * 1024)
+                for _ in range(2048):
+                    print(payload)
             if os.environ.get("FAKE_SLEEP_MODE") == mode:
                 time.sleep(float(os.environ.get("FAKE_SLEEP_SECONDS", "2")))
             if os.environ.get("FAKE_FAIL_MODE") == mode:
@@ -351,6 +357,122 @@ class BackupRestoreTests(unittest.TestCase):
         )
         self.assertTrue(all(event["service"] == "backup" for event in subprocess_events))
         self.assertTrue(all(event["job_id"] for event in subprocess_events))
+
+    def test_oversized_subprocess_output_is_killed_and_reported_as_bounded_json(self) -> None:
+        result = run_script(
+            "backup.py",
+            "--timestamp",
+            "20260820T120000Z",
+            env={**self.backup_env(), "FAKE_EMIT_OVERSIZED": "true"},
+        )
+        self.assertNotEqual(result.returncode, 0)
+        combined = result.stdout + result.stderr
+        self.assertLess(len(combined), 20_000)
+        self.assertNotIn("oversized@example.test", combined)
+        self.assertNotIn("oversized-secret", combined)
+        events = [json.loads(line) for line in combined.splitlines() if line.strip()]
+        overflow = [event for event in events if event["event"] == "subprocess.output_limit_exceeded"]
+        self.assertEqual(len(overflow), 1, events)
+        self.assertEqual(overflow[0]["limit_bytes"], 1024 * 1024)
+
+    def test_scheduler_backup_and_subprocess_share_one_job_id(self) -> None:
+        result = run_script(
+            "scheduler.py",
+            "--run-once",
+            env={
+                **self.backup_env(),
+                "BACKUP_HEALTH_FILE": str(self.root / "scheduler-health.json"),
+                "FAKE_EMIT_SENSITIVE": "true",
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        events = [
+            json.loads(line)
+            for line in (result.stdout + result.stderr).splitlines()
+            if line.strip().startswith("{")
+        ]
+        event_names = {event["event"] for event in events}
+        self.assertTrue(
+            {"subprocess.stdout", "subprocess.stderr", "backup.completed"}.issubset(event_names)
+        )
+        self.assertEqual(len({event["job_id"] for event in events}), 1, events)
+
+    def test_concurrent_scheduler_jobs_keep_distinct_correlation_ids(self) -> None:
+        processes: list[subprocess.Popen[str]] = []
+        for suffix in ("a", "b"):
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    **self.backup_env(),
+                    "BACKUP_ROOT": str(self.root / f"backups-{suffix}"),
+                    "BACKUP_HEALTH_FILE": str(self.root / f"health-{suffix}.json"),
+                    "FAKE_SLEEP_MODE": "dump",
+                    "FAKE_SLEEP_SECONDS": "0.5",
+                }
+            )
+            processes.append(
+                subprocess.Popen(
+                    [sys.executable, str(OPS / "scheduler.py"), "--run-once"],
+                    cwd=ROOT,
+                    env=environment,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+            )
+        job_ids: list[str] = []
+        for process in processes:
+            stdout, stderr = process.communicate(timeout=15)
+            self.assertEqual(process.returncode, 0, stdout + stderr)
+            events = [
+                json.loads(line)
+                for line in (stdout + stderr).splitlines()
+                if line.strip().startswith("{")
+            ]
+            ids = {event["job_id"] for event in events}
+            self.assertEqual(len(ids), 1, events)
+            job_ids.append(ids.pop())
+        self.assertEqual(len(set(job_ids)), 2, job_ids)
+
+    def test_scheduler_job_id_reaches_backup_alert_payload(self) -> None:
+        received: list[dict[str, str]] = []
+
+        class AlertHandler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:  # noqa: N802 - HTTP handler API
+                length = int(self.headers["Content-Length"])
+                received.append(json.loads(self.rfile.read(length)))
+                self.send_response(204)
+                self.end_headers()
+
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), AlertHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = run_script(
+                "scheduler.py",
+                "--run-once",
+                env={
+                    **self.backup_env(),
+                    "BACKUP_HEALTH_FILE": str(self.root / "alert-health.json"),
+                    "BACKUP_ALERT_WEBHOOK_URL": f"http://127.0.0.1:{server.server_port}/alert",
+                    "FAKE_FAIL_MODE": "dump",
+                },
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+        self.assertNotEqual(result.returncode, 0)
+        events = [
+            json.loads(line)
+            for line in (result.stdout + result.stderr).splitlines()
+            if line.strip().startswith("{")
+        ]
+        self.assertEqual(len(received), 1, received)
+        self.assertEqual(received[0]["job_id"], events[0]["job_id"])
 
     def test_backup_lock_prevents_overlapping_runs(self) -> None:
         environment = os.environ.copy()

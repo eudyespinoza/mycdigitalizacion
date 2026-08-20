@@ -9,10 +9,46 @@
 		format filter {
 			wrap json
 			fields {
+				request>host rename request_id
 				request>headers delete
 				request>uri regexp "^([^?]*).*$" "$1"
 				error regexp "\\?.*$" ""
-				err_id rename request_id
+				err_id rename error_id
+			}
+		}
+	}
+}
+
+http://:9080 {
+	bind 127.0.0.1
+	route {
+		@backend path /api/* /admin /admin/* /healthz /readyz
+		handle @backend {
+			reverse_proxy {$BACKEND_UPSTREAM} {
+				trusted_proxies 127.0.0.1/32
+				header_up Host {http.request.header.X-Original-Host}
+				header_up -X-Original-Host
+			}
+		}
+
+		@static path /static/*
+		handle @static {
+			root * /srv/static/current
+			uri strip_prefix /static
+			file_server
+		}
+
+		@media path /media/*
+		handle @media {
+			root * /srv
+			file_server
+		}
+
+		handle {
+			reverse_proxy {$FRONTEND_UPSTREAM} {
+				trusted_proxies 127.0.0.1/32
+				header_up Host {http.request.header.X-Original-Host}
+				header_up -X-Original-Host
 			}
 		}
 	}
@@ -56,30 +92,9 @@
 		}
 		respond @blockedAdmin 403
 
-		@backend path /api/* /admin /admin/* /healthz /readyz
-		handle @backend {
-			reverse_proxy backend:8000 {
-				header_up X-Request-ID {http.request.uuid}
-			}
-		}
-
-		@static path /static/*
-		handle @static {
-			root * /srv/static/current
-			uri strip_prefix /static
-			file_server
-		}
-
-		@media path /media/*
-		handle @media {
-			root * /srv
-			file_server
-		}
-
-		handle {
-			reverse_proxy frontend:3000 {
-				header_up X-Request-ID {http.request.uuid}
-			}
+		reverse_proxy 127.0.0.1:9080 {
+			header_up X-Original-Host {http.request.hostport}
+			header_up Host {http.request.uuid}
 		}
 	}
 }
