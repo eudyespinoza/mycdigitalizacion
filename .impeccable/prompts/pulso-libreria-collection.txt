@@ -1,0 +1,11 @@
+Use case: product-mockup plus precise-object-edit
+Asset type: square promotional collection image for an ecommerce homepage card
+Primary request: premium overhead product arrangement representing creative stationery and organized study, with no recognizable brands
+Scene/backdrop: layered cool-white and very pale cyan paper backdrop with one bold curved magenta paper accent
+Subject: two elegant blank-cover notebooks in deep ink blue and cyan, color pencils, sticky notes, binder clips, pencil pouch and a small desk organizer arranged as a coherent retail collection; replace the initially generated marked ruler with a simple solid navy matte bookmark strip
+Style/medium: high-end photorealistic catalog photography, crisp tactile detail, contemporary and energetic
+Composition/framing: square top-down flat lay, objects grouped with deliberate asymmetric rhythm, generous breathing room around edges, suitable for cropping into a rounded ecommerce card
+Lighting/mood: bright diffused daylight studio, soft directional shadows, clean and trustworthy
+Color palette: ink #020530, blue #002788, cyan #08AECD, restrained magenta #F34887, cool white
+Materials/textures: uncoated paper, canvas pouch, matte metal, translucent sticky notes
+Constraints: no text, no letters, no numerals, no measuring marks, no logos, no trademarks, no watermark, no UI, no people, no price tags; all notebook covers completely blank

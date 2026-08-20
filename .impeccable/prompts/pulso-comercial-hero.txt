@@ -1,0 +1,11 @@
+Use case: ads-marketing
+Asset type: wide ecommerce landing-page hero image for mycdigitalizacion, an Argentine multi-category physical-goods store
+Primary request: create a premium commercial still life that suggests stationery, everyday technology and organized home products without using recognizable brands
+Scene/backdrop: clean cool-white studio with subtle layered geometric platforms and a soft cyan-to-ink-blue atmospheric gradient
+Subject: an elegant curated arrangement including a navy spiral notebook with blank cover, cyan pen, compact magenta-accent desk organizer, neutral reusable bottle, small unbranded wireless keyboard and folded textile storage piece
+Style/medium: polished photorealistic product photography, contemporary Argentine retail campaign, warm human touch but no people
+Composition/framing: very wide composition; product cluster concentrated on the right 58%; generous clean negative space on the left 42% for HTML headline and CTA; asymmetrical, editorial depth; no cropped primary products
+Lighting/mood: bright softbox lighting, crisp but gentle shadows, energetic and trustworthy
+Color palette: ink #020530, blue #002788, cyan #08AECD, restrained magenta #F34887, cool whites
+Materials/textures: tactile paper, matte recycled plastic, brushed metal details, woven fabric
+Constraints: absolutely no text, no letters, no logos, no trademarks, no watermark, no UI, no price tags; preserve clean left-side negative space; suitable for responsive ecommerce hero crop
