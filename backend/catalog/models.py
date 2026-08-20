@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
 
@@ -87,6 +87,13 @@ class AttributeOption(models.Model):
         ]
 
 
+class ProductQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        if "is_active" in kwargs or "is_sellable" in kwargs:
+            raise ValidationError("Use the product activation service")
+        return super().update(**kwargs)
+
+
 class Product(models.Model):
     category = models.ForeignKey(Category, related_name="products", on_delete=models.PROTECT)
     brand = models.ForeignKey(
@@ -97,14 +104,34 @@ class Product(models.Model):
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     is_sellable = models.BooleanField(default=False)
+    objects = ProductQuerySet.as_manager()
 
     def clean(self):
-        if self.is_sellable and (not self.pk or not self.variants.exists()):
-            raise ValidationError("A sellable product requires at least one variant")
+        if self.is_sellable and (
+            not self.pk or not self.variants.filter(is_active=True).exists()
+        ):
+            raise ValidationError("A sellable product requires at least one active variant")
 
     def save(self, *args, **kwargs):
         self.full_clean()
+        if self.pk and not getattr(self, "_allow_activation", False):
+            original = type(self)._base_manager.filter(pk=self.pk).values(
+                "is_active", "is_sellable"
+            ).get()
+            activating = (
+                (not original["is_active"] and self.is_active)
+                or (not original["is_sellable"] and self.is_sellable)
+            )
+            if activating:
+                raise ValidationError("Use the product activation service")
         return super().save(*args, **kwargs)
+
+    def _save_activation(self):
+        self._allow_activation = True
+        try:
+            self.save(update_fields=["is_active", "is_sellable"])
+        finally:
+            del self._allow_activation
 
     def __str__(self):
         return self.name
@@ -225,6 +252,25 @@ class ProductVariant(models.Model):
         return self.sku
 
 
+class AttributeValueQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Use AttributeValue.save() or its write service")
+
+    def bulk_create(self, objs, **kwargs):
+        for obj in objs:
+            obj.full_clean()
+        return super().bulk_create(objs, **kwargs)
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        del batch_size
+        with transaction.atomic():
+            for obj in objs:
+                obj.full_clean()
+            for obj in objs:
+                obj.save(update_fields=fields)
+        return len(objs)
+
+
 class AttributeValue(models.Model):
     variant = models.ForeignKey(
         ProductVariant, related_name="attribute_values", on_delete=models.CASCADE
@@ -235,6 +281,7 @@ class AttributeValue(models.Model):
     integer_value = models.IntegerField(null=True, blank=True)
     decimal_value = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
     boolean_value = models.BooleanField(null=True, blank=True)
+    objects = AttributeValueQuerySet.as_manager()
 
     class Meta:
         constraints = [

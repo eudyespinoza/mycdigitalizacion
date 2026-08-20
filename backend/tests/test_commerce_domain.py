@@ -7,6 +7,7 @@ from django.utils import timezone
 
 def make_variant(*, sku="SYN-001", price="100.00", cost="40.00", on_hand=10):
     from catalog.models import Category, Product, ProductVariant
+    from catalog.services import activate_product
 
     category, _ = Category.objects.get_or_create(name="Sintetica", slug="sintetica")
     product = Product.objects.create(
@@ -23,8 +24,8 @@ def make_variant(*, sku="SYN-001", price="100.00", cost="40.00", on_hand=10):
         height_cm=Decimal("10"),
         on_hand=on_hand,
     )
-    product.is_sellable = True
-    product.save(update_fields=["is_sellable"])
+    activate_product(product=product)
+    product.refresh_from_db()
     return variant
 
 

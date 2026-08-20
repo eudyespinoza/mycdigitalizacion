@@ -197,9 +197,9 @@ def merge_carts(*, anonymous_cart, user):
     with transaction.atomic():
         locked = {
             cart.pk: cart
-            for cart in Cart.objects.select_for_update().filter(
-                pk__in=sorted((anonymous_cart.pk, destination.pk))
-            )
+            for cart in Cart.objects.select_for_update()
+            .filter(pk__in=(anonymous_cart.pk, destination.pk))
+            .order_by("pk")
         }
         source = locked.get(anonymous_cart.pk)
         target = locked[destination.pk]
@@ -245,7 +245,7 @@ def create_reservation(*, variant, quantity, reference, expires_at=None):
     for reservation in expired:
         reservation.status = StockReservation.Status.RELEASED
         reservation.released_at = now
-        reservation.save(update_fields=["status", "released_at"])
+        reservation._save_lifecycle_transition(update_fields=["status", "released_at"])
         InventoryMovement.objects.create(
             variant=locked_variant,
             reservation=reservation,
@@ -293,7 +293,7 @@ def consume_reservation(reservation):
     if locked.expires_at <= timezone.now():
         locked.status = StockReservation.Status.RELEASED
         locked.released_at = timezone.now()
-        locked.save(update_fields=["status", "released_at"])
+        locked._save_lifecycle_transition(update_fields=["status", "released_at"])
         InventoryMovement.objects.create(
             variant=variant,
             reservation=locked,
@@ -306,7 +306,7 @@ def consume_reservation(reservation):
     variant.save(update_fields=["on_hand"])
     locked.status = StockReservation.Status.CONSUMED
     locked.consumed_at = timezone.now()
-    locked.save(update_fields=["status", "consumed_at"])
+    locked._save_lifecycle_transition(update_fields=["status", "consumed_at"])
     InventoryMovement.objects.create(
         variant=variant,
         reservation=locked,
@@ -328,7 +328,7 @@ def release_reservation(reservation):
         return locked
     locked.status = StockReservation.Status.RELEASED
     locked.released_at = timezone.now()
-    locked.save(update_fields=["status", "released_at"])
+    locked._save_lifecycle_transition(update_fields=["status", "released_at"])
     InventoryMovement.objects.create(
         variant=variant,
         reservation=locked,
@@ -418,8 +418,7 @@ def transition_order_status(*, order, field, value, actor=None):
     if previous == value:
         return locked
     setattr(locked, field, value)
-    locked._allow_status_transition = True
-    locked.save(update_fields=[field])
+    locked._save_status_transition(field=field)
     OrderAuditEvent.objects.create(
         order=locked,
         kind=f"{field}_changed",

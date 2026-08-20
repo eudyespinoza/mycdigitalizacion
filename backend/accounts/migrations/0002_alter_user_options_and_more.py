@@ -4,6 +4,33 @@ import django.db.models.functions.text
 from django.db import migrations, models
 
 
+def canonicalize_historical_emails(apps, schema_editor):
+    User = apps.get_model("accounts", "User")
+    database = schema_editor.connection.alias
+    users = list(User.objects.using(database).order_by("pk"))
+    grouped = {}
+    used = {user.email.casefold() for user in users}
+    for user in users:
+        grouped.setdefault(user.email.casefold(), []).append(user)
+
+    for canonical_email, duplicates in grouped.items():
+        winner, *losers = duplicates
+        for loser in losers:
+            suffix = 0
+            while True:
+                marker = f"-{suffix}" if suffix else ""
+                replacement = f"duplicate-{loser.pk}{marker}@invalid.local"
+                if replacement.casefold() not in used:
+                    break
+                suffix += 1
+            used.add(replacement.casefold())
+            loser.email = replacement
+            loser.is_active = False
+            loser.save(update_fields=["email", "is_active"])
+        winner.email = canonical_email
+        winner.save(update_fields=["email"])
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -25,6 +52,10 @@ class Migration(migrations.Migration):
             model_name='emailverificationchallenge',
             name='locked_at',
             field=models.DateTimeField(blank=True, null=True),
+        ),
+        migrations.RunPython(
+            canonicalize_historical_emails,
+            migrations.RunPython.noop,
         ),
         migrations.AddConstraint(
             model_name='user',

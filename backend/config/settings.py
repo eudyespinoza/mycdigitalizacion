@@ -15,6 +15,10 @@ PLACEHOLDER_VALUES = frozenset(
         "ops@example.com",
         "development-only-personal-data-key",
         "container-build-personal-data-encryption-key-not-for-runtime",
+        "container-build-signing-key-that-is-not-a-placeholder",
+        "ephemeral-build-only-personal-data-key-never-used-at-runtime",
+        "container-build-database-password-not-a-placeholder",
+        "build.example.test",
     }
 )
 

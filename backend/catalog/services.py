@@ -54,7 +54,7 @@ def activate_product(*, product):
         raise ValidationError("A sellable product requires at least one active variant")
     locked.is_active = True
     locked.is_sellable = True
-    locked.save(update_fields=["is_active", "is_sellable"])
+    locked._save_activation()
     return locked
 
 

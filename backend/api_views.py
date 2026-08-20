@@ -9,7 +9,7 @@ from django.middleware.csrf import get_token
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import generics, permissions, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
@@ -142,6 +142,21 @@ class StorefrontHomeView(generics.GenericAPIView):
         )
 
 
+def is_email_unique_conflict(error):
+    cause = error.__cause__
+    diagnostic = getattr(cause, "diag", None)
+    constraint_name = getattr(diagnostic, "constraint_name", None) or getattr(
+        cause, "constraint_name", None
+    )
+    if constraint_name in {
+        "accounts_user_email_key",
+        "unique_user_email_casefold",
+    }:
+        return True
+    message = str(error).casefold()
+    return "accounts_user.email" in message or "unique_user_email_casefold" in message
+
+
 class CsrfView(generics.GenericAPIView):
     permission_classes = (permissions.AllowAny,)
     serializer_class = CsrfSerializer
@@ -167,6 +182,10 @@ class RegisterView(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        if get_user_model().objects.filter(email__iexact=data["email"]).exists():
+            return Response(
+                {"code": "email_already_registered"}, status=status.HTTP_409_CONFLICT
+            )
         try:
             with transaction.atomic():
                 user = get_user_model().objects.create_user(
@@ -176,7 +195,9 @@ class RegisterView(generics.GenericAPIView):
                 CustomerProfile.objects.create(
                     user=user, consent_version=settings.CURRENT_CONSENT_VERSION
                 )
-        except IntegrityError:
+        except IntegrityError as exc:
+            if not is_email_unique_conflict(exc):
+                raise
             return Response(
                 {"code": "email_already_registered"}, status=status.HTTP_409_CONFLICT
             )
@@ -246,10 +267,64 @@ class CustomerMeView(generics.GenericAPIView):
     permission_classes = (permissions.IsAuthenticated, IsVerifiedEmail)
     serializer_class = CustomerSerializer
 
+    @extend_schema(
+        responses={200: CustomerSerializer, 401: ErrorSerializer, 403: ErrorSerializer}
+    )
     def get(self, request):
         return Response(CustomerSerializer(request.user).data)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        responses={
+            200: BillingProfileSerializer(many=True),
+            401: ErrorSerializer,
+            403: ErrorSerializer,
+        }
+    ),
+    create=extend_schema(
+        responses={
+            201: BillingProfileSerializer,
+            400: ErrorSerializer,
+            401: ErrorSerializer,
+            403: ErrorSerializer,
+        }
+    ),
+    retrieve=extend_schema(
+        responses={
+            200: BillingProfileSerializer,
+            401: ErrorSerializer,
+            403: ErrorSerializer,
+            404: ErrorSerializer,
+        }
+    ),
+    update=extend_schema(
+        responses={
+            200: BillingProfileSerializer,
+            400: ErrorSerializer,
+            401: ErrorSerializer,
+            403: ErrorSerializer,
+            404: ErrorSerializer,
+        }
+    ),
+    partial_update=extend_schema(
+        responses={
+            200: BillingProfileSerializer,
+            400: ErrorSerializer,
+            401: ErrorSerializer,
+            403: ErrorSerializer,
+            404: ErrorSerializer,
+        }
+    ),
+    destroy=extend_schema(
+        responses={
+            204: None,
+            401: ErrorSerializer,
+            403: ErrorSerializer,
+            404: ErrorSerializer,
+        }
+    ),
+)
 class BillingProfileViewSet(viewsets.ModelViewSet):
     permission_classes = (permissions.IsAuthenticated, IsVerifiedEmail)
     serializer_class = BillingProfileSerializer
@@ -336,6 +411,57 @@ class CartView(generics.GenericAPIView):
         return Response(CartSerializer(cart).data)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        responses={
+            200: AddressSerializer(many=True),
+            401: ErrorSerializer,
+            403: ErrorSerializer,
+        }
+    ),
+    create=extend_schema(
+        responses={
+            201: AddressSerializer,
+            400: ErrorSerializer,
+            401: ErrorSerializer,
+            403: ErrorSerializer,
+        }
+    ),
+    retrieve=extend_schema(
+        responses={
+            200: AddressSerializer,
+            401: ErrorSerializer,
+            403: ErrorSerializer,
+            404: ErrorSerializer,
+        }
+    ),
+    update=extend_schema(
+        responses={
+            200: AddressSerializer,
+            400: ErrorSerializer,
+            401: ErrorSerializer,
+            403: ErrorSerializer,
+            404: ErrorSerializer,
+        }
+    ),
+    partial_update=extend_schema(
+        responses={
+            200: AddressSerializer,
+            400: ErrorSerializer,
+            401: ErrorSerializer,
+            403: ErrorSerializer,
+            404: ErrorSerializer,
+        }
+    ),
+    destroy=extend_schema(
+        responses={
+            204: None,
+            401: ErrorSerializer,
+            403: ErrorSerializer,
+            404: ErrorSerializer,
+        }
+    ),
+)
 class AddressViewSet(viewsets.ModelViewSet):
     permission_classes = (permissions.IsAuthenticated, IsVerifiedEmail)
     serializer_class = AddressSerializer
@@ -348,6 +474,23 @@ class AddressViewSet(viewsets.ModelViewSet):
         serializer.save(user=self.request.user)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        responses={
+            200: OrderSerializer(many=True),
+            401: ErrorSerializer,
+            403: ErrorSerializer,
+        }
+    ),
+    retrieve=extend_schema(
+        responses={
+            200: OrderSerializer,
+            401: ErrorSerializer,
+            403: ErrorSerializer,
+            404: ErrorSerializer,
+        }
+    ),
+)
 class OrderViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = (permissions.IsAuthenticated, IsVerifiedEmail)
     serializer_class = OrderSerializer
@@ -362,7 +505,13 @@ class IdentityStatusView(generics.GenericAPIView):
     permission_classes = (permissions.IsAuthenticated, IsVerifiedEmail)
     serializer_class = StatusSerializer
 
-    @extend_schema(responses={200: StatusSerializer, 403: ErrorSerializer})
+    @extend_schema(
+        responses={
+            200: StatusSerializer,
+            401: ErrorSerializer,
+            403: ErrorSerializer,
+        }
+    )
     def get(self, request):
         return Response({"status": "not_configured"})
 
@@ -371,6 +520,13 @@ class CheckoutView(generics.GenericAPIView):
     permission_classes = (permissions.IsAuthenticated, IsVerifiedEmail)
     serializer_class = CodeSerializer
 
-    @extend_schema(request=None, responses={403: ErrorSerializer, 503: CodeSerializer})
+    @extend_schema(
+        request=None,
+        responses={
+            401: ErrorSerializer,
+            403: ErrorSerializer,
+            503: CodeSerializer,
+        },
+    )
     def post(self, request):
         return Response({"code": "not_configured"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)

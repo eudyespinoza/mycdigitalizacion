@@ -2,9 +2,56 @@
 
 from django.conf import settings
 from django.db import migrations, models
+from django.db.models import Count
+
+
+def reconcile_authenticated_carts(apps, schema_editor):
+    Cart = apps.get_model("commerce", "Cart")
+    CartLine = apps.get_model("commerce", "CartLine")
+    database = schema_editor.connection.alias
+    duplicate_users = (
+        Cart.objects.using(database)
+        .exclude(user_id=None)
+        .values("user_id")
+        .annotate(cart_count=Count("pk"))
+        .filter(cart_count__gt=1)
+        .order_by("user_id")
+    )
+    for group in duplicate_users:
+        carts = list(
+            Cart.objects.using(database)
+            .filter(user_id=group["user_id"])
+            .order_by("pk")
+        )
+        target, *sources = carts
+        chosen_coupon_id = target.coupon_id or next(
+            (cart.coupon_id for cart in sources if cart.coupon_id), None
+        )
+        for source in sources:
+            for source_line in (
+                CartLine.objects.using(database).filter(cart_id=source.pk).order_by("pk")
+            ):
+                target_line = (
+                    CartLine.objects.using(database)
+                    .filter(cart_id=target.pk, variant_id=source_line.variant_id)
+                    .first()
+                )
+                if target_line:
+                    target_line.quantity += source_line.quantity
+                    target_line.save(update_fields=["quantity"])
+                else:
+                    source_line.cart_id = target.pk
+                    source_line.save(update_fields=["cart"])
+            source.delete()
+        if target.coupon_id != chosen_coupon_id:
+            target.coupon_id = chosen_coupon_id
+            target.save(update_fields=["coupon"])
 
 
 class Migration(migrations.Migration):
+    # PostgreSQL must commit the cart/line reconciliation before it can build
+    # the unique index; otherwise deferred FK trigger events remain pending.
+    atomic = False
 
     dependencies = [
         ('catalog', '0002_alter_productvariant_cost_and_more'),
@@ -13,6 +60,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.RunPython(reconcile_authenticated_carts, migrations.RunPython.noop),
         migrations.AddConstraint(
             model_name='cart',
             constraint=models.UniqueConstraint(condition=models.Q(('user__isnull', False)), fields=('user',), name='unique_authenticated_user_cart'),

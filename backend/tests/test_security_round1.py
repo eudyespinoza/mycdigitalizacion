@@ -164,6 +164,27 @@ def test_registration_casefolds_email_and_returns_conflict_for_duplicate():
 
 
 @pytest.mark.django_db
+def test_registration_does_not_mislabel_unrelated_integrity_errors(monkeypatch):
+    from django.db import IntegrityError
+
+    from accounts.models import Profile
+
+    def fail_profile_create(**kwargs):
+        del kwargs
+        raise IntegrityError("unrelated profile storage failure")
+
+    monkeypatch.setattr(Profile.objects, "create", fail_profile_create)
+    payload = {
+        "email": "unrelated-failure@example.test",
+        "password": "Correct-Horse-Battery-Staple-42",
+        "consent_version": "privacy-v1",
+    }
+
+    with pytest.raises(IntegrityError, match="unrelated profile storage failure"):
+        Client().post("/api/v1/auth/register/", payload)
+
+
+@pytest.mark.django_db
 def test_dni_and_cuit_validate_length_and_checksum_before_encryption():
     user = get_user_model().objects.create_user(email="identifiers@example.test")
     customer = CustomerProfile(user=user, consent_version="privacy-v1")

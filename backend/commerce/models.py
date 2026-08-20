@@ -146,6 +146,14 @@ class CartLine(models.Model):
         ]
 
 
+class StockReservationQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Use a reservation service")
+
+    def delete(self):
+        raise ValidationError("Stock reservations are immutable")
+
+
 class StockReservation(models.Model):
     class Status(models.TextChoices):
         ACTIVE = "active", "Active"
@@ -162,6 +170,22 @@ class StockReservation(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     consumed_at = models.DateTimeField(null=True, blank=True)
     released_at = models.DateTimeField(null=True, blank=True)
+    objects = StockReservationQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if self.pk and not getattr(self, "_allow_lifecycle_transition", False):
+            raise ValidationError("Use a reservation service")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Stock reservations are immutable")
+
+    def _save_lifecycle_transition(self, *, update_fields):
+        self._allow_lifecycle_transition = True
+        try:
+            self.save(update_fields=update_fields)
+        finally:
+            del self._allow_lifecycle_transition
 
 
 class InventoryMovement(AppendOnlyModel):
@@ -185,6 +209,14 @@ class InventoryMovement(AppendOnlyModel):
     quantity_delta = models.IntegerField()
     reference = models.CharField(max_length=160)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class OrderQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Use an order transition service")
+
+    def delete(self):
+        raise ValidationError("Orders are immutable")
 
 
 class Order(models.Model):
@@ -245,6 +277,7 @@ class Order(models.Model):
     total_snapshot = models.DecimalField(max_digits=12, decimal_places=2)
     reservations = models.ManyToManyField(StockReservation, related_name="orders", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    objects = OrderQuerySet.as_manager()
 
     def save(self, *args, **kwargs):
         if self.pk:
@@ -262,6 +295,16 @@ class Order(models.Model):
                 if any(getattr(self, field) != current[field] for field in statuses):
                     raise ValidationError("Order statuses require a transition service")
         return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Orders are immutable")
+
+    def _save_status_transition(self, *, field):
+        self._allow_status_transition = True
+        try:
+            self.save(update_fields=[field])
+        finally:
+            del self._allow_status_transition
 
 
 class OrderItem(AppendOnlyModel):

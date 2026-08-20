@@ -48,7 +48,7 @@ def test_product_cannot_be_marked_sellable_without_a_variant():
 
     category = Category.objects.create(name="Sin variante", slug="sin-variante")
 
-    with pytest.raises(ValidationError, match="at least one variant"):
+    with pytest.raises(ValidationError, match="active variant"):
         Product.objects.create(
             category=category,
             name="Producto incompleto",

@@ -12,7 +12,9 @@ RESTRICTED_MODELS = (
 
 def restrict_logistics_permissions(apps, schema_editor):
     Group = apps.get_model("auth", "Group")
-    group = Group.objects.get(name="Orders/Logistics")
+    group = Group.objects.filter(name="Orders/Logistics").first()
+    if not group:
+        return
     unsafe = group.permissions.filter(
         content_type__app_label="commerce",
         content_type__model__in=RESTRICTED_MODELS,

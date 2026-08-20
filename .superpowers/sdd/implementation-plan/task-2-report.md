@@ -171,3 +171,55 @@ Final GREEN evidence:
 
 - F18 key rotation remains intentionally unimplemented because it was optional and outside this fix-round scope. Current encrypted/hash data still requires an operationally coordinated key migration if the personal-data key changes.
 - Provider/checkout/identity orchestration remains explicitly `not_configured` for Task 3; no provider calls were added.
+
+---
+
+## Fix Round 2
+
+### Summary
+
+Resolved only the required partial findings F1, F6, F7, F9, F12, F14, and F16. No provider orchestration, frontend work, F18 key rotation, or F19 changes were added.
+
+- F1: the production Docker recipe no longer contains build-time signing, database, host, or personal-data literals. Static collection runs under the non-production test context; every previously committed build literal is permanently rejected by the production runtime validator, and the final image inherits none of them.
+- F6: `AttributeValue` manager/queryset bulk create, bulk update, and update paths cannot bypass exact declared-type or same-definition option validation.
+- F7: product queryset activation is blocked, model activation requires an active variant, and the explicit activation service is the only supported transition path.
+- F9: cart lock acquisition is ordered by primary key. A deterministic, upgrade-safe data migration reconciles historical duplicate authenticated carts before adding uniqueness: the lowest-PK cart survives, line quantities are summed, and the target coupon wins or otherwise the first non-null coupon by cart PK is retained.
+- F12: order update/delete and reservation lifecycle update/delete paths are guarded at queryset and instance level. Scoped internal transition capabilities are cleared even when service calls return the transitioned objects.
+- F14: historical case-only duplicate emails are reconciled before the `Lower(email)` constraint: the lowest-PK account retains the canonical email, deterministic inactive aliases preserve every conflicting row, and registration maps only an actual email unique conflict to HTTP 409.
+- F16: every protected customer, billing, address, order, identity, and checkout read/CRUD operation documents its real 400/401/403/404/409/503 responses with safe error components and endpoint-appropriate success schemas.
+
+### Architecture and migrations
+
+- Catalog and commerce invariants remain explicit service transitions with guarded model/queryset escape hatches; no model-signal orchestration was introduced.
+- `accounts.0002` now canonicalizes and deterministically reconciles historical emails before creating case-insensitive uniqueness.
+- `commerce.0005` now reconciles duplicate carts/lines/coupons before uniqueness. The migration is deliberately non-atomic so PostgreSQL commits deferred FK trigger events from line reconciliation before building the unique index.
+- Historical `MigrationExecutor` tests migrate real pre-fix states forward and restore the latest schema. PostgreSQL fresh-test-database application also verifies the full graph from zero.
+- No dependency input or hash lock changed in this round. Production image installation continued to use the existing `pip --require-hashes` layer.
+
+### TDD red/green evidence
+
+- Domain bypass regressions (F1/F6/F7/F12) initially produced `5 failed`; the same focused file then passed `5 passed`.
+- Scoped service-capability cleanup produced `2 failed`, followed by `2 passed` after transition flags were made exception-safe and one-shot.
+- Historical migration/security regressions produced `3 failed`: both new uniqueness constraints rejected historical duplicates and an unrelated registration `IntegrityError` was incorrectly returned as an email conflict. The focused set then passed `3 passed`.
+- OpenAPI semantics initially failed because protected customer operations omitted documented errors (`1 failed`); the complete endpoint matrix then passed (`1 passed`).
+- The strengthened Docker regression first found all five sensitive assignments still present (`1 failed`); after removing them from the recipe and retaining explicit historical-literal checks, it passed (`1 passed`).
+- PostgreSQL exposed `cannot CREATE INDEX ... because it has pending trigger events` in the cart upgrade probe. Making the reconciliation/constraint migration non-atomic produced `1 passed` for that same historical upgrade.
+
+### Final commands and results
+
+- `APP_ENV=test python -m pytest -q` — `77 passed, 7 skipped in 27.19s`.
+- `docker compose run --rm -e APP_ENV=test -e USE_POSTGRES_TEST_DB=true backend pytest -q -m postgresql` — `9 passed, 75 deselected in 46.65s` against PostgreSQL 17. This includes the two historical upgrade probes plus the existing concurrency/locking matrix.
+- `python -m ruff check .` — `All checks passed!`.
+- `APP_ENV=test python manage.py check` — no issues.
+- Production `python manage.py check --deploy` with non-placeholder runtime settings — no issues.
+- `APP_ENV=test python manage.py makemigrations --check --dry-run` — `No changes detected`; a non-fatal host PostgreSQL authentication warning was emitted only while Django attempted to inspect local migration history. Fresh PostgreSQL migration application is covered by the marked suite.
+- Compose-backed `python manage.py makemigrations --check --dry-run` — `No changes detected` with the PostgreSQL service healthy.
+- `APP_ENV=test python manage.py spectacular --file <temporary> --validate` — exit 0 with no warnings; the temporary schema file was removed.
+- `docker build --target production -t mycdigitalizaciones-backend-task2-round2 backend` — completed, including hash-locked dependencies and WhiteNoise (`163 static files copied`, `426 post-processed`).
+- `docker image inspect ... .Config.Env` — only base Python/pip environment values; no application secret, host, or build literal.
+- Final-image startup with the previously committed PII literal exited 1 with `ImproperlyConfigured: PERSONAL_DATA_ENCRYPTION_KEY must be a non-placeholder production value`.
+
+### Concerns
+
+- F18 key rotation remains intentionally out of scope and unimplemented, as required for this round.
+- Task 3 provider orchestration remains explicitly absent.

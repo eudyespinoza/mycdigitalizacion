@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.core.management.base import BaseCommand
 
 from catalog.models import Brand, Category, Product, ProductVariant
+from catalog.services import activate_product
 from landing.models import HeroSlide, SiteSettings
 
 
@@ -45,8 +46,7 @@ class Command(BaseCommand):
                 "is_active": True,
             },
         )
-        product.is_sellable = True
-        product.save(update_fields=["is_sellable"])
+        activate_product(product=product)
         SiteSettings.objects.update_or_create(
             pk=1,
             defaults={

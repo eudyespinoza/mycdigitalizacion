@@ -95,7 +95,7 @@ def test_attribute_value_rejects_empty_or_multiple_storage_fields_at_database():
         name="Peso", slug="attr-weight", value_type="integer"
     )
     with pytest.raises(IntegrityError), transaction.atomic():
-        AttributeValue.objects.bulk_create(
+        AttributeValue._base_manager.bulk_create(
             [AttributeValue(variant=variant, definition=definition)]
         )
 

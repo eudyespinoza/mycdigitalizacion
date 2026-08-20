@@ -10,6 +10,12 @@ def request_schema(operation, components):
     return schema
 
 
+def assert_error_schema(operation, status_code):
+    response = operation["responses"][status_code]
+    schema = response["content"]["application/json"]["schema"]
+    assert schema["$ref"].endswith("/Error")
+
+
 @pytest.mark.django_db
 def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client):
     response = client.get("/api/v1/schema/?format=json")
@@ -72,3 +78,45 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
 
     cart_post = request_schema(paths["/api/v1/cart/"]["post"], components)
     assert {"variant_id", "quantity", "coupon"} <= cart_post["properties"].keys()
+
+    protected_contracts = {
+        ("/api/v1/customers/me/", "get"): {"200", "401", "403"},
+        ("/api/v1/billing-profiles/", "get"): {"200", "401", "403"},
+        ("/api/v1/billing-profiles/", "post"): {"201", "400", "401", "403"},
+        ("/api/v1/billing-profiles/{id}/", "get"): {"200", "401", "403", "404"},
+        ("/api/v1/billing-profiles/{id}/", "put"): {
+            "200",
+            "400",
+            "401",
+            "403",
+            "404",
+        },
+        ("/api/v1/billing-profiles/{id}/", "patch"): {
+            "200",
+            "400",
+            "401",
+            "403",
+            "404",
+        },
+        ("/api/v1/billing-profiles/{id}/", "delete"): {"204", "401", "403", "404"},
+        ("/api/v1/addresses/", "get"): {"200", "401", "403"},
+        ("/api/v1/addresses/", "post"): {"201", "400", "401", "403"},
+        ("/api/v1/addresses/{id}/", "get"): {"200", "401", "403", "404"},
+        ("/api/v1/addresses/{id}/", "put"): {"200", "400", "401", "403", "404"},
+        ("/api/v1/addresses/{id}/", "patch"): {"200", "400", "401", "403", "404"},
+        ("/api/v1/addresses/{id}/", "delete"): {"204", "401", "403", "404"},
+        ("/api/v1/orders/", "get"): {"200", "401", "403"},
+        ("/api/v1/orders/{public_id}/", "get"): {"200", "401", "403", "404"},
+        ("/api/v1/identity/status/", "get"): {"200", "401", "403"},
+        ("/api/v1/checkout/", "post"): {"401", "403", "503"},
+    }
+    for (path, method), expected_statuses in protected_contracts.items():
+        operation = paths[path][method]
+        assert expected_statuses <= operation["responses"].keys(), (path, method)
+        for error_status in expected_statuses & {"400", "401", "403", "404"}:
+            assert_error_schema(operation, error_status)
+
+    assert_error_schema(paths["/api/v1/auth/register/"]["post"], "409")
+    checkout_error = paths["/api/v1/checkout/"]["post"]["responses"]["503"]
+    checkout_schema = checkout_error["content"]["application/json"]["schema"]
+    assert checkout_schema["$ref"].endswith("/Code")
