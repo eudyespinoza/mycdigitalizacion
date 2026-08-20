@@ -30,6 +30,7 @@ describe("Fix Round 2 CMS behavior", () => {
     expect(container.querySelector("picture source")).toHaveAttribute("srcset", expect.stringContaining("mobile.png"));
     expect(image).toHaveAttribute("src", expect.stringContaining("desktop.png"));
     expect(image).toHaveAttribute("fetchpriority", "high");
+    expect(image).toHaveAttribute("loading", "eager");
     expect(image).toHaveStyle({ objectPosition: "63% 42%" });
   });
 

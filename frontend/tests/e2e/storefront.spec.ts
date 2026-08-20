@@ -183,3 +183,81 @@ test("accessible interaction colors meet required contrast", async ({ page }) =>
   expect(ratios.focus).toBeGreaterThanOrEqual(3);
   expect(ratios.badge).toBeGreaterThanOrEqual(4.5);
 });
+
+test("desktop and mobile complete the persisted shipping commerce journey through mocked Mercado Pago", async ({ page, request }, testInfo) => {
+  test.setTimeout(90_000);
+  test.skip(!["360", "1440"].includes(testInfo.project.name), "The complete journey runs once per phone and desktop class.");
+  await control(request, { checkoutRedirect: true, payments: ["pending", "paid"] });
+
+  await page.goto("/");
+  await page.getByLabel("Buscar productos").fill("cuaderno");
+  await page.getByRole("button", { name: "Buscar" }).click();
+  await expect(page).toHaveURL(/\/catalogo\?q=cuaderno/);
+  await page.waitForLoadState("networkidle");
+
+  if (testInfo.project.name === "360") await page.getByRole("button", { name: "Filtrar" }).click();
+  await page.getByLabel(/Sur \(1\)/).click();
+  await expect(page).toHaveURL(/brand=sur/);
+  if (testInfo.project.name === "360") {
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Filtros de catálogo" })).toBeHidden();
+  }
+  await page.getByRole("link", { name: "Ver Cuaderno A5" }).click();
+  await page.getByLabel("Variante").selectOption("11");
+  await page.getByRole("button", { name: "Agregar al carrito" }).click();
+  await expect(page.getByRole("dialog", { name: "Tu carrito" })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  await page.goto("/cuenta/registro");
+  await page.getByLabel("Nombre").fill("Ana");
+  await page.getByLabel("Apellido").fill("Pérez");
+  await page.getByLabel("Teléfono").fill("11 5555-1234");
+  await page.getByLabel("Email").fill("ana.journey@example.com");
+  await page.getByLabel("Contraseña").fill("Clave-segura-2026");
+  await page.getByLabel(/Acepto la política/).check();
+  await page.getByRole("button", { name: "Crear cuenta" }).click();
+  await page.getByLabel("Código de 6 dígitos").fill("123456");
+  await page.getByRole("button", { name: "Verificar email" }).click();
+  await expect(page).toHaveURL(/\/cuenta\/ingresar/);
+  await page.getByLabel("Email").fill("ana.journey@example.com");
+  await page.getByLabel("Contraseña").fill("Clave-segura-2026");
+  await page.getByRole("button", { name: "Ingresar" }).click();
+  await expect(page.getByRole("heading", { name: "Mi cuenta" })).toBeVisible();
+  await expect(page.getByText("ana.journey@example.com")).toBeVisible();
+
+  await page.goto("/checkout");
+  await page.getByRole("button", { name: "Revisar cuenta" }).click();
+  await expect(page.getByRole("heading", { name: "Elegí cómo recibir" })).toBeVisible();
+  await expect(page.getByLabel("Dirección")).toHaveValue("2");
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await page.getByRole("button", { name: "Cotizar envío" }).click();
+  await expect(page.getByRole("heading", { name: "Revisá antes de pagar" })).toBeVisible();
+  await expect(page.getByText("Av. Corrientes 1234, CABA")).toBeVisible();
+  await page.getByRole("button", { name: "Ir a Mercado Pago" }).click();
+
+  await expect(page.getByRole("heading", { name: "Mercado Pago simulado" })).toBeVisible();
+  await page.getByRole("link", { name: "Volver al comercio" }).click();
+  await expect(page.getByRole("heading", { name: "Pago aprobado" })).toBeVisible({ timeout: 8_000 });
+  await page.getByRole("link", { name: "Ver este pedido" }).click();
+  await expect(page.getByText("Pedido despachado")).toBeVisible();
+  await expect(page.getByText(/CP123AR/)).toBeVisible();
+
+  const rows = await (await request.get("http://127.0.0.1:4010/__requests")).json();
+  expect(rows).toContainEqual(expect.objectContaining({ method: "POST", path: "/api/v1/checkout", body: expect.objectContaining({ fulfillment_method: "shipping", address_id: 2, shipping_quote_id: "22222222-2222-4222-8222-222222222222" }) }));
+});
+
+test("configured pickup reaches review without requesting a shipping quote", async ({ page, request }, testInfo) => {
+  test.skip(!["360", "1440"].includes(testInfo.project.name), "Pickup is covered once per phone and desktop class.");
+  await page.goto("/producto/cuaderno-a5");
+  await page.getByRole("button", { name: "Agregar al carrito" }).click();
+  await page.keyboard.press("Escape");
+  await page.goto("/checkout");
+  await page.getByRole("button", { name: "Revisar cuenta" }).click();
+  await page.getByLabel("Retiro central").check();
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await expect(page.getByRole("heading", { name: "Retiro central" })).toBeVisible();
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await expect(page.getByText("Av. Corrientes 1234")).toBeVisible();
+  const rows = await (await request.get("http://127.0.0.1:4010/__requests")).json();
+  expect(rows.filter((row: { path: string }) => row.path === "/api/v1/shipping/quote")).toHaveLength(0);
+});
