@@ -357,3 +357,67 @@ It does **not** exercise the prior acceptance requirement. Every container is `a
 ### Final Fix Round 2 assessment
 
 Fix Round 2 removes the two disclosure/plain-text defects and reduces the declared memory envelope without regressing the production topology, backup/restore or asset lifecycle. Those are real improvements. It does not close the review: Caddy access/error events and scheduler/backup events still split one operation across unrelated identifiers, while the 4 GiB claim is tested with sleeping placeholders on a much larger host. Task 5B therefore remains **SPEC FAIL / QUALITY NEEDS WORK** with three REQUIRED partials.
+
+## Fix Round 3 independent verdict
+
+Review target: `7f8d79f87c43ff261cf7a3ce493480829b0e38fe`, against the three remaining REQUIRED partials R3, R9 and R10 from review `e2c4859`, plus regression coverage for R1-R8 and the existing O1-O5 disposition. The target was exported to an isolated archive and all source/runtime checks below used that exact tree. This pass made no product change, did not run the detector and did not create `DESIGN.md`.
+
+### Outcome
+
+- **Fix Round 3 target:** 3 RESOLVED, 0 PARTIAL, 0 UNRESOLVED.
+- **REQUIRED R1-R10 overall:** 10 RESOLVED, 0 PARTIAL, 0 UNRESOLVED.
+- **OPTIONAL O1-O5:** 2 RESOLVED, 1 PARTIAL, 2 UNRESOLVED.
+- **All prior findings:** 12 RESOLVED, 1 PARTIAL, 2 UNRESOLVED.
+- **SPEC COMPLIANCE: PASS.** Every REQUIRED finding is resolved and reproduced at its real runtime boundary.
+- **CODE QUALITY: PASS WITH OPTIONAL FOLLOW-UPS.** Correlation, output bounding and capacity evidence now test the semantics previously missing. O1/O2/O3 remain accurately documented, non-blocking hardening debt.
+
+### Independent verification evidence
+
+- `python -m unittest discover -s infra/tests -p "test_task5b_*.py" -v`: **33 discovered; 26 passed, 7 runtime-gated skips**.
+- `TASK5B_DOCKER_RUNTIME=1 python -m unittest infra.tests.test_task5b_caddy_runtime infra.tests.test_task5b_runtime_boundaries -v`: **7/7 passed** against rebuilt images in 639.79 s. This covered Admin allow/deny, Caddy correlation and forwarding, media/static release lifecycle, read-only Next cold/warm cache, killed-backup recovery, and the aggregate capacity probe.
+- A separate live edge probe from an untrusted Docker-network client sent spoofed forwarding headers. The backend received the original `Host` including port, the real client plus trusted loopback chain, actual `http` proto, and the same UUID returned in `X-Request-ID`; the spoofed client/proto values were discarded. The committed Admin gate also denied and allowed real requests as configured.
+- A scheduler run in the rebuilt exact ops image emitted five JSON records from scheduler start through backup subprocess/completion/finish, all with one `job_id`; injected email, query token, password and cookie were absent. A second exact-image run wrote over 1 MiB, was killed, returned failure, emitted only five bounded JSON records (**5021 bytes**) including `subprocess.output_limit_exceeded`, kept one `job_id`, and exposed neither injected email nor token.
+- The committed concurrent-job and webhook tests ran real child processes and a real local alert server: each operation retained one ID, the two jobs differed, and the alert ID equaled the scheduler/backup ID (`infra/tests/test_task5b_operations.py:378-475`).
+- The capacity probe ran nine simultaneous representative allocations inside one hard `memory.max=4294967296` cgroup, with a 64 MiB write+`fsync` backup overlap. Direct measurement was `memory_current=3177992192`, `memory_peak=3177992192`, `oom_kill_delta=0`; the committed runtime assertion passed (`infra/tests/fixtures/task5b_capacity_probe.py:33-104`; `infra/tests/test_task5b_runtime_boundaries.py:245-283`).
+- Focused backend observability/health/media: **8 passed**; Ruff and `manage.py check` passed. Compose rendered successfully with `.env.production.example`.
+- Temporary review containers, networks and volumes were removed; no `task5b-*` review resource remained.
+
+### R3 - RESOLVED: access/error correlation is private, stable and operational
+
+**Files:** `infra/caddy/Caddyfile:6-18,22-54,70-98`; `infra/tests/test_task5b_caddy_runtime.py:113-162`.
+
+The outer edge assigns the request UUID, performs the Admin CIDR gate, and sends the UUID as the loopback hop's temporary `Host`. The inner listener is bound only to `127.0.0.1`, so the diagnostic logger can safely rename that value to `request.request_id`; the independent Caddy `err_id` is retained separately as `error_id`. A real upstream 502 now produced matching access/error request IDs, a distinct error ID, path/method/status, and no query, request headers or probe PII.
+
+The outer hop also preserves the original host in a private header and the inner proxy restores it before forwarding. `trusted_proxies 127.0.0.1/32` makes Caddy derive forwarding only across the controlled loopback hop. The live echo/spoof probes confirmed original Host/client/proto fidelity and spoof rejection. Admin authorization remains outside that inner hop and passed both deny and allow cases. R3 is fully resolved.
+
+### R9 - RESOLVED: one bounded, redacted correlation chain spans scheduler, tools and alerts
+
+**Files:** `infra/ops/common.py:24-26,38-115,155-160`; `infra/ops/scheduler.py:25-40`; `infra/tests/test_task5b_operations.py:361-475`.
+
+The scheduler now explicitly passes its `OPS_JOB_ID` to `backup.py`; subprocess JSON events, backup result and webhook body all use the inherited ID. Parallel scheduler processes generate distinct IDs. The exact-image success run and committed concurrency/alert tests reproduce all three properties rather than relying on permissive mocks.
+
+Native stdout and stderr are drained concurrently to prevent pipe deadlock, each capture is hard-capped at 1 MiB, and overflow kills the child before raising a failed operation. Only a redacted 4000-character diagnostic sample is logged. The exact-image overflow probe confirmed bounded all-JSON output, child failure, a single correlation ID and no injected secret/PII. R9 is fully resolved.
+
+### R10 - RESOLVED: the nine-workload overlap is measured under a real aggregate 4 GiB limit
+
+**Files:** `infra/tests/fixtures/task5b_capacity_probe.py:1-109`; `infra/tests/test_task5b_runtime_boundaries.py:245-283`; `compose.prod.yaml:87-297`.
+
+The runtime test no longer starts nine sleeping containers on an unconstrained 15.5 GiB host. It renders the actual nine service limits, asserts their overlap stays at or below 3 GiB, then starts nine simultaneous representative workloads inside one `--memory 4g --memory-swap 4g` parent cgroup. Each process touches its modeled allocation and performs CPU hashing; backup additionally writes and syncs 64 MiB while all allocations remain resident.
+
+The direct rerun measured a 3,177,992,192-byte current/peak set under an exact 4,294,967,296-byte ceiling, completed all nine workloads and backup I/O, and recorded zero new OOM kills. This is the explicitly requested aggregate 4 GiB capacity boundary and resolves R10.
+
+### R1-R8 - RESOLVED, no regression
+
+The full Docker matrix reconfirmed real media/derivative/static ownership and two-release Caddy lifecycle (R1/R4), Admin CIDR gating (R2), read-only Next cold/warm cache (R5), and killed-lock recovery (R6). Unit/config coverage reconfirmed fail-fast numeric, Restic and retention rules (R7). Backup/restore behavior and new-target-only protections remain covered, while the exact-image successful backup and overflow probes verify the changed subprocess boundary used by R8. No new REQUIRED regression was found.
+
+### OPTIONAL disposition
+
+- **O1 - UNRESOLVED, explicitly optional:** upstream production image references remain mutable tags rather than reviewed digests.
+- **O2 - UNRESOLVED, explicitly optional:** a staged, nonce-compatible CSP/COOP/CORP policy remains deferred; no unsafe placeholder policy was added.
+- **O3 - PARTIAL:** release ID and sanitized configuration fingerprint remain useful, but the manifest still lacks migration/schema state, tool versions and provider-mode metadata.
+- **O4 - RESOLVED:** Restic password-file validation and read-only mounting remain covered.
+- **O5 - RESOLVED:** config-check and the dangerous runtime boundaries remain wired into verification; Fix Round 3 materially strengthens those live assertions.
+
+### Final Fix Round 3 assessment
+
+Fix Round 3 closes all three remaining acceptance gaps with observed runtime behavior: one private request identity now correlates Caddy access/error records without sacrificing Host or trusted-forwarding fidelity; one job identity spans scheduler, backup, subprocess and alert with fail-closed bounded output; and the minimum-host claim now has a measured nine-workload backup overlap inside a genuine aggregate 4 GiB cgroup. R1-R8 remain green. Task 5B is therefore **SPEC PASS / QUALITY PASS WITH OPTIONAL FOLLOW-UPS**.
