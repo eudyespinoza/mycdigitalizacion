@@ -16,6 +16,15 @@ from backoffice.views import (
     ManagementDashboardView,
     ManagementSessionView,
 )
+from backoffice.operations_views import (
+    ManagementCustomerDetailView,
+    ManagementCustomerListView,
+    ManagementOrderActionView,
+    ManagementOrderDetailView,
+    ManagementOrderListView,
+    PackageBoxDetailView,
+    PackageBoxListCreateView,
+)
 
 urlpatterns = [
     path("session/", ManagementSessionView.as_view(), name="management-session"),
@@ -49,5 +58,34 @@ urlpatterns = [
         "variants/<int:pk>/adjust-stock/",
         StockAdjustmentView.as_view(),
         name="management-stock-adjustment",
+    ),
+    path("orders/", ManagementOrderListView.as_view(), name="management-orders"),
+    path(
+        "orders/<uuid:public_id>/",
+        ManagementOrderDetailView.as_view(),
+        name="management-order-detail",
+    ),
+    path(
+        "orders/<uuid:public_id>/actions/",
+        ManagementOrderActionView.as_view(),
+        name="management-order-actions",
+    ),
+    path(
+        "customers/", ManagementCustomerListView.as_view(), name="management-customers"
+    ),
+    path(
+        "customers/<int:pk>/",
+        ManagementCustomerDetailView.as_view(),
+        name="management-customer-detail",
+    ),
+    path(
+        "shipping/boxes/",
+        PackageBoxListCreateView.as_view(),
+        name="management-shipping-boxes",
+    ),
+    path(
+        "shipping/boxes/<int:pk>/",
+        PackageBoxDetailView.as_view(),
+        name="management-shipping-box-detail",
     ),
 ]
