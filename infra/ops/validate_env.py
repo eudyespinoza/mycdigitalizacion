@@ -49,6 +49,11 @@ def validate() -> list[str]:
         errors.append("POSTGRES_DIRECT_HOST must name the direct PostgreSQL service")
     if not direct_port.isdigit() or not 1 <= int(direct_port) <= 65535:
         errors.append("POSTGRES_DIRECT_PORT must be a valid TCP port")
+    if os.environ.get("POSTGRES_BYPASS_POOL", "false").strip().lower() not in {
+        "true",
+        "false",
+    }:
+        errors.append("POSTGRES_BYPASS_POOL must be true or false")
     if values["APP_ENV"] != "production":
         errors.append("APP_ENV must be production")
     if values["RELEASE_ID"].lower().startswith("replace_me") or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{6,79}", values["RELEASE_ID"]):

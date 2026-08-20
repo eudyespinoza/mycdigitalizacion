@@ -220,7 +220,7 @@ def catalog_candidate_queryset(*, params, attribute_filters):
                 )
                 .filter(
                     Q(catalog_search_vector=search_query)
-                    | Q(name_similarity__gt=0.1)
+                    | Q(name__trigram_similar=query)
                     | Exists(sku_match)
                 )
                 .annotate(

@@ -240,7 +240,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
             )
             self.assertEqual(verify.returncode, 0)
 
-    def test_four_gib_release_overlap_is_enforced_concurrently(self) -> None:
+    def test_two_gib_release_overlap_is_enforced_concurrently(self) -> None:
         environment = {**os.environ, "PRODUCTION_ENV_FILE": ".env.production.example"}
         rendered = subprocess.run(
             [
@@ -262,11 +262,11 @@ class RuntimeBoundaryTests(unittest.TestCase):
             name: int(services[name]["deploy"]["resources"]["limits"]["memory"])
             for name in overlap
         }
-        self.assertLessEqual(sum(limits.values()), 3 * 1024**3)
+        self.assertLessEqual(sum(limits.values()), 2 * 1024**3)
 
         probe = ROOT / "infra" / "tests" / "fixtures" / "task5b_capacity_probe.py"
         result = docker(
-            "run", "--rm", "--memory", "4g", "--memory-swap", "4g",
+            "run", "--rm", "--memory", "2g", "--memory-swap", "2g",
             "--cpus", "2", "--pids-limit", "128",
             "-e", f"SERVICE_LIMITS_JSON={json.dumps(limits)}",
             "--mount", f"type=bind,src={probe},dst=/probe.py,readonly",
@@ -275,8 +275,8 @@ class RuntimeBoundaryTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         measurement = json.loads(result.stdout.strip().splitlines()[-1])
-        self.assertEqual(measurement["memory_max_bytes"], 4 * 1024**3)
-        self.assertGreaterEqual(measurement["memory_peak_bytes"], 2800 * 1024**2)
+        self.assertEqual(measurement["memory_max_bytes"], 2 * 1024**3)
+        self.assertGreaterEqual(measurement["memory_peak_bytes"], 1650 * 1024**2)
         self.assertEqual(measurement["oom_kill_delta"], 0)
         self.assertEqual(set(measurement["concurrent_services"]), set(overlap))
         self.assertEqual(measurement["backup_bytes"], 64 * 1024**2)

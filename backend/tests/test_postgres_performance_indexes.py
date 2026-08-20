@@ -5,6 +5,8 @@ pytestmark = [pytest.mark.django_db, pytest.mark.postgresql]
 
 
 def test_catalog_and_management_performance_indexes_exist():
+    if connection.vendor != "postgresql":
+        pytest.skip("PostgreSQL indexes only")
     required = {
         "cat_prod_live_cat_idx",
         "cat_prod_live_brand_idx",
@@ -31,6 +33,8 @@ def test_catalog_and_management_performance_indexes_exist():
 
 
 def test_pg_trgm_extension_is_available_for_fuzzy_search():
+    if connection.vendor != "postgresql":
+        pytest.skip("PostgreSQL extensions only")
     with connection.cursor() as cursor:
         cursor.execute("SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'")
         assert cursor.fetchone() == (1,)

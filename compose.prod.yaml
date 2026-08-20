@@ -21,6 +21,7 @@ x-app-environment: &app-environment
   POSTGRES_PORT: "6432"
   POSTGRES_DIRECT_HOST: postgres
   POSTGRES_DIRECT_PORT: "5432"
+  POSTGRES_BYPASS_POOL: ${POSTGRES_BYPASS_POOL:-false}
   REDIS_URL: redis://:${REDIS_PASSWORD:-REPLACE_ME_REDIS_PASSWORD}@redis:6379/0
   SID_MODE: ${SID_MODE:-disabled}
   SID_BASE_URL: ${SID_BASE_URL:-}
@@ -88,7 +89,7 @@ services:
       start_period: 20s
     deploy:
       resources:
-        limits: {cpus: "${POSTGRES_CPUS:-1.0}", memory: "${POSTGRES_MEMORY:-640M}"}
+        limits: {cpus: "${POSTGRES_CPUS:-1.0}", memory: "${POSTGRES_MEMORY:-384M}"}
 
   pgbouncer:
     <<: *service-defaults
@@ -100,6 +101,8 @@ services:
       HEALTH_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env.production}
       DB_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env.production}
       DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
+      ADMIN_USERS: ${POSTGRES_USER:?set POSTGRES_USER in .env.production}
+      STATS_USERS: ${POSTGRES_USER:?set POSTGRES_USER in .env.production}
       LISTEN_PORT: "6432"
       AUTH_TYPE: scram-sha-256
       POOL_MODE: transaction
@@ -138,7 +141,7 @@ services:
       start_period: 10s
     deploy:
       resources:
-        limits: {cpus: "${REDIS_CPUS:-0.5}", memory: "${REDIS_MEMORY:-192M}"}
+        limits: {cpus: "${REDIS_CPUS:-0.5}", memory: "${REDIS_MEMORY:-128M}"}
 
   assets-init:
     image: mycdigitalizaciones-backend-prod
@@ -173,7 +176,7 @@ services:
       - --bind
       - 0.0.0.0:8000
       - --workers
-      - "3"
+      - "2"
       - --access-logfile
       - /dev/null
       - --error-logfile
@@ -192,12 +195,12 @@ services:
       start_period: 30s
     deploy:
       resources:
-        limits: {cpus: "${BACKEND_CPUS:-1.0}", memory: "${BACKEND_MEMORY:-512M}"}
+        limits: {cpus: "${BACKEND_CPUS:-1.0}", memory: "${BACKEND_MEMORY:-320M}"}
 
   worker:
     <<: *app-common
     image: mycdigitalizaciones-worker-prod
-    command: [celery, -A, config, worker, --loglevel=INFO]
+    command: [celery, -A, config, worker, --loglevel=INFO, --concurrency=1]
     environment:
       <<: *app-environment
       SERVICE_NAME: worker
@@ -211,7 +214,7 @@ services:
       start_period: 45s
     deploy:
       resources:
-        limits: {cpus: "${WORKER_CPUS:-1.0}", memory: "${WORKER_MEMORY:-512M}"}
+        limits: {cpus: "${WORKER_CPUS:-1.0}", memory: "${WORKER_MEMORY:-256M}"}
 
   beat:
     <<: *app-common
@@ -228,7 +231,7 @@ services:
       start_period: 30s
     deploy:
       resources:
-        limits: {cpus: "${BEAT_CPUS:-0.5}", memory: "${BEAT_MEMORY:-128M}"}
+        limits: {cpus: "${BEAT_CPUS:-0.5}", memory: "${BEAT_MEMORY:-80M}"}
 
   frontend:
     <<: *service-defaults
@@ -251,7 +254,7 @@ services:
       start_period: 20s
     deploy:
       resources:
-        limits: {cpus: "${FRONTEND_CPUS:-1.0}", memory: "${FRONTEND_MEMORY:-384M}"}
+        limits: {cpus: "${FRONTEND_CPUS:-1.0}", memory: "${FRONTEND_MEMORY:-256M}"}
     read_only: true
     tmpfs:
       - "/tmp:rw,noexec,nosuid,size=64m"
@@ -311,7 +314,7 @@ services:
       start_period: 5m
     deploy:
       resources:
-        limits: {cpus: "${BACKUP_CPUS:-0.75}", memory: "${BACKUP_MEMORY:-320M}"}
+        limits: {cpus: "${BACKUP_CPUS:-0.75}", memory: "${BACKUP_MEMORY:-128M}"}
     read_only: true
     tmpfs: ["/tmp:rw,noexec,nosuid,size=128m"]
 
@@ -338,7 +341,7 @@ services:
       start_period: 15s
     deploy:
       resources:
-        limits: {cpus: "${CADDY_CPUS:-0.5}", memory: "${CADDY_MEMORY:-128M}"}
+        limits: {cpus: "${CADDY_CPUS:-0.5}", memory: "${CADDY_MEMORY:-64M}"}
     read_only: true
     tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
 

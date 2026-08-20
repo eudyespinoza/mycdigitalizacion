@@ -95,6 +95,14 @@ class ProductionContractTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ADMIN_ALLOWED_CIDRS", result.stderr)
 
+    def test_pool_bypass_switch_requires_an_explicit_boolean(self) -> None:
+        result = run_script(
+            "validate_env.py",
+            env={**valid_environment(), "POSTGRES_BYPASS_POOL": "sometimes"},
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("POSTGRES_BYPASS_POOL", result.stderr)
+
     def test_admin_cidrs_use_spaces_and_reject_an_effective_public_union(self) -> None:
         comma = run_script(
             "validate_env.py",
@@ -152,7 +160,7 @@ class ProductionContractTests(unittest.TestCase):
         cache_mounts = services["frontend"].get("tmpfs", [])
         self.assertTrue(any(item.startswith("/app/frontend/.next/cache:") and "size=" in item for item in cache_mounts))
 
-    def test_default_service_and_release_overlap_leaves_one_gib_for_the_host(self) -> None:
+    def test_initial_service_and_release_overlap_fits_two_gib_profile(self) -> None:
         compose = rendered_production_compose()
         names = (
             "postgres",
@@ -174,7 +182,7 @@ class ProductionContractTests(unittest.TestCase):
             return amount if suffix == "M" else amount * 1024
 
         total = sum(mebibytes(compose["services"][name]["deploy"]["resources"]["limits"]["memory"]) for name in names)
-        self.assertLessEqual(total, 3072)
+        self.assertLessEqual(total, 2048)
 
     def test_committed_production_example_is_deliberately_not_deployable(self) -> None:
         values: dict[str, str] = {}

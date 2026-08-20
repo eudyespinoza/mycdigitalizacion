@@ -69,6 +69,37 @@ class PgBouncerTopologyTests(unittest.TestCase):
         self.assertEqual(int(service["deploy"]["resources"]["limits"]["memory"]), 32 * 1024 * 1024)
         self.assertIn("healthcheck", service)
 
+    def test_initial_production_defaults_fit_two_gigabyte_vps(self) -> None:
+        services = render_compose("compose.prod.yaml")["services"]
+        expected_mebibytes = {
+            "postgres": 384,
+            "pgbouncer": 32,
+            "backend": 320,
+            "worker": 256,
+            "beat": 80,
+            "redis": 128,
+            "frontend": 256,
+            "caddy": 64,
+            "backup": 128,
+        }
+        actual = {
+            name: int(services[name]["deploy"]["resources"]["limits"]["memory"])
+            for name in expected_mebibytes
+        }
+        self.assertEqual(
+            actual,
+            {name: value * 1024 * 1024 for name, value in expected_mebibytes.items()},
+        )
+        self.assertEqual(services["backend"]["command"][5], "2")
+        self.assertIn("--concurrency=1", services["worker"]["command"])
+
+    def test_pool_admin_console_is_limited_to_database_operator(self) -> None:
+        for filename in ("compose.yaml", "compose.prod.yaml"):
+            with self.subTest(filename=filename):
+                environment = render_compose(filename)["services"]["pgbouncer"]["environment"]
+                self.assertEqual(environment["ADMIN_USERS"], environment["DB_USER"])
+                self.assertEqual(environment["STATS_USERS"], environment["DB_USER"])
+
 
 if __name__ == "__main__":
     unittest.main()

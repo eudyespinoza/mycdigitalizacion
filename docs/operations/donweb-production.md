@@ -4,7 +4,7 @@ Este runbook despliega una única instancia de mycdigitalizacion con TLS automá
 
 ## 1. Prerrequisitos y borde de red
 
-- VPS Donweb con Ubuntu 24.04 LTS, mínimo recomendado 2 vCPU, 4 GB RAM, 40 GB SSD y swap acotada. Los límites steady-state suman 2816 MiB; aun durante un `assets-init` de release el overlap máximo declarado es 3072 MiB y reserva 1 GiB para SO/Docker/page cache. El gate runtime confina las nueve cargas representativas dentro de un único cgroup de 4 GiB, toca memoria/CPU simultáneamente y superpone 64 MiB de I/O de backup; debe terminar sin `oom_kill`. No construyas imágenes durante un pico: usá CI/registry o una ventana con servicios no esenciales detenidos.
+- VPS Donweb con Ubuntu 24.04 LTS, 2 vCPU, 2 GB RAM iniciales, 40 GB SSD y 1 GB de swap acotada. El perfil inicial limita los servicios permanentes a 1648 MiB; con `assets-init` suma como máximo 1904 MiB. Es un perfil austero: no construyas imágenes ni ejecutes restauraciones con tráfico activo, vigilá swap/OOM y ampliá a 4 GB cuando crezcan catálogo, concurrencia o tareas de imágenes. El gate runtime reproduce las nueve cargas dentro de un cgroup agregado de 2 GiB y debe terminar sin `oom_kill`.
 - Usuario operador con sudo y acceso SSH por clave. Deshabilitá contraseña y root remoto después de comprobar una segunda sesión.
 - Docker Engine y plugin Compose actuales. Confirmá con `docker version` y `docker compose version`.
 - Registro horario UTC y sincronización NTP activa. Reservá espacio fuera del volumen PostgreSQL para `backup_data`.
@@ -61,11 +61,11 @@ Definí una abreviatura para evitar mezclar Compose de desarrollo y producción:
 dc='docker compose --env-file .env.production -f compose.prod.yaml'
 $dc config --quiet
 $dc build
-$dc up -d postgres redis
+$dc up -d postgres redis pgbouncer
 $dc ps
-$dc run --rm backend python manage.py migrate --noinput
-$dc run --rm backend python manage.py setup_admin_roles
-$dc run --rm backend python manage.py createsuperuser
+$dc run --rm -e POSTGRES_BYPASS_POOL=true backend python manage.py migrate --noinput
+$dc run --rm -e POSTGRES_BYPASS_POOL=true backend python manage.py setup_admin_roles
+$dc run --rm -e POSTGRES_BYPASS_POOL=true backend python manage.py createsuperuser
 $dc up -d
 $dc ps
 ```
@@ -84,7 +84,7 @@ Caddy solicita certificados públicos automáticamente. Si falla, comprobá DNS,
 
 ## 4. Configuración funcional y proveedores
 
-1. Ingresá a `https://DOMINIO/admin/` desde una red listada en `ADMIN_ALLOWED_CIDRS`.
+1. Ingresá a `https://DOMINIO/gestion/` con una cuenta de gestión. El Django Admin no es el panel operativo del comercio.
 2. Comprobá los grupos Owner, Catalog, Orders/Logistics y Content; asigná sólo los permisos necesarios.
 3. Cargá identidad fiscal, retiro, cajas/medidas y contenido real. No publiques campañas ni productos de prueba.
 4. Habilitá SID, Mercado Pago o Correo Argentino de a uno. Verificá credenciales, URL pública de webhook, firma, modo live y un caso controlado de error. Una redirección del navegador no confirma un pago.
@@ -150,12 +150,12 @@ Nunca uses `docker compose down -v`, `docker volume prune` ni una restauración 
 1. Registrá revisión actual: `git rev-parse HEAD`.
 2. Confirmá backup local/remoto reciente y espacio libre.
 3. Descargá y fijá la nueva revisión, sin ejecutar código no revisado, y actualizá `RELEASE_ID` al identificador exacto.
-4. Ejecutá `python scripts/verify-production.py --env-file .env.production --build`. El comando ejecuta config-check real y drills Docker aislados de Caddy, volúmenes, cache, backup y el cgroup agregado de 4 GiB; reservá capacidad y no uses `--skip-runtime` para aprobar una release.
+4. Ejecutá `python scripts/verify-production.py --env-file .env.production --build`. El comando ejecuta config-check real y drills Docker aislados de Caddy, volúmenes, cache, backup y el cgroup agregado de 2 GiB; reservá capacidad y no uses `--skip-runtime` para aprobar una release.
 5. Construí imágenes, migrá y recreá servicios:
 
 ```sh
 $dc build
-$dc run --rm backend python manage.py migrate --noinput
+$dc run --rm -e POSTGRES_BYPASS_POOL=true backend python manage.py migrate --noinput
 $dc up -d
 $dc ps
 ```

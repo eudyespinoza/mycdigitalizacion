@@ -79,3 +79,21 @@ def test_pooled_database_settings_disable_session_bound_connection_state():
     assert database["PORT"] == "6432"
     assert database["CONN_MAX_AGE"] == 0
     assert database["DISABLE_SERVER_SIDE_CURSORS"] is True
+
+
+def test_database_pool_can_be_bypassed_with_one_rollback_switch():
+    database = database_config(
+        {
+            "POSTGRES_DB": "storefront",
+            "POSTGRES_USER": "storefront_app",
+            "POSTGRES_PASSWORD": "secret",
+            "POSTGRES_HOST": "pgbouncer",
+            "POSTGRES_PORT": "6432",
+            "POSTGRES_DIRECT_HOST": "postgres",
+            "POSTGRES_DIRECT_PORT": "5432",
+            "POSTGRES_BYPASS_POOL": "true",
+        }
+    )
+
+    assert database["HOST"] == "postgres"
+    assert database["PORT"] == "5432"

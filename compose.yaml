@@ -22,6 +22,8 @@ services:
       HEALTH_DB: ${POSTGRES_DB:-mycdigitalizacion}
       DB_USER: ${POSTGRES_USER:-mycdigitalizacion}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-for-local-development}
+      ADMIN_USERS: ${POSTGRES_USER:-mycdigitalizacion}
+      STATS_USERS: ${POSTGRES_USER:-mycdigitalizacion}
       LISTEN_PORT: "6432"
       AUTH_TYPE: scram-sha-256
       POOL_MODE: transaction
@@ -65,6 +67,7 @@ services:
       POSTGRES_PORT: "6432"
       POSTGRES_DIRECT_HOST: postgres
       POSTGRES_DIRECT_PORT: "5432"
+      POSTGRES_BYPASS_POOL: ${POSTGRES_BYPASS_POOL:-false}
       REDIS_URL: redis://redis:6379/0
       APP_ENV: development
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-unsafe-development-key-change-me}
@@ -116,6 +119,7 @@ services:
       POSTGRES_PORT: "6432"
       POSTGRES_DIRECT_HOST: postgres
       POSTGRES_DIRECT_PORT: "5432"
+      POSTGRES_BYPASS_POOL: ${POSTGRES_BYPASS_POOL:-false}
       REDIS_URL: redis://redis:6379/0
       APP_ENV: development
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-unsafe-development-key-change-me}
@@ -156,7 +160,7 @@ services:
     build:
       context: ./backend
       target: development
-    command: celery -A config beat --loglevel=INFO
+    command: celery -A config beat --loglevel=INFO --pidfile=/tmp/celerybeat.pid --schedule=/tmp/celerybeat-schedule
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-mycdigitalizacion}
       POSTGRES_USER: ${POSTGRES_USER:-mycdigitalizacion}
@@ -165,6 +169,7 @@ services:
       POSTGRES_PORT: "6432"
       POSTGRES_DIRECT_HOST: postgres
       POSTGRES_DIRECT_PORT: "5432"
+      POSTGRES_BYPASS_POOL: ${POSTGRES_BYPASS_POOL:-false}
       REDIS_URL: redis://redis:6379/0
       APP_ENV: development
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-unsafe-development-key-change-me}

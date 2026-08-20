@@ -197,6 +197,17 @@ WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
 def database_config(environment: Mapping[str, str]) -> dict[str, object]:
+    bypass_pool = strict_boolean(environment, "POSTGRES_BYPASS_POOL")
+    host = (
+        environment.get("POSTGRES_DIRECT_HOST", "postgres")
+        if bypass_pool
+        else environment.get("POSTGRES_HOST", "localhost")
+    )
+    port = (
+        environment.get("POSTGRES_DIRECT_PORT", "5432")
+        if bypass_pool
+        else environment.get("POSTGRES_PORT", "5432")
+    )
     return {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": environment.get("POSTGRES_DB", "mycdigitalizacion"),
@@ -204,8 +215,8 @@ def database_config(environment: Mapping[str, str]) -> dict[str, object]:
         "PASSWORD": environment.get(
             "POSTGRES_PASSWORD", "change-me-for-local-development"
         ),
-        "HOST": environment.get("POSTGRES_HOST", "localhost"),
-        "PORT": environment.get("POSTGRES_PORT", "5432"),
+        "HOST": host,
+        "PORT": port,
         "CONN_MAX_AGE": 0,
         "DISABLE_SERVER_SIDE_CURSORS": True,
     }
@@ -258,6 +269,13 @@ def default_cache_config(environment: Mapping[str, str]) -> dict[str, object]:
 
 
 CACHES = {"default": default_cache_config(environ)}
+if "pytest" in sys.modules and environ.get("USE_REDIS_TEST_CACHE", "false").lower() != "true":
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "mycd-test",
+        }
+    }
 
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],

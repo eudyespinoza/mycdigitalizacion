@@ -82,7 +82,10 @@ class ProductListCreateView(generics.GenericAPIView):
             queryset = queryset.filter(is_sellable=False)
         return queryset.order_by("-created_at", "-id")
 
-    @extend_schema(tags=("Gestión - catálogo",), responses=ManagementProductSerializer(many=True))
+    @extend_schema(
+        tags=("Gestión - catálogo",),
+        responses=ManagementProductSummarySerializer(many=True),
+    )
     def get(self, request):
         page = self.paginate_queryset(self.get_queryset())
         return self.get_paginated_response(
