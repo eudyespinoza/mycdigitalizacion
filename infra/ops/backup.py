@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -10,7 +11,8 @@ import shutil
 import sys
 import tarfile
 
-from common import post_alert, run, sha256
+from common import emit_event, post_alert, run, sha256
+from locking import LockUnavailable, ProcessLock
 from validate_env import validate
 
 
@@ -41,25 +43,36 @@ def main() -> int:
         if not os.environ.get(name, "").strip():
             errors.append(f"{name} is required")
     if errors:
-        print("\n".join(errors), file=sys.stderr)
+        emit_event(
+            "backup",
+            "config.invalid",
+            level="error",
+            stream=sys.stderr,
+            detail="; ".join(errors),
+        )
         return 2
     timestamp = arguments.timestamp or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     if not TIMESTAMP.fullmatch(timestamp):
-        print("invalid backup timestamp", file=sys.stderr)
+        emit_event("backup", "backup.invalid_timestamp", level="error", stream=sys.stderr)
         return 2
     root = Path(os.environ["BACKUP_ROOT"]).resolve()
     media = Path(os.environ["MEDIA_ROOT"]).resolve()
     if arguments.dry_run:
-        print(json.dumps({"status": "dry-run", "target": str(root / timestamp), "media": str(media)}))
+        emit_event("backup", "backup.dry_run", target=str(root / timestamp), media=str(media))
         return 0
     root.mkdir(parents=True, exist_ok=True)
-    lock = root / ".backup.lock"
     try:
-        descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        os.write(descriptor, str(os.getpid()).encode("ascii"))
-        os.close(descriptor)
-    except FileExistsError:
-        print("backup already running", file=sys.stderr)
+        lock_context = ProcessLock(root / ".backup.lock")
+        lock_context.__enter__()
+    except LockUnavailable as error:
+        post_alert("backup_lock_contended", str(error))
+        emit_event(
+            "backup",
+            "backup.lock_contended",
+            level="error",
+            stream=sys.stderr,
+            detail=str(error),
+        )
         return 3
     partial = root / f".{timestamp}.partial"
     target = root / timestamp
@@ -83,6 +96,18 @@ def main() -> int:
         manifest = {
             "format_version": 1,
             "created_at": datetime.now(timezone.utc).isoformat(),
+            "release_id": os.environ["RELEASE_ID"],
+            "configuration_fingerprint": hashlib.sha256(
+                json.dumps(
+                    {
+                        "release_id": os.environ["RELEASE_ID"],
+                        "site": os.environ["SITE_ADDRESS"],
+                        "database": os.environ["POSTGRES_DB"],
+                        "restic_enabled": bool(os.environ.get("RESTIC_REPOSITORY", "").strip()),
+                    },
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest(),
             "source": {"database": os.environ["POSTGRES_DB"], "site": os.environ["SITE_ADDRESS"]},
             "database": manifest_entry(database),
             "media": manifest_entry(media_archive),
@@ -93,17 +118,47 @@ def main() -> int:
         if repository:
             run(os.environ.get("RESTIC_COMMAND", "restic"), ["backup", str(target), "--tag", "mycdigitalizacion"], mode="restic")
             run(os.environ.get("RESTIC_COMMAND", "restic"), ["forget", "--keep-daily", os.environ.get("RESTIC_KEEP_DAILY", "7"), "--keep-weekly", os.environ.get("RESTIC_KEEP_WEEKLY", "5"), "--keep-monthly", os.environ.get("RESTIC_KEEP_MONTHLY", "12"), "--prune"], mode="restic")
+            snapshots = run(
+                os.environ.get("RESTIC_COMMAND", "restic"),
+                ["snapshots", "--json", "--tag", "mycdigitalizacion"],
+                mode="restic",
+                capture=True,
+            )
+            snapshot_data = json.loads(snapshots.stdout)
+            if not any(
+                target.resolve() == Path(str(path)).resolve()
+                for snapshot in snapshot_data
+                for path in snapshot.get("paths", [])
+            ):
+                raise RuntimeError("restic snapshot verification failed")
         prune_local(root, int(os.environ.get("BACKUP_RETENTION_DAYS", "14")))
-        print(json.dumps({"status": "ok", "backup": str(target)}))
+        verify_manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
+        for key in ("database", "media"):
+            entry = verify_manifest[key]
+            if sha256(target / entry["file"]) != entry["sha256"]:
+                raise RuntimeError(f"local {key} snapshot verification failed")
+        emit_event(
+            "backup",
+            "backup.completed",
+            backup=str(target),
+            release_id=os.environ["RELEASE_ID"],
+        )
         return 0
     except Exception as error:
         if partial.exists():
             shutil.rmtree(partial)
         post_alert("backup_failed", f"{type(error).__name__}: {error}")
-        print(f"backup failed: {type(error).__name__}: {error}", file=sys.stderr)
+        emit_event(
+            "backup",
+            "backup.failed",
+            level="error",
+            stream=sys.stderr,
+            error_type=type(error).__name__,
+            detail=str(error),
+        )
         return 1
     finally:
-        lock.unlink(missing_ok=True)
+        lock_context.__exit__(None, None, None)
 
 
 if __name__ == "__main__":

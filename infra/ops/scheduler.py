@@ -9,6 +9,8 @@ import subprocess
 import sys
 import time
 
+from common import emit_event
+
 
 STATE_FILE = Path(os.environ.get("BACKUP_HEALTH_FILE", "/tmp/backup-health.json"))
 
@@ -21,8 +23,15 @@ def write_state(*, status: str, returncode: int) -> None:
 
 
 def run_backup() -> int:
+    emit_event("backup-scheduler", "backup.started")
     result = subprocess.run([sys.executable, "/ops/backup.py"], check=False)
     write_state(status="ok" if result.returncode == 0 else "failed", returncode=result.returncode)
+    emit_event(
+        "backup-scheduler",
+        "backup.finished",
+        level="info" if result.returncode == 0 else "error",
+        returncode=result.returncode,
+    )
     return result.returncode
 
 

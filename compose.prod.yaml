@@ -7,6 +7,8 @@ x-service-defaults: &service-defaults
 
 x-app-environment: &app-environment
   APP_ENV: production
+  SERVICE_NAME: backend
+  RELEASE_ID: ${RELEASE_ID:-REPLACE_ME_RELEASE_ID}
   DJANGO_DEBUG: "false"
   SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env.production}
   DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?set DJANGO_ALLOWED_HOSTS in .env.production}
@@ -38,6 +40,7 @@ x-app-environment: &app-environment
 
 x-app-dependencies: &app-dependencies
   config-check: {condition: service_completed_successfully}
+  assets-init: {condition: service_completed_successfully}
   postgres: {condition: service_healthy}
   redis: {condition: service_healthy}
 
@@ -63,6 +66,7 @@ services:
     user: "10001:10001"
     read_only: true
     security_opt: [no-new-privileges:true]
+    volumes: [./infra/secrets:/run/secrets:ro]
 
   postgres:
     <<: *service-defaults
@@ -80,7 +84,7 @@ services:
       start_period: 20s
     deploy:
       resources:
-        limits: {cpus: "${POSTGRES_CPUS:-1.0}", memory: "${POSTGRES_MEMORY:-768M}"}
+        limits: {cpus: "${POSTGRES_CPUS:-1.0}", memory: "${POSTGRES_MEMORY:-640M}"}
 
   redis:
     <<: *service-defaults
@@ -97,7 +101,30 @@ services:
       start_period: 10s
     deploy:
       resources:
-        limits: {cpus: "${REDIS_CPUS:-0.5}", memory: "${REDIS_MEMORY:-256M}"}
+        limits: {cpus: "${REDIS_CPUS:-0.5}", memory: "${REDIS_MEMORY:-192M}"}
+
+  assets-init:
+    image: mycdigitalizaciones-backend-prod
+    build: {context: ./backend, target: production}
+    user: "0:0"
+    command: [python, /ops/init_assets.py]
+    restart: "no"
+    environment:
+      <<: *app-environment
+      MEDIA_ROOT: /app/media
+      STATIC_DATA_ROOT: /static-data
+      BACKUP_ROOT: /backups
+    depends_on:
+      config-check: {condition: service_completed_successfully}
+    volumes:
+      - ./infra/ops:/ops:ro
+      - media_data:/app/media
+      - static_data:/static-data
+      - backup_data:/backups
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits: {cpus: "${ASSETS_INIT_CPUS:-0.5}", memory: "${ASSETS_INIT_MEMORY:-256M}"}
 
   backend:
     <<: *app-common
@@ -109,15 +136,15 @@ services:
       - --workers
       - "3"
       - --access-logfile
-      - "-"
+      - /dev/null
       - --error-logfile
       - "-"
-      - --access-logformat
-      - '{"timestamp":"%(t)s","level":"info","logger":"gunicorn.access","request_id":"%({x-request-id}i)s","method":"%(m)s","path":"%(U)s","status":%(s)s,"duration_us":%(D)s}'
+      - --log-config-json
+      - /app/config/gunicorn-logging.json
     environment:
       <<: *app-environment
       MEDIA_ROOT: /app/media
-    volumes: [media_data:/app/media, static_data:/app/staticfiles]
+    volumes: [media_data:/app/media]
     healthcheck:
       test: [CMD, python, -c, "import os,urllib.request; request=urllib.request.Request('http://127.0.0.1:8000/readyz', headers={'Host': os.environ['SITE_ADDRESS'], 'X-Forwarded-Proto': 'https'}); urllib.request.urlopen(request, timeout=3)"]
       interval: 15s
@@ -126,7 +153,7 @@ services:
       start_period: 30s
     deploy:
       resources:
-        limits: {cpus: "${BACKEND_CPUS:-1.0}", memory: "${BACKEND_MEMORY:-768M}"}
+        limits: {cpus: "${BACKEND_CPUS:-1.0}", memory: "${BACKEND_MEMORY:-512M}"}
 
   worker:
     <<: *app-common
@@ -134,6 +161,7 @@ services:
     command: [celery, -A, config, worker, --loglevel=INFO]
     environment:
       <<: *app-environment
+      SERVICE_NAME: worker
       MEDIA_ROOT: /app/media
     volumes: [media_data:/app/media]
     healthcheck:
@@ -144,12 +172,15 @@ services:
       start_period: 45s
     deploy:
       resources:
-        limits: {cpus: "${WORKER_CPUS:-1.0}", memory: "${WORKER_MEMORY:-768M}"}
+        limits: {cpus: "${WORKER_CPUS:-1.0}", memory: "${WORKER_MEMORY:-512M}"}
 
   beat:
     <<: *app-common
     image: mycdigitalizaciones-worker-prod
     command: [celery, -A, config, beat, --loglevel=INFO, --pidfile=/tmp/celerybeat.pid, --schedule=/tmp/celerybeat-schedule]
+    environment:
+      <<: *app-environment
+      SERVICE_NAME: beat
     healthcheck:
       test: [CMD-SHELL, "test -s /tmp/celerybeat.pid && kill -0 $$(cat /tmp/celerybeat.pid)"]
       interval: 30s
@@ -158,7 +189,7 @@ services:
       start_period: 30s
     deploy:
       resources:
-        limits: {cpus: "${BEAT_CPUS:-0.5}", memory: "${BEAT_MEMORY:-256M}"}
+        limits: {cpus: "${BEAT_CPUS:-0.5}", memory: "${BEAT_MEMORY:-160M}"}
 
   frontend:
     <<: *service-defaults
@@ -181,9 +212,11 @@ services:
       start_period: 20s
     deploy:
       resources:
-        limits: {cpus: "${FRONTEND_CPUS:-1.0}", memory: "${FRONTEND_MEMORY:-512M}"}
+        limits: {cpus: "${FRONTEND_CPUS:-1.0}", memory: "${FRONTEND_MEMORY:-384M}"}
     read_only: true
-    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,size=64m"
+      - "/app/frontend/.next/cache:rw,noexec,nosuid,size=256m,uid=1000,gid=1000,mode=0750"
 
   backup:
     <<: *service-defaults
@@ -193,6 +226,7 @@ services:
     command: [python, /ops/scheduler.py]
     environment:
       APP_ENV: production
+      RELEASE_ID: ${RELEASE_ID:-REPLACE_ME_RELEASE_ID}
       SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env.production}
       ACME_EMAIL: ${ACME_EMAIL:-REPLACE_ME_ACME_EMAIL}
       ADMIN_ALLOWED_CIDRS: ${ADMIN_ALLOWED_CIDRS:-REPLACE_ME_ADMIN_CIDRS}
@@ -221,7 +255,10 @@ services:
     depends_on:
       config-check: {condition: service_completed_successfully}
       postgres: {condition: service_healthy}
-    volumes: [media_data:/srv/media:ro, backup_data:/backups]
+    volumes:
+      - media_data:/srv/media:ro
+      - backup_data:/backups
+      - ./infra/secrets:/run/secrets:ro
     healthcheck:
       test: [CMD, python, /ops/scheduler.py, --health]
       interval: 5m
@@ -230,7 +267,7 @@ services:
       start_period: 5m
     deploy:
       resources:
-        limits: {cpus: "${BACKUP_CPUS:-0.75}", memory: "${BACKUP_MEMORY:-512M}"}
+        limits: {cpus: "${BACKUP_CPUS:-0.75}", memory: "${BACKUP_MEMORY:-384M}"}
     read_only: true
     tmpfs: ["/tmp:rw,noexec,nosuid,size=128m"]
 
@@ -257,7 +294,7 @@ services:
       start_period: 15s
     deploy:
       resources:
-        limits: {cpus: "${CADDY_CPUS:-0.5}", memory: "${CADDY_MEMORY:-256M}"}
+        limits: {cpus: "${CADDY_CPUS:-0.5}", memory: "${CADDY_MEMORY:-128M}"}
     read_only: true
     tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
 

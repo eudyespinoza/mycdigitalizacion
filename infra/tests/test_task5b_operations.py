@@ -8,6 +8,7 @@ import sys
 import tarfile
 import tempfile
 import textwrap
+import time
 import unittest
 
 import yaml
@@ -43,10 +44,27 @@ def valid_environment() -> dict[str, str]:
         "POSTGRES_USER": "storefront_app",
         "POSTGRES_PASSWORD": "database-password-9aa4f49f8c28",
         "REDIS_PASSWORD": "redis-password-bf313f241c14",
+        "RELEASE_ID": "release-20260820-abcdef1",
         "SID_MODE": "disabled",
         "MERCADOPAGO_LIVE_MODE": "false",
         "CORREO_ARGENTINO_ENABLED": "false",
     }
+
+
+def rendered_production_compose() -> dict[str, object]:
+    environment = os.environ.copy()
+    environment["PRODUCTION_ENV_FILE"] = ".env.production.example"
+    result = subprocess.run(
+        ["docker", "compose", "--env-file", ".env.production.example", "-f", "compose.prod.yaml", "config"],
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise AssertionError(result.stderr)
+    return yaml.safe_load(result.stdout)
 
 
 class ProductionContractTests(unittest.TestCase):
@@ -75,6 +93,20 @@ class ProductionContractTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ADMIN_ALLOWED_CIDRS", result.stderr)
 
+    def test_admin_cidrs_use_spaces_and_reject_an_effective_public_union(self) -> None:
+        comma = run_script(
+            "validate_env.py",
+            env={**valid_environment(), "ADMIN_ALLOWED_CIDRS": "203.0.113.10/32,198.51.100.20/32"},
+        )
+        public_union = run_script(
+            "validate_env.py",
+            env={**valid_environment(), "ADMIN_ALLOWED_CIDRS": "0.0.0.0/1 128.0.0.0/1"},
+        )
+        self.assertNotEqual(comma.returncode, 0)
+        self.assertNotEqual(public_union.returncode, 0)
+        self.assertIn("ADMIN_ALLOWED_CIDRS", comma.stderr)
+        self.assertIn("ADMIN_ALLOWED_CIDRS", public_union.stderr)
+
     def test_restic_repository_requires_a_non_placeholder_encryption_secret(self) -> None:
         result = run_script(
             "validate_env.py",
@@ -82,6 +114,55 @@ class ProductionContractTests(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("RESTIC_PASSWORD", result.stderr)
+
+    def test_backup_controls_are_bounded_and_password_file_must_exist(self) -> None:
+        invalid_values = {
+            "BACKUP_INTERVAL_HOURS": "0",
+            "BACKUP_RETENTION_DAYS": "-1",
+            "RESTIC_KEEP_DAILY": "not-a-number",
+            "RESTIC_KEEP_WEEKLY": "0",
+            "RESTIC_KEEP_MONTHLY": "9999",
+        }
+        for name, value in invalid_values.items():
+            with self.subTest(name=name):
+                result = run_script("validate_env.py", env={**valid_environment(), name: value})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(name, result.stderr)
+        missing_file = run_script(
+            "validate_env.py",
+            env={
+                **valid_environment(),
+                "RESTIC_REPOSITORY": "/encrypted/offsite",
+                "RESTIC_PASSWORD_FILE": str(ROOT / "does-not-exist.secret"),
+            },
+        )
+        self.assertNotEqual(missing_file.returncode, 0)
+        self.assertIn("RESTIC_PASSWORD_FILE", missing_file.stderr)
+
+    def test_release_initializer_and_bounded_next_cache_are_runtime_dependencies(self) -> None:
+        compose = rendered_production_compose()
+        services = compose["services"]
+        self.assertIn("assets-init", services)
+        self.assertEqual(services["backend"]["depends_on"]["assets-init"]["condition"], "service_completed_successfully")
+        self.assertEqual(services["worker"]["depends_on"]["assets-init"]["condition"], "service_completed_successfully")
+        assets_mounts = services["assets-init"].get("volumes", [])
+        self.assertTrue(any("/backups" in str(item) for item in assets_mounts))
+        cache_mounts = services["frontend"].get("tmpfs", [])
+        self.assertTrue(any(item.startswith("/app/frontend/.next/cache:") and "size=" in item for item in cache_mounts))
+
+    def test_default_service_memory_leaves_at_least_one_gib_for_the_host(self) -> None:
+        compose = rendered_production_compose()
+        names = ("postgres", "redis", "backend", "worker", "beat", "frontend", "backup", "caddy")
+
+        def mebibytes(value: str | int) -> int:
+            if isinstance(value, int) or str(value).isdigit():
+                return int(value) // (1024 * 1024)
+            suffix = value[-1].upper()
+            amount = int(value[:-1])
+            return amount if suffix == "M" else amount * 1024
+
+        total = sum(mebibytes(compose["services"][name]["deploy"]["resources"]["limits"]["memory"]) for name in names)
+        self.assertLessEqual(total, 3072)
 
     def test_committed_production_example_is_deliberately_not_deployable(self) -> None:
         values: dict[str, str] = {}
@@ -106,6 +187,12 @@ class ProductionContractTests(unittest.TestCase):
         self.assertIn("/media/*", caddyfile)
         self.assertNotIn("tls internal", caddyfile)
 
+    def test_production_verifier_runs_real_config_and_runtime_boundaries(self) -> None:
+        source = (ROOT / "scripts" / "verify-production.py").read_text(encoding="utf-8")
+        self.assertIn('"run", "--rm", "config-check"', source)
+        self.assertIn("TASK5B_DOCKER_RUNTIME", source)
+        self.assertIn("test_task5b_runtime_boundaries", source)
+
 
 class BackupRestoreTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -122,9 +209,12 @@ class BackupRestoreTests(unittest.TestCase):
             from pathlib import Path
             import os
             import sys
+            import time
 
             mode = os.environ["FAKE_PG_MODE"]
             log = Path(os.environ["FAKE_PG_LOG"])
+            if os.environ.get("FAKE_SLEEP_MODE") == mode:
+                time.sleep(float(os.environ.get("FAKE_SLEEP_SECONDS", "2")))
             if os.environ.get("FAKE_FAIL_MODE") == mode:
                 with log.open("a", encoding="utf-8") as handle:
                     handle.write(mode + " failed\\n")
@@ -134,6 +224,10 @@ class BackupRestoreTests(unittest.TestCase):
                 target.write_bytes(b"portable pg dump")
             elif mode == "exists":
                 print("1" if os.environ.get("FAKE_DB_EXISTS") == "true" else "0")
+            elif mode == "restic" and "snapshots" in sys.argv:
+                with log.open("a", encoding="utf-8") as handle:
+                    handle.write(mode + " " + " ".join(sys.argv[1:]) + "\\n")
+                print(os.environ.get("FAKE_RESTIC_SNAPSHOTS", "[]"))
             else:
                 with log.open("a", encoding="utf-8") as handle:
                     handle.write(mode + " " + " ".join(sys.argv[1:]) + "\\n")
@@ -164,18 +258,89 @@ class BackupRestoreTests(unittest.TestCase):
         backup = self.create_backup()
         manifest = json.loads((backup / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["format_version"], 1)
+        self.assertEqual(manifest["release_id"], valid_environment()["RELEASE_ID"])
+        self.assertIn("configuration_fingerprint", manifest)
         self.assertEqual(manifest["database"]["file"], "database.dump")
         self.assertEqual(len(manifest["database"]["sha256"]), 64)
         self.assertEqual(len(manifest["media"]["sha256"]), 64)
         with tarfile.open(backup / "media.tar.gz", "r:gz") as archive:
             self.assertIn("media/catalog/photo.txt", archive.getnames())
 
-    def test_backup_lock_prevents_overlapping_runs(self) -> None:
-        self.backups.mkdir()
-        (self.backups / ".backup.lock").write_text("busy", encoding="utf-8")
-        result = run_script("backup.py", "--timestamp", "20260820T120000Z", env=self.backup_env())
+    def test_restic_backup_is_successful_only_after_snapshot_listing_confirms_target(self) -> None:
+        target = str(self.backups / "20260820T120000Z")
+        environment = {
+            **self.backup_env(),
+            "RESTIC_REPOSITORY": "/encrypted/offsite",
+            "RESTIC_PASSWORD": "restic-password-32-safe-characters",
+            "RESTIC_COMMAND": f'"{sys.executable}" "{self.fake}"',
+            "FAKE_RESTIC_SNAPSHOTS": json.dumps([{"id": "snapshot-1", "paths": [target]}]),
+        }
+        success = run_script("backup.py", "--timestamp", "20260820T120000Z", env=environment)
+        self.assertEqual(success.returncode, 0, success.stderr)
+        self.assertIn("snapshots", self.log.read_text(encoding="utf-8"))
+
+        empty_root = self.root / "empty-snapshot-backups"
+        failed = run_script(
+            "backup.py",
+            "--timestamp",
+            "20260820T120100Z",
+            env={
+                **environment,
+                "BACKUP_ROOT": str(empty_root),
+                "FAKE_RESTIC_SNAPSHOTS": "[]",
+            },
+        )
+        self.assertNotEqual(failed.returncode, 0)
+        failure = json.loads(failed.stderr.strip().splitlines()[-1])
+        self.assertEqual(failure["event"], "backup.failed")
+
+    def test_operational_failures_use_redacted_json_logs(self) -> None:
+        result = run_script(
+            "backup.py",
+            "--timestamp",
+            "20260820T120000Z",
+            env={
+                **self.backup_env(),
+                "FAKE_FAIL_MODE": "dump",
+                "BACKUP_ALERT_WEBHOOK_URL": (
+                    "https://alerts.example.test/hook?email=ana@example.com&token=secret"
+                ),
+            },
+        )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("already running", result.stderr)
+        event = json.loads(result.stderr.strip().splitlines()[-1])
+        self.assertEqual(event["service"], "backup")
+        self.assertEqual(event["event"], "backup.failed")
+        self.assertNotIn("ana@example.com", result.stderr)
+        self.assertNotIn("token=secret", result.stderr)
+
+    def test_backup_lock_prevents_overlapping_runs(self) -> None:
+        environment = os.environ.copy()
+        environment.update({**self.backup_env(), "FAKE_SLEEP_MODE": "dump", "FAKE_SLEEP_SECONDS": "2"})
+        first = subprocess.Popen(
+            [sys.executable, str(OPS / "backup.py"), "--timestamp", "20260820T120000Z"],
+            cwd=ROOT,
+            env=environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        for _ in range(50):
+            if (self.backups / ".backup.lock").exists():
+                break
+            time.sleep(0.05)
+        second = run_script("backup.py", "--timestamp", "20260820T120100Z", env=self.backup_env())
+        first_stdout, first_stderr = first.communicate(timeout=10)
+        self.assertEqual(first.returncode, 0, first_stderr or first_stdout)
+        self.assertNotEqual(second.returncode, 0)
+        self.assertIn("already running", second.stderr)
+
+    def test_stale_lock_file_is_recovered_and_next_snapshot_is_created(self) -> None:
+        self.backups.mkdir()
+        (self.backups / ".backup.lock").write_text('{"pid":999999,"host":"dead-container"}', encoding="utf-8")
+        result = run_script("backup.py", "--timestamp", "20260820T120000Z", env=self.backup_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.backups / "20260820T120000Z" / "manifest.json").is_file())
 
     def test_restore_refuses_existing_targets_and_restores_only_to_new_targets(self) -> None:
         backup = self.create_backup()
@@ -225,6 +390,19 @@ class BackupRestoreTests(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("target database already exists", result.stderr)
+
+    def test_restore_has_no_existing_target_override(self) -> None:
+        backup = self.create_backup()
+        result = run_script(
+            "restore.py",
+            "--backup", str(backup),
+            "--target-db", "existing_database",
+            "--target-media", str(self.root / "existing-media"),
+            "--confirm-existing",
+            env=valid_environment(),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unrecognized arguments: --confirm-existing", result.stderr)
 
     def test_restore_rejects_an_unsafe_database_identifier_before_calling_postgres(self) -> None:
         backup = self.create_backup()

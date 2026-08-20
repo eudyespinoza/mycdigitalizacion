@@ -4,7 +4,7 @@ Este runbook despliega una única instancia de mycdigitalizacion con TLS automá
 
 ## 1. Prerrequisitos y borde de red
 
-- VPS Donweb con Ubuntu 24.04 LTS, mínimo recomendado 2 vCPU, 4 GB RAM, 40 GB SSD y swap acotada. Ajustá los límites `*_MEMORY`/`*_CPUS` del entorno si el plan es menor.
+- VPS Donweb con Ubuntu 24.04 LTS, mínimo recomendado 2 vCPU, 4 GB RAM, 40 GB SSD y swap acotada. Los límites steady-state suman 2912 MiB y reservan al menos 1 GiB para SO/Docker/page cache. No construyas imágenes durante un pico: usá CI/registry o una ventana con servicios no esenciales detenidos.
 - Usuario operador con sudo y acceso SSH por clave. Deshabilitá contraseña y root remoto después de comprobar una segunda sesión.
 - Docker Engine y plugin Compose actuales. Confirmá con `docker version` y `docker compose version`.
 - Registro horario UTC y sincronización NTP activa. Reservá espacio fuera del volumen PostgreSQL para `backup_data`.
@@ -38,9 +38,10 @@ chmod 600 .env.production
 Generá valores independientes con un gestor de secretos; por ejemplo `openssl rand -base64 48`. `DJANGO_SECRET_KEY`, `PERSONAL_DATA_ENCRYPTION_KEY`, contraseñas PostgreSQL/Redis y Restic no se reutilizan. Configurá:
 
 - `SITE_ADDRESS`, `ACME_EMAIL` y `DJANGO_ALLOWED_HOSTS` con el dominio real, sin esquema.
-- `ADMIN_ALLOWED_CIDRS` con CIDR de oficina o VPN. El validador rechaza `0.0.0.0/0` y `::/0`.
+- `RELEASE_ID` con el commit/digest inmutable que se despliega; cambialo en cada release.
+- `ADMIN_ALLOWED_CIDRS` con CIDR de oficina o VPN separados únicamente por espacios. El validador rechaza comas, `0.0.0.0/0`, `::/0` y uniones que equivalgan a acceso público.
 - Credenciales SID, Mercado Pago y Correo Argentino sólo para los modos realmente habilitados. Un campo vacío no demuestra que el proveedor funciona.
-- `RESTIC_REPOSITORY=s3:s3.amazonaws.com/NOMBRE_BUCKET/prefijo`, `RESTIC_PASSWORD` y credenciales S3 de mínimo privilegio si habrá copia remota cifrada. El bucket debe tener versionado/bloqueo acorde a la política del negocio.
+- `RESTIC_REPOSITORY=s3:s3.amazonaws.com/NOMBRE_BUCKET/prefijo`, `RESTIC_PASSWORD` y credenciales S3 de mínimo privilegio si habrá copia remota cifrada. Como alternativa, guardá el secreto no versionado en `infra/secrets/restic-password` con modo `0600` y usá `RESTIC_PASSWORD_FILE=/run/secrets/restic-password`. El bucket debe tener versionado/bloqueo acorde a la política del negocio.
 - `BACKUP_ALERT_WEBHOOK_URL` a un endpoint que acepte JSON de estado. Nunca apunta a un canal público.
 
 El ejemplo está diseñado para fallar. Validalo antes de abrir tráfico:
@@ -50,7 +51,7 @@ docker compose --env-file .env.production -f compose.prod.yaml build config-chec
 docker compose --env-file .env.production -f compose.prod.yaml run --rm --no-deps config-check
 ```
 
-No sigas si el segundo comando no devuelve `{"status":"ok","environment":"production"}`.
+No sigas si el segundo comando no emite el evento JSON `config.valid` para `production`.
 
 ## 3. Primer despliegue
 
@@ -69,11 +70,15 @@ $dc up -d
 $dc ps
 ```
 
+`assets-init` corre como one-shot antes de backend/worker/beat: fija ownership de media/backups, ejecuta `collectstatic` y publica atómicamente `/srv/static/current` hacia `releases/$RELEASE_ID`. Si falla, los consumidores no arrancan. Media queda con dueño UID 1000, grupo lector de backup GID 10001 y setgid; Caddy/backup sólo la montan read-only.
+
 `backend` espera `/readyz`; no marques el despliegue sano mientras PostgreSQL o Redis figuren indisponibles. `worker`, `beat`, `frontend`, `backup` y `caddy` también deben llegar a `healthy`. Inspeccioná sólo la ventana necesaria de logs y no copies cookies, tokens ni parámetros de búsqueda:
 
 ```sh
 $dc logs --since=10m backend worker beat caddy
 ```
+
+Web, worker, beat y operaciones emiten JSON con `timestamp`, `level`, `service`, `event` y `request_id` o `job_id` cuando aplica. Caddy genera un UUID, Django sólo acepta ese formato y Celery lo propaga al publicar trabajos. Los logs omiten query strings, cookies, autorización, referrer y PII detectada; aun así, tratá todo log como dato operativo sensible.
 
 Caddy solicita certificados públicos automáticamente. Si falla, comprobá DNS, reloj y acceso entrante 80/443 antes de reintentar; no habilites `tls internal` en producción.
 
@@ -101,7 +106,7 @@ Los cuerpos esperados son `{"status":"ok"}` en liveness y, con dependencias sana
 
 ## 6. Backups y alertas
 
-El servicio `backup` ejecuta `pg_dump` en formato custom, archiva media, calcula SHA-256 y escribe `manifest.json` mediante un directorio parcial y lock exclusivo. Conserva copias locales por `BACKUP_RETENTION_DAYS`; si Restic está configurado, aplica retención diaria/semanal/mensual y cifrado del repositorio.
+El servicio `backup` ejecuta `pg_dump` en formato custom, archiva media, calcula SHA-256 y escribe `manifest.json` mediante un directorio parcial y lock de sistema operativo. El manifiesto incluye `RELEASE_ID` y fingerprint sanitizado. Un kill libera el lock; la contención dispara alerta. Conserva copias locales por `BACKUP_RETENTION_DAYS`; si Restic está configurado, aplica retención diaria/semanal/mensual, confirma el snapshot JSON y cifra el repositorio.
 
 Inicializá Restic una sola vez y hacé la primera copia manual:
 
@@ -116,7 +121,7 @@ Omití `restic init` cuando no exista repositorio remoto. En ese caso documentá
 
 ## 7. Simulacro de restauración seguro
 
-Elegí un backup y nombres nuevos. El script rechaza el nombre de base activa, bases existentes y rutas de media existentes salvo `--confirm-existing`. La práctica normal nunca usa esa confirmación.
+Elegí un backup y nombres nuevos. El script siempre rechaza la base activa, cualquier base existente y cualquier ruta media existente. No existe bypass de overwrite: una promoción/swap posterior exige una ventana y procedimiento aprobados por separado.
 
 ```sh
 $dc run --rm --no-deps backup ls -la /backups
@@ -144,8 +149,8 @@ Nunca uses `docker compose down -v`, `docker volume prune` ni una restauración 
 
 1. Registrá revisión actual: `git rev-parse HEAD`.
 2. Confirmá backup local/remoto reciente y espacio libre.
-3. Descargá y fijá la nueva revisión, sin ejecutar código no revisado.
-4. Ejecutá `python scripts/verify-production.py --env-file .env.production --build`.
+3. Descargá y fijá la nueva revisión, sin ejecutar código no revisado, y actualizá `RELEASE_ID` al identificador exacto.
+4. Ejecutá `python scripts/verify-production.py --env-file .env.production --build`. El comando ejecuta config-check real y drills Docker aislados de Caddy, volúmenes, cache y backup; reservá capacidad y no uses `--skip-runtime` para aprobar una release.
 5. Construí imágenes, migrá y recreá servicios:
 
 ```sh
@@ -157,11 +162,15 @@ $dc ps
 
 Repetí el smoke test y observá errores, latencia, cola y backup. No borres imágenes anteriores hasta cerrar la ventana de rollback.
 
+El nuevo `assets-init` publica una release static nueva aun cuando `static_data` ya exista; comprobá un asset de Admin por Caddy antes de cerrar la ventana.
+
 ## 9. Rollback e incidente
 
 - Si no hubo migración incompatible, fijá la revisión/imágenes anteriores, ejecutá `$dc build` y `$dc up -d`; repetí health y smoke.
 - Si cambió el esquema, no improvises una migración inversa. Detené escritura, conservá evidencia, restaurá a una base y volumen nuevos con el procedimiento anterior, verificá integridad y recién entonces cambiá los targets en una ventana aprobada.
 - Ante sospecha de credenciales expuestas: restringí borde, rotá el secreto en su proveedor y `.env.production`, recreá sólo servicios consumidores, revocá el valor anterior y revisá auditoría. No publiques el secreto en logs.
 - Ante disco lleno: detené escrituras si es necesario y ampliá capacidad. No borres volúmenes ni backups sin inventario y aprobación.
+
+Las imágenes base aún se actualizan por tags de versión mayor/menor. Para rollback reproducible, publicá las imágenes resultantes con tag/digest de `RELEASE_ID` en un registry y registrá sus digests antes de borrar capas anteriores. CSP se mantiene como decisión pendiente: Next y Django Admin requieren una política con nonce probada en browser; no se agregó un `unsafe-inline` cosmético. Evaluá primero `Content-Security-Policy-Report-Only`, COOP y CORP en staging.
 
 Documentá inicio/fin, revisión, operador, resultado de smoke, último backup verificable y cualquier desviación del runbook.

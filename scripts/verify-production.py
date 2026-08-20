@@ -17,9 +17,14 @@ def run(command: list[str], *, environment: dict[str, str] | None = None) -> Non
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate the production container contract")
-    parser.add_argument("--env-file", default=".env.production.example")
+    parser.add_argument("--env-file", default=".env.production")
     parser.add_argument("--build", action="store_true", help="Build every production image")
+    parser.add_argument("--skip-runtime", action="store_true", help="Skip destructive isolated Docker drills")
     arguments = parser.parse_args()
+
+    env_path = (ROOT / arguments.env_file).resolve()
+    if not env_path.is_file():
+        raise FileNotFoundError(f"production environment file does not exist: {env_path}")
 
     environment = os.environ.copy()
     environment["PRODUCTION_ENV_FILE"] = arguments.env_file
@@ -29,6 +34,7 @@ def main() -> int:
     run([*compose, "build", "config-check", "backup", "caddy"], environment=environment)
     if arguments.build:
         run([*compose, "build", "backend", "worker", "beat", "frontend"], environment=environment)
+    run([*compose, "run", "--rm", "config-check"], environment=environment)
     run([
         "docker", "run", "--rm",
         "-e", "SITE_ADDRESS=tienda.mycdigitalizacion.com.ar",
@@ -53,6 +59,21 @@ def main() -> int:
         actual = result.stdout.strip()
         if actual != expected:
             raise RuntimeError(f"{image} runs as {actual or 'root'}, expected {expected}")
+    if not arguments.skip_runtime:
+        if not arguments.build:
+            raise RuntimeError("runtime drills require --build so tested images match this release")
+        runtime_environment = {**environment, "TASK5B_DOCKER_RUNTIME": "1"}
+        run(
+            [
+                sys.executable,
+                "-m",
+                "unittest",
+                "infra.tests.test_task5b_caddy_runtime",
+                "infra.tests.test_task5b_runtime_boundaries",
+                "-v",
+            ],
+            environment=runtime_environment,
+        )
     print("Production container contract: OK")
     return 0
 

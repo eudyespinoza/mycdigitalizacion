@@ -57,3 +57,55 @@ Proyecto temporal `task5bverify` (red, DB, Redis y volúmenes propios):
 - No se ejecutó un backup S3/Restic real porque no se proporcionaron credenciales ni bucket. La imagen incluye Restic, el validador obliga secreto cifrado y el runbook exige `restic init`, snapshots y `restic check`.
 - TLS público no se emitió en local: se validó la configuración con Caddy real y el runbook exige DNS propagado/80+443 antes del primer arranque.
 - Los límites de recursos son defaults; deben ajustarse al plan Donweb y carga observada.
+
+## Fix Round 1 — cierre de revisión 401874f
+
+### Mapeo R1–R10
+
+- **R1/R4:** `assets-init` root one-shot es dependencia obligatoria de backend/worker/beat. Inicializa media como UID 1000, GID lector 10001, modo setgid `2750`; inicializa backups UID/GID 10001; ejecuta `collectstatic` y publica `static_data/releases/$RELEASE_ID` mediante symlink atómico `current`. Un drill real escribió con Django storage, generó derivados, recreó Caddy y conservó/sirvió media y static de la segunda release.
+- **R2/R3:** el bloque Caddy usa `route` explícito: bloqueo Admin antecede al proxy. El validador normaliza CIDR por espacios, rechaza comas y uniones públicas. Pruebas con Caddy real cubren IP permitida/denegada y fallo upstream; los eventos conservan path/status/request-id y eliminan query, cookie, Authorization y Referer.
+- **R5:** frontend mantiene rootfs read-only y un tmpfs cache de imagen de 256 MiB, UID/GID 1000. Requests cold/warm reales al optimizador fueron idénticos y no emitieron `EROFS`/`EACCES`.
+- **R6/R7:** backup usa lock del SO con metadata, exclusión concurrente y recuperación automática después de kill. Intervalo/retención local y Restic tienen bounds; password-file debe existir/ser legible. Success exige snapshot local presente con checksums y, si Restic está activo, un snapshot JSON que contenga el target.
+- **R8:** se eliminó por completo el overwrite. Restore sólo acepta DB y media nuevas, usa staging para media y elimina la DB recién creada si falla.
+- **R9:** Django liga UUID confiable de Caddy, responde `X-Request-ID` y emite JSON allow-list; Celery propaga el request-id en headers y liga job-id. Gunicorn error, web, worker, beat, config-check, assets, backup/scheduler y restore comparten logs JSON redacted. Tests cubren éxito, excepción y queued work.
+- **R10:** defaults steady-state suman 2912 MiB sobre el mínimo de 4 GiB. El runbook prohíbe build durante pico y recomienda CI/registry. Backup real corrió con límite 384 MiB y recuperación tras kill; toda la matriz de servicios peligrosos corrió aislada.
+
+### Opcionales seguros
+
+- **O3:** manifiesto agrega `RELEASE_ID` y fingerprint sanitizado de configuración.
+- **O4:** `infra/secrets` se monta read-only en config-check/backup y documenta `RESTIC_PASSWORD_FILE=/run/secrets/restic-password`; el payload queda ignorado por Git.
+- **O5:** `verify-production.py` dejó de aceptar el ejemplo como aprobación: exige un env real, ejecuta el contenedor config-check y por defecto corre los drills Docker runtime después del build.
+- **O1/O2:** no se fijaron digests ni un CSP improvisado. El runbook exige publicar/registrar digests por release y documenta CSP Report-Only con nonces como trabajo de staging; agregar `unsafe-inline` o digests no verificados habría reducido seguridad o roto Next/Admin.
+
+### Evidencia final
+
+```text
+python -m unittest infra.tests.test_task5b_operations -v
+21 tests, OK
+
+TASK5B_DOCKER_RUNTIME=1 python -m unittest \
+  infra.tests.test_task5b_caddy_runtime \
+  infra.tests.test_task5b_runtime_boundaries -v
+5 tests, OK (309.764s)
+
+APP_ENV=test python -m pytest -q  # backend shared state
+222 passed, 16 skipped
+
+python -m ruff check .
+All checks passed
+
+pnpm lint && pnpm typecheck && pnpm test:ci
+5 files, 25 tests passed
+```
+
+- `docker compose ... config --quiet`: PASS, incluida compatibilidad de render sin Redis histórico; `DJANGO_DEBUG=false` queda forzado.
+- `docker compose ... run --rm --no-deps config-check` con entorno production válido: evento `config.valid`.
+- `caddy validate` real: PASS.
+- Builds finales backend/frontend/Caddy/ops: PASS; frontend Next compiló, TypeScript, SSG y standalone.
+- Matriz runtime: Admin allowed/denied, error-log sin PII, cache Next cold/warm, media+derivada+static upgrade+Caddy recreation y backup kill/restart: 5/5 PASS.
+- Al cerrar los drills no quedaron contenedores, redes ni volúmenes `task5b-*`.
+
+### Límites restantes
+
+- No se usaron credenciales S3 reales: el contrato Restic se probó con un comando controlado que exige snapshot JSON; el runbook mantiene `restic init`, `snapshots` y `check` como gate operativo.
+- TLS público y CSP con nonces sólo pueden aprobarse contra DNS/staging reales. La configuración Caddy sí fue adaptada, validada y ejercitada en HTTP aislado.

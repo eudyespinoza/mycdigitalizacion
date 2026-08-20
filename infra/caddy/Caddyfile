@@ -3,6 +3,21 @@
 	https_port 8443
 	email {$ACME_EMAIL}
 	admin 127.0.0.1:2019
+	log default {
+		output stdout
+		level ERROR
+		exclude http.log.error
+		format filter {
+			wrap json
+			fields {
+				request>headers>Authorization delete
+				request>headers>Cookie delete
+				request>headers>Referer delete
+				request>uri regexp "^([^?]*).*$" "$1"
+				error regexp "\\?.*$" ""
+			}
+		}
+	}
 }
 
 {$SITE_ADDRESS} {
@@ -20,6 +35,7 @@
 		Permissions-Policy "camera=(), microphone=(), geolocation=(self)"
 		X-Request-ID "{http.request.uuid}"
 	}
+	request_header X-Request-ID {http.request.uuid}
 	log_append request_id {http.request.uuid}
 
 	log {
@@ -29,39 +45,43 @@
 			fields {
 				request>headers>Authorization delete
 				request>headers>Cookie delete
-				request>uri regexp "\\?.*$" ""
+				request>headers>Referer delete
+				request>uri regexp "^([^?]*).*$" "$1"
 			}
 		}
 	}
 
-	@blockedAdmin {
-		path /admin /admin/*
-		not remote_ip {$ADMIN_ALLOWED_CIDRS}
-	}
-	respond @blockedAdmin 403
-
-	@backend path /api/* /admin /admin/* /healthz /readyz
-	handle @backend {
-		reverse_proxy backend:8000 {
-			header_up X-Request-ID {http.request.uuid}
+	route {
+		@blockedAdmin {
+			path /admin /admin/*
+			not remote_ip {$ADMIN_ALLOWED_CIDRS}
 		}
-	}
+		respond @blockedAdmin 403
 
-	@static path /static/*
-	handle @static {
-		root * /srv
-		file_server
-	}
+		@backend path /api/* /admin /admin/* /healthz /readyz
+		handle @backend {
+			reverse_proxy backend:8000 {
+				header_up X-Request-ID {http.request.uuid}
+			}
+		}
 
-	@media path /media/*
-	handle @media {
-		root * /srv
-		file_server
-	}
+		@static path /static/*
+		handle @static {
+			root * /srv/static/current
+			uri strip_prefix /static
+			file_server
+		}
 
-	handle {
-		reverse_proxy frontend:3000 {
-			header_up X-Request-ID {http.request.uuid}
+		@media path /media/*
+		handle @media {
+			root * /srv
+			file_server
+		}
+
+		handle {
+			reverse_proxy frontend:3000 {
+				header_up X-Request-ID {http.request.uuid}
+			}
 		}
 	}
 }

@@ -9,7 +9,7 @@ import shutil
 import sys
 import tarfile
 
-from common import run, sha256
+from common import emit_event, run, sha256
 from validate_env import validate
 
 
@@ -28,9 +28,9 @@ def verify(backup: Path) -> dict[str, object]:
     return manifest
 
 
-def extract_media(archive_path: Path, target: Path, confirm_existing: bool) -> None:
-    if target.exists() and not confirm_existing:
-        raise ValueError("target media already exists; pass --confirm-existing to overwrite")
+def extract_media(archive_path: Path, target: Path) -> None:
+    if target.exists():
+        raise ValueError("target media already exists; restore requires a new target")
     resolved = target.resolve()
     if resolved == Path(resolved.anchor) or resolved == Path.home().resolve():
         raise ValueError("unsafe media target")
@@ -59,11 +59,7 @@ def extract_media(archive_path: Path, target: Path, confirm_existing: bool) -> N
                         raise ValueError("missing media archive payload")
                     with destination.open("wb") as output:
                         shutil.copyfileobj(source, output)
-        if target.exists():
-            shutil.copytree(staging, target, dirs_exist_ok=True)
-            shutil.rmtree(staging)
-        else:
-            staging.rename(target)
+        staging.rename(target)
     except Exception:
         if staging.exists():
             shutil.rmtree(staging)
@@ -75,12 +71,11 @@ def main() -> int:
     parser.add_argument("--backup", required=True)
     parser.add_argument("--target-db", required=True)
     parser.add_argument("--target-media", required=True)
-    parser.add_argument("--confirm-existing", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     arguments = parser.parse_args()
     errors = validate()
     if errors:
-        print("\n".join(errors), file=sys.stderr)
+        emit_event("restore", "config.invalid", level="error", stream=sys.stderr, detail="; ".join(errors))
         return 2
     backup = Path(arguments.backup).resolve()
     target_media = Path(arguments.target_media).resolve()
@@ -89,10 +84,10 @@ def main() -> int:
         if not DATABASE_NAME.fullmatch(arguments.target_db):
             raise ValueError("invalid target database name")
         manifest = verify(backup)
-        if arguments.target_db == os.environ["POSTGRES_DB"] and not arguments.confirm_existing:
-            raise ValueError("target database is the live source; confirmation required")
-        if target_media.exists() and not arguments.confirm_existing:
-            raise ValueError("target media already exists; pass --confirm-existing to overwrite")
+        if arguments.target_db == os.environ["POSTGRES_DB"]:
+            raise ValueError("target database is the live source; restore requires a new target")
+        if target_media.exists():
+            raise ValueError("target media already exists; restore requires a new target")
         exists_result = run(
             os.environ.get("PG_DATABASE_EXISTS_COMMAND", "psql"),
             ["--host", os.environ.get("POSTGRES_HOST", "postgres"), "--port", os.environ.get("POSTGRES_PORT", "5432"), "--username", os.environ["POSTGRES_USER"], "--dbname", "postgres", "--tuples-only", "--no-align", "--command", f"SELECT 1 FROM pg_database WHERE datname = '{arguments.target_db}'"],
@@ -100,21 +95,30 @@ def main() -> int:
             capture=True,
         )
         database_exists = exists_result.stdout.strip() == "1"
-        if database_exists and not arguments.confirm_existing:
-            raise ValueError("target database already exists; pass --confirm-existing to overwrite")
+        if database_exists:
+            raise ValueError("target database already exists; restore requires a new target")
         if arguments.dry_run:
-            print(json.dumps({"status": "dry-run", "database_exists": database_exists, "target_db": arguments.target_db, "target_media": str(target_media)}))
+            emit_event(
+                "restore",
+                "restore.dry_run",
+                database_exists=database_exists,
+                target_db=arguments.target_db,
+                target_media=str(target_media),
+            )
             return 0
         if not database_exists:
             run(os.environ.get("PG_CREATEDB_COMMAND", "createdb"), ["--host", os.environ.get("POSTGRES_HOST", "postgres"), "--port", os.environ.get("POSTGRES_PORT", "5432"), "--username", os.environ["POSTGRES_USER"], arguments.target_db], mode="createdb")
             database_created = True
         restore_arguments = ["--host", os.environ.get("POSTGRES_HOST", "postgres"), "--port", os.environ.get("POSTGRES_PORT", "5432"), "--username", os.environ["POSTGRES_USER"], "--dbname", arguments.target_db]
-        if database_exists:
-            restore_arguments.extend(["--clean", "--if-exists"])
         restore_arguments.append(str(backup / str(manifest["database"]["file"])))
         run(os.environ.get("PG_RESTORE_COMMAND", "pg_restore"), restore_arguments, mode="restore")
-        extract_media(backup / str(manifest["media"]["file"]), target_media, arguments.confirm_existing)
-        print(json.dumps({"status": "ok", "target_db": arguments.target_db, "target_media": str(target_media)}))
+        extract_media(backup / str(manifest["media"]["file"]), target_media)
+        emit_event(
+            "restore",
+            "restore.completed",
+            target_db=arguments.target_db,
+            target_media=str(target_media),
+        )
         return 0
     except Exception as error:
         if database_created:
@@ -125,8 +129,21 @@ def main() -> int:
                     mode="dropdb",
                 )
             except Exception as cleanup_error:
-                print(f"restore cleanup failed: {type(cleanup_error).__name__}", file=sys.stderr)
-        print(f"restore refused: {error}", file=sys.stderr)
+                emit_event(
+                    "restore",
+                    "restore.cleanup_failed",
+                    level="error",
+                    stream=sys.stderr,
+                    error_type=type(cleanup_error).__name__,
+                )
+        emit_event(
+            "restore",
+            "restore.refused",
+            level="error",
+            stream=sys.stderr,
+            error_type=type(error).__name__,
+            detail=str(error),
+        )
         return 1
 
 

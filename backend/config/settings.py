@@ -173,6 +173,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    "config.observability.RequestContextMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -283,6 +284,29 @@ PERSONAL_DATA_ENCRYPTION_KEY = environ.get(
 )
 CELERY_BROKER_URL = environ.get("REDIS_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
+CELERY_WORKER_HIJACK_ROOT_LOGGER = False
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "json": {
+            "()": "config.observability.JsonFormatter",
+            "service": environ.get("SERVICE_NAME", "backend"),
+        }
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "json",
+        }
+    },
+    "root": {"handlers": ["console"], "level": environ.get("LOG_LEVEL", "INFO")},
+    "loggers": {
+        "django.server": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "celery": {"handlers": ["console"], "level": "INFO", "propagate": False},
+    },
+}
 
 PUBLIC_BACKEND_URL = environ.get(
     "PUBLIC_BACKEND_URL", f"https://{environ.get('SITE_ADDRESS', 'localhost')}"
