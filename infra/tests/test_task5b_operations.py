@@ -150,9 +150,19 @@ class ProductionContractTests(unittest.TestCase):
         cache_mounts = services["frontend"].get("tmpfs", [])
         self.assertTrue(any(item.startswith("/app/frontend/.next/cache:") and "size=" in item for item in cache_mounts))
 
-    def test_default_service_memory_leaves_at_least_one_gib_for_the_host(self) -> None:
+    def test_default_service_and_release_overlap_leaves_one_gib_for_the_host(self) -> None:
         compose = rendered_production_compose()
-        names = ("postgres", "redis", "backend", "worker", "beat", "frontend", "backup", "caddy")
+        names = (
+            "postgres",
+            "redis",
+            "backend",
+            "worker",
+            "beat",
+            "frontend",
+            "backup",
+            "caddy",
+            "assets-init",
+        )
 
         def mebibytes(value: str | int) -> int:
             if isinstance(value, int) or str(value).isdigit():
@@ -213,6 +223,10 @@ class BackupRestoreTests(unittest.TestCase):
 
             mode = os.environ["FAKE_PG_MODE"]
             log = Path(os.environ["FAKE_PG_LOG"])
+            if os.environ.get("FAKE_EMIT_SENSITIVE") == "true":
+                print("diagnostic https://provider.test/path?email=ana@example.com&token=stdout-secret")
+                print("credential " + os.environ["POSTGRES_PASSWORD"])
+                print("password=stderr-secret cookie=session-secret", file=sys.stderr)
             if os.environ.get("FAKE_SLEEP_MODE") == mode:
                 time.sleep(float(os.environ.get("FAKE_SLEEP_SECONDS", "2")))
             if os.environ.get("FAKE_FAIL_MODE") == mode:
@@ -313,6 +327,30 @@ class BackupRestoreTests(unittest.TestCase):
         self.assertEqual(event["event"], "backup.failed")
         self.assertNotIn("ana@example.com", result.stderr)
         self.assertNotIn("token=secret", result.stderr)
+
+    def test_subprocess_stdout_and_stderr_are_redacted_json_events(self) -> None:
+        result = run_script(
+            "backup.py",
+            "--timestamp",
+            "20260820T120000Z",
+            env={**self.backup_env(), "FAKE_EMIT_SENSITIVE": "true"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        combined = result.stdout + result.stderr
+        self.assertNotIn("ana@example.com", combined)
+        self.assertNotIn("stdout-secret", combined)
+        self.assertNotIn("stderr-secret", combined)
+        self.assertNotIn("session-secret", combined)
+        self.assertNotIn(self.backup_env()["POSTGRES_PASSWORD"], combined)
+        events = [json.loads(line) for line in combined.splitlines() if line.strip()]
+        subprocess_events = [event for event in events if event["event"].startswith("subprocess.")]
+        self.assertTrue(all(event["job_id"] for event in events))
+        self.assertEqual(
+            {event["event"] for event in subprocess_events},
+            {"subprocess.stdout", "subprocess.stderr"},
+        )
+        self.assertTrue(all(event["service"] == "backup" for event in subprocess_events))
+        self.assertTrue(all(event["job_id"] for event in subprocess_events))
 
     def test_backup_lock_prevents_overlapping_runs(self) -> None:
         environment = os.environ.copy()

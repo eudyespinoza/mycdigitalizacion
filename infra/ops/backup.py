@@ -89,7 +89,12 @@ def main() -> int:
             "--file", str(database),
             os.environ["POSTGRES_DB"],
         ]
-        run(os.environ.get("PG_DUMP_COMMAND", "pg_dump"), pg_arguments, mode="dump")
+        run(
+            os.environ.get("PG_DUMP_COMMAND", "pg_dump"),
+            pg_arguments,
+            mode="dump",
+            service="backup",
+        )
         media_archive = partial / "media.tar.gz"
         with tarfile.open(media_archive, "w:gz") as archive:
             archive.add(media, arcname="media", recursive=True)
@@ -116,13 +121,24 @@ def main() -> int:
         partial.rename(target)
         repository = os.environ.get("RESTIC_REPOSITORY", "").strip()
         if repository:
-            run(os.environ.get("RESTIC_COMMAND", "restic"), ["backup", str(target), "--tag", "mycdigitalizacion"], mode="restic")
-            run(os.environ.get("RESTIC_COMMAND", "restic"), ["forget", "--keep-daily", os.environ.get("RESTIC_KEEP_DAILY", "7"), "--keep-weekly", os.environ.get("RESTIC_KEEP_WEEKLY", "5"), "--keep-monthly", os.environ.get("RESTIC_KEEP_MONTHLY", "12"), "--prune"], mode="restic")
+            run(
+                os.environ.get("RESTIC_COMMAND", "restic"),
+                ["backup", str(target), "--tag", "mycdigitalizacion"],
+                mode="restic",
+                service="backup",
+            )
+            run(
+                os.environ.get("RESTIC_COMMAND", "restic"),
+                ["forget", "--keep-daily", os.environ.get("RESTIC_KEEP_DAILY", "7"), "--keep-weekly", os.environ.get("RESTIC_KEEP_WEEKLY", "5"), "--keep-monthly", os.environ.get("RESTIC_KEEP_MONTHLY", "12"), "--prune"],
+                mode="restic",
+                service="backup",
+            )
             snapshots = run(
                 os.environ.get("RESTIC_COMMAND", "restic"),
                 ["snapshots", "--json", "--tag", "mycdigitalizacion"],
                 mode="restic",
                 capture=True,
+                service="backup",
             )
             snapshot_data = json.loads(snapshots.stdout)
             if not any(

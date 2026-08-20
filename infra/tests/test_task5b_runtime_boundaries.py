@@ -11,6 +11,8 @@ from urllib.parse import quote
 from urllib.request import urlopen
 import uuid
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -56,6 +58,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
             "frontend": f"task5b-runtime-frontend-{suffix}",
             "backup_runner": f"task5b-runtime-backup-{suffix}",
         }
+        self.budget_containers: list[str] = []
         for volume in ("media", "static", "caddy_data", "caddy_config", "backup"):
             docker("volume", "create", self.names[volume])
         docker("network", "create", self.names["network"])
@@ -63,6 +66,8 @@ class RuntimeBoundaryTests(unittest.TestCase):
     def tearDown(self) -> None:
         for name in ("caddy", "frontend", "backend", "frontend_stub", "backup_runner"):
             docker("rm", "-f", self.names[name], check=False)
+        for container in self.budget_containers:
+            docker("rm", "-f", container, check=False)
         docker("network", "rm", self.names["network"], check=False)
         for volume in ("media", "static", "caddy_data", "caddy_config", "backup"):
             docker("volume", "rm", "-f", self.names[volume], check=False)
@@ -204,7 +209,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
             }
             env_args = [item for key, value in environment.items() for item in ("-e", f"{key}={value}")]
             common = [
-                "--memory", "384m", *env_args,
+                "--memory", "320m", *env_args,
                 "-v", f"{self.names['media']}:/srv/media:ro",
                 "-v", f"{self.names['backup']}:/backups",
                 "--mount", f"type=bind,src={fake},dst=/fixture/fake_dump.py,readonly",
@@ -236,6 +241,49 @@ class RuntimeBoundaryTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(verify.returncode, 0)
+
+    def test_four_gib_release_overlap_is_enforced_concurrently(self) -> None:
+        environment = {**os.environ, "PRODUCTION_ENV_FILE": ".env.production.example"}
+        rendered = subprocess.run(
+            [
+                "docker", "compose", "--env-file", ".env.production.example",
+                "-f", "compose.prod.yaml", "config",
+            ],
+            cwd=ROOT,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        services = yaml.safe_load(rendered.stdout)["services"]
+        overlap = (
+            "postgres", "redis", "backend", "worker", "beat",
+            "frontend", "backup", "caddy", "assets-init",
+        )
+        limits = {
+            name: int(services[name]["deploy"]["resources"]["limits"]["memory"])
+            for name in overlap
+        }
+        self.assertLessEqual(sum(limits.values()), 3 * 1024**3)
+
+        suffix = uuid.uuid4().hex[:8]
+        for service, memory in limits.items():
+            name = f"task5b-budget-{service}-{suffix}"
+            self.budget_containers.append(name)
+            docker(
+                "create", "--name", name, "--memory", str(memory),
+                "alpine:3.21", "sleep", "60",
+            )
+        docker("start", *self.budget_containers)
+        for container, expected in zip(self.budget_containers, limits.values(), strict=True):
+            actual = int(
+                docker("inspect", container, "--format", "{{.HostConfig.Memory}}").stdout.strip()
+            )
+            self.assertEqual(actual, expected)
+            self.assertEqual(
+                docker("inspect", container, "--format", "{{.State.Running}}").stdout.strip(),
+                "true",
+            )
 
 
 if __name__ == "__main__":

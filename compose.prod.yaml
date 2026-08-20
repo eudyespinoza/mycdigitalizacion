@@ -189,7 +189,7 @@ services:
       start_period: 30s
     deploy:
       resources:
-        limits: {cpus: "${BEAT_CPUS:-0.5}", memory: "${BEAT_MEMORY:-160M}"}
+        limits: {cpus: "${BEAT_CPUS:-0.5}", memory: "${BEAT_MEMORY:-128M}"}
 
   frontend:
     <<: *service-defaults
@@ -267,7 +267,7 @@ services:
       start_period: 5m
     deploy:
       resources:
-        limits: {cpus: "${BACKUP_CPUS:-0.75}", memory: "${BACKUP_MEMORY:-384M}"}
+        limits: {cpus: "${BACKUP_CPUS:-0.75}", memory: "${BACKUP_MEMORY:-320M}"}
     read_only: true
     tmpfs: ["/tmp:rw,noexec,nosuid,size=128m"]
 

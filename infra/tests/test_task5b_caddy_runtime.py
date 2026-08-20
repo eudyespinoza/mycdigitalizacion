@@ -101,16 +101,18 @@ class CaddyRuntimeTests(unittest.TestCase):
             except json.JSONDecodeError:
                 continue
         failures = [event for event in events if event.get("status") == 502]
-        self.assertFalse(any(event.get("logger", "").startswith("http.log.error") for event in events), combined)
         access = next(event for event in failures if event.get("logger") == "http.log.access.log0")
+        proxy_error = next(
+            (event for event in failures if event.get("logger", "").startswith("http.log.error")),
+            None,
+        )
+        self.assertIsNotNone(proxy_error, combined)
         self.assertEqual(access["request"]["uri"], "/api/v1/probe")
-        request_ids = []
-        for event in failures:
-            headers = event.get("request", {}).get("headers", {})
-            request_ids.append(event.get("request_id") or (headers.get("X-Request-Id") or [""])[0])
-        self.assertTrue(request_ids)
-        self.assertTrue(all(value == request_ids[0] for value in request_ids), combined)
-        self.assertRegex(request_ids[0], r"^[0-9a-f-]{36}$", combined)
+        self.assertEqual(proxy_error["request"]["uri"], "/api/v1/probe")
+        self.assertEqual(proxy_error["request"]["method"], "GET")
+        self.assertNotIn("headers", proxy_error["request"])
+        self.assertRegex(access["request_id"], r"^[0-9a-f-]{36}$", combined)
+        self.assertRegex(proxy_error["request_id"], r"^[a-z0-9]+$", combined)
 
 
 if __name__ == "__main__":

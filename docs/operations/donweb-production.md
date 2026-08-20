@@ -4,7 +4,7 @@ Este runbook despliega una única instancia de mycdigitalizacion con TLS automá
 
 ## 1. Prerrequisitos y borde de red
 
-- VPS Donweb con Ubuntu 24.04 LTS, mínimo recomendado 2 vCPU, 4 GB RAM, 40 GB SSD y swap acotada. Los límites steady-state suman 2912 MiB y reservan al menos 1 GiB para SO/Docker/page cache. No construyas imágenes durante un pico: usá CI/registry o una ventana con servicios no esenciales detenidos.
+- VPS Donweb con Ubuntu 24.04 LTS, mínimo recomendado 2 vCPU, 4 GB RAM, 40 GB SSD y swap acotada. Los límites steady-state suman 2816 MiB; aun durante un `assets-init` de release el overlap máximo declarado es 3072 MiB y reserva 1 GiB para SO/Docker/page cache. No construyas imágenes durante un pico: usá CI/registry o una ventana con servicios no esenciales detenidos.
 - Usuario operador con sudo y acceso SSH por clave. Deshabilitá contraseña y root remoto después de comprobar una segunda sesión.
 - Docker Engine y plugin Compose actuales. Confirmá con `docker version` y `docker compose version`.
 - Registro horario UTC y sincronización NTP activa. Reservá espacio fuera del volumen PostgreSQL para `backup_data`.

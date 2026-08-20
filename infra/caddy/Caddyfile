@@ -6,15 +6,13 @@
 	log default {
 		output stdout
 		level ERROR
-		exclude http.log.error
 		format filter {
 			wrap json
 			fields {
-				request>headers>Authorization delete
-				request>headers>Cookie delete
-				request>headers>Referer delete
+				request>headers delete
 				request>uri regexp "^([^?]*).*$" "$1"
 				error regexp "\\?.*$" ""
+				err_id rename request_id
 			}
 		}
 	}

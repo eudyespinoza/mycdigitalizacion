@@ -5,10 +5,9 @@ import os
 from pathlib import Path
 import re
 import shutil
-import subprocess
 import sys
 
-from common import emit_event
+from common import emit_event, run
 
 
 RELEASE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{6,79}$")
@@ -40,11 +39,12 @@ def main() -> int:
     os.chown(backup_root, 10001, 10001)
     os.chmod(backup_root, 0o700)
 
-    subprocess.run(
-        [sys.executable, "manage.py", "collectstatic", "--noinput", "--clear"],
+    run(
+        sys.executable,
+        ["manage.py", "collectstatic", "--noinput", "--clear"],
+        mode="collectstatic",
+        service="assets-init",
         cwd="/app",
-        env=os.environ.copy(),
-        check=True,
     )
     source = Path("/app/staticfiles")
     releases = static_root / "releases"

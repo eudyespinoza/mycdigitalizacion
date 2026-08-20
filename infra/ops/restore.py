@@ -93,6 +93,7 @@ def main() -> int:
             ["--host", os.environ.get("POSTGRES_HOST", "postgres"), "--port", os.environ.get("POSTGRES_PORT", "5432"), "--username", os.environ["POSTGRES_USER"], "--dbname", "postgres", "--tuples-only", "--no-align", "--command", f"SELECT 1 FROM pg_database WHERE datname = '{arguments.target_db}'"],
             mode="exists",
             capture=True,
+            service="restore",
         )
         database_exists = exists_result.stdout.strip() == "1"
         if database_exists:
@@ -107,11 +108,16 @@ def main() -> int:
             )
             return 0
         if not database_exists:
-            run(os.environ.get("PG_CREATEDB_COMMAND", "createdb"), ["--host", os.environ.get("POSTGRES_HOST", "postgres"), "--port", os.environ.get("POSTGRES_PORT", "5432"), "--username", os.environ["POSTGRES_USER"], arguments.target_db], mode="createdb")
+            run(os.environ.get("PG_CREATEDB_COMMAND", "createdb"), ["--host", os.environ.get("POSTGRES_HOST", "postgres"), "--port", os.environ.get("POSTGRES_PORT", "5432"), "--username", os.environ["POSTGRES_USER"], arguments.target_db], mode="createdb", service="restore")
             database_created = True
         restore_arguments = ["--host", os.environ.get("POSTGRES_HOST", "postgres"), "--port", os.environ.get("POSTGRES_PORT", "5432"), "--username", os.environ["POSTGRES_USER"], "--dbname", arguments.target_db]
         restore_arguments.append(str(backup / str(manifest["database"]["file"])))
-        run(os.environ.get("PG_RESTORE_COMMAND", "pg_restore"), restore_arguments, mode="restore")
+        run(
+            os.environ.get("PG_RESTORE_COMMAND", "pg_restore"),
+            restore_arguments,
+            mode="restore",
+            service="restore",
+        )
         extract_media(backup / str(manifest["media"]["file"]), target_media)
         emit_event(
             "restore",
@@ -127,6 +133,7 @@ def main() -> int:
                     os.environ.get("PG_DROPDB_COMMAND", "dropdb"),
                     ["--host", os.environ.get("POSTGRES_HOST", "postgres"), "--port", os.environ.get("POSTGRES_PORT", "5432"), "--username", os.environ["POSTGRES_USER"], arguments.target_db],
                     mode="dropdb",
+                    service="restore",
                 )
             except Exception as cleanup_error:
                 emit_event(
