@@ -303,3 +303,82 @@ The focused file now contains 37 passing cases and the two real PostgreSQL/Redis
 ### Final Fix Round 1 assessment
 
 Fix Round 1 closes the shared-cache/2FA security boundary, MIME naming, audited inventory/CSV import, cancellation state machine, logistics visibility and keyboard announcement. It does not yet satisfy Task 5A. Editors can still corrupt global CMS order through the advertised numeric fallback, an allowed draft state cannot be visually previewed, derivative publication is neither bounded nor atomic, and Admin refund retries can send a second external operation with a new key. These are observable contract gaps, not style-only concerns.
+
+## Fix Round 2 independent verdict
+
+Review target: `f6644c018c2049a99b023091eff88580c648743f`
+
+### Verdict
+
+- **RESOLVED: 2** — R5 and O2.
+- **PARTIAL: 4** — R3, R4, R6 and O4.
+- **UNRESOLVED: 0**.
+- **SPEC COMPLIANCE: FAIL.** Mobile Admin still has an interaction-blocking header overlay, CMS order can still be corrupted outside the list view, and responsive generation still duplicates some retained originals. These are required Admin/CMS/media boundaries.
+- **CODE QUALITY: NEEDS WORK.** The refund recovery and media rollback code are materially stronger and every committed gate passes, but the new negative suite misses three neighboring variants and the implementation report overstates the exact full-suite count.
+
+### Independent verification
+
+The review used an isolated `git archive` of the exact target. Concurrent Task 5B work and the three later dirty Task 5A files in the shared worktree were not loaded into the runtime and were not modified.
+
+- Focused SQLite contracts: `47 passed in 11.41s` for `test_task5a_fix_round2.py` plus `test_task5a_admin_contracts.py` after isolated `collectstatic`.
+- Full exact-commit SQLite-compatible suite: `217 passed, 16 skipped in 77.34s`, not the implementation report's `219 passed, 18 skipped`.
+- Fresh PostgreSQL 17/Redis 7: all real Task 5A integration tests passed (`3 passed in 29.75s`); the complete Round 2 plus PostgreSQL file passed `13 passed in 37.05s`. Lost-local-commit plus concurrent-refund selection passed `2 passed in 24.37s`.
+- `ruff check .`, `manage.py check`, migration drift and OpenAPI JSON generation passed.
+- Real Admin at 360/768/1024/1440 px had exact document widths and no header/content overlap. At 360 px the header measured `165.97px`; at the other widths it measured `114.58`, `114.58` and `65.78px`.
+- On the actual second page (`?p=2`) of 205 records, the first IDs were `101,102,103`, there were zero list order inputs, and Alt+ArrowDown produced `102,101,103`, returned focus to ID 101 and announced `Elemento movido a la posición visible 2; orden global guardado.`
+- A mobile-only preview produced both `<source>` and fallback `<img>`. With the exact generated media path fulfilled as production media routing would serve it, the browser decoded `640x900`, rendered `330x280`, and used the authored focal position.
+- Browser screenshots were kept in `%TEMP%` (`task5a-fix2-admin-360.png`, `task5a-fix2-actual-page2-360.png`, `task5a-fix2-preview-fulfilled-360.png`). Temporary databases, servers and containers were removed after verification.
+
+### Finding-by-finding status
+
+#### R3 — PARTIAL: semantic grouping is fixed, but the mobile theme control covers the brand
+
+**Files:** `backend/templates/admin/base_site.html:18-40`, `backend/landing/static/admin/css/mycdigitalizacion.css:31-38`, `backend/tests/test_task5a_fix_round2.py:21-43`.
+
+The override removes the anonymous `.` and `/` grid rows, introduces a labelled session-controls navigation group, and removes overflow/overlap at all four viewports. The new mobile selector nevertheless applies `width:100%` to every `.myc-user-links button`, including the absolutely positioned `.theme-toggle`. At 360 px the toggle's real box was `x=-12`, width `360`, height `44`, over the brand link at `x=58.39`, width `197.39`, height `32`. `document.elementFromPoint()` at the center of the brand returned `BUTTON.theme-toggle`, so the invisible theme hit area intercepts the logo/home target. R3 remains partial because the visual stack is more compact but not interaction-safe or semantically coherent in real mobile use.
+
+The committed R3 test only checks rendered text and wrapper classes; it never loads the CSS at a viewport and therefore cannot detect this overlay.
+
+#### R4 — PARTIAL: the page-2 list bypass is gone, but another Admin form still corrupts global order
+
+**Files:** `backend/landing/admin.py:22-29,57-85`, `backend/landing/models.py:43-45`, `backend/tests/test_task5a_fix_round2.py:49-76`.
+
+Removing `list_editable` closes the exact paginated list POST from Round 1. Real page 2 had no numeric order inputs, and the unchanged locked stable-ID endpoint normalized all 205 records correctly after a keyboard move.
+
+The change form still exposes `#id_order` because `order` is neither excluded nor readonly. In a real authenticated PostgreSQL-backed Admin session, opening record 102, changing order `101` to `0` and saving succeeded; records 2 and 102 then both had `order=0`. The implementation report's statement that the reorder endpoint is now the only mutation path is false. R4 remains partial: the advertised page-2 bypass is closed and global drag/keyboard reorder works, but global order is not authoritative across the whole Admin surface.
+
+The new test also labels `?p=1` as page two. In the real paginator `?p=1` is page 1; actual page 2 is `?p=2` and begins at IDs 101–103.
+
+#### R5 — RESOLVED: mobile-only protected preview has a real fallback image
+
+**Files:** `backend/templates/admin/landing/scheduledcontent/preview.html:7-13`, `backend/tests/test_task5a_fix_round2.py:79-125`.
+
+Desktop-only, mobile-only and combined media shapes now always emit a fallback `<img>`, while mobile content also emits its media `<source>`. The authenticated 360 px mobile-only browser repro decoded the image, rendered its authored 280 px safe height and retained the focal position. The protected, record-specific behavior from Round 1 did not regress.
+
+#### R6 — PARTIAL: publication cleanup is atomic, but intermediate-width originals are still duplicated
+
+**Files:** `backend/config/media.py:95-153`, `backend/landing/models.py:103-160`, `backend/catalog/models.py:171-209`, `backend/tests/test_task5a_fix_round2.py:128-246`.
+
+The exact previous 2000 px case is capped at 1440. A second derivative-write failure now removes every partial derivative, and landing/catalog replacement failures roll back the database, remove the new source/derivatives and preserve the old asset set. Those paths passed against filesystem storage and both SQLite and PostgreSQL transaction backends.
+
+The width calculation still unions `{width_cap}` into every manifest. With a 1000 px source and configured `(320,640,960,1440)`, the real generator returned `[320,640,960,1000]` and stored both `source-1000.webp` and `source-1000.optimized.jpg` beside the retained `source.png`. Thus sources between configured breakpoints — and sources smaller than the first breakpoint — still get a duplicate full-source derivative. R6 remains partial because the cap is enforced but the prior “original already retained separately” boundary is not generally satisfied.
+
+The committed cap test uses only a source wider than the maximum configured width, so this branch is uncovered.
+
+#### O2 — RESOLVED: refund retries have stable recovery and PostgreSQL serialization
+
+**Files:** `backend/commerce/admin_services.py:23-27,30-64,79-93`, `backend/commerce/payments.py:314-407`, `backend/tests/test_task5a_fix_round2.py:249-309`, `backend/tests/test_postgres_task5a_admin.py:74-128`.
+
+Admin refunds now derive a deterministic UUIDv5 from the order public ID. When the provider succeeded but the local transaction was forced to roll back, the retry reused the identical key, reconciled one approved Refund and wrote one completion audit. Two concurrent real PostgreSQL calls serialized through the locked refund path and produced one provider call, one Refund and one audit. O2 is resolved for the previously reproduced lost-response and concurrency risks.
+
+#### O4 — PARTIAL: negative coverage is broader, but the evidence still claims more than it proves
+
+**Files:** `backend/tests/test_task5a_fix_round2.py:21-309`, `backend/tests/test_postgres_task5a_admin.py:74-128`, `.superpowers/sdd/implementation-plan/task-5a-admin-report.md:195-216`.
+
+The new suite does cover the original orphan punctuation, list-level numeric POST, three preview media shapes, 2000 px cap, partial storage write, landing/catalog rollback, lost local refund commit and PostgreSQL refund concurrency. It does not exercise rendered mobile hit testing, the still-editable single-record order field, actual paginator page 2, or a source between configured breakpoints; all four escaped while the closure suite stayed green.
+
+The report also records `219 passed, 18 skipped` for the full shared suite, while an isolated run of this exact commit collected and completed `217 passed, 16 skipped`. Its claimed page-2 browser evidence moved IDs 1 and 2, which are page 1; the independent actual-page-2 repro moved IDs 101 and 102. O4 remains partial because the added tests are useful but the behavior/evidence boundary is still not exact.
+
+### Final Fix Round 2 assessment
+
+Fix Round 2 resolves mobile-only preview and the payment-safety retry blocker, and it makes media publication cleanup recoverable. Task 5A is still not acceptable: the 360 px theme toggle intercepts the brand, editors can create duplicate global order values through the individual change form, and intermediate-width images still receive redundant full-size derivatives. The remaining failures are localized but user-visible or data-integrity relevant; SPEC remains **FAIL** and QUALITY remains **NEEDS WORK**.
