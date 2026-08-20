@@ -178,3 +178,128 @@ The exact commit contains **17**, not the reported 18, Task 5A contract tests. A
 ## Final assessment
 
 The commit is a credible foundation: exact role synchronization is idempotent, CMS scheduling/alt/focal/height/popup controls are represented in models/API, export masking/formula/audit behavior works, upload byte/dimension/decompression checks work, and cost remains private. It is not ready to accept as Task 5A because the production security and state-management boundaries fail outside the happy-path tests, and media/CMS/admin behavior is incomplete in real responsive use.
+
+## Fix Round 1 independent verdict
+
+Review target: `b1ded28f6e52e2649d76150e0c192ea1bccef7df`
+
+### Verdict
+
+- **RESOLVED: 9** — R1, R2, R7, R8, R9, R10, R11, O1 and O3.
+- **PARTIAL: 6** — R3, R4, R5, R6, O2 and O4.
+- **UNRESOLVED: 0**.
+- **SPEC COMPLIANCE: FAIL.** Three core CMS/media findings and the required mobile Admin presentation remain partial. The payment retry defect recorded under O2 is also a release-safety concern.
+- **CODE QUALITY: NEEDS WORK.** The implementation is substantially stronger and all committed gates pass, but the suite still misses six reproduced boundary failures.
+
+### Independent verification
+
+The review ran from an isolated archive of the exact commit; concurrent Task 5B files in the shared worktree were neither loaded into the test artifact nor modified.
+
+- Focused SQLite: `37 passed, 2 skipped in 13.08s` for `test_task5a_admin_contracts.py` plus `test_postgres_task5a_admin.py`. The two skips are the explicit external PostgreSQL/Redis cases.
+- Full SQLite-compatible suite: `207 passed, 15 skipped in 75.01s`.
+- Exact 53-test PostgreSQL/Redis selection: `53 passed in 221.78s`, using fresh isolated PostgreSQL 17 and Redis 7 containers. The dedicated cross-client Redis throttle and concurrent cancellation tests also passed alone: `2 passed in 32.56s`.
+- `ruff check .`, `manage.py check`, migration drift and OpenAPI JSON validation: all passed.
+- Exact production cache alias in two separate Python processes used `RedisCache` and reserved the same key as `1`, then `2`.
+- Real browser 2FA path completed login → `/admin/2fa/` → provider callback → Admin 200. Logout removed the 32-character session cookie.
+- Real browser dashboard metrics at 360/768/1024/1440 px had exact document widths, header bottom equal to content top, and a minimum header-control height of 44 px.
+- With 205 CMS records, keyboard reorder on actual page 2 changed IDs `101,102,103` to `102,101,103`, returned HTTP 200 and announced `Elemento movido a la posición visible 2; orden global guardado.`
+- Real order detail rendered shipment status/tracking, suppressed an unsafe `javascript:` label as `Sin etiqueta`, exposed no Order add link and rendered no mutation submit button.
+
+### Finding-by-finding status
+
+#### R1 — RESOLVED: production throttle state is shared and atomic
+
+**Files:** `backend/config/settings.py:35-45,247-253`, `backend/config/admin_security.py:15-33,79-110`, `backend/tests/test_postgres_task5a_admin.py:13-38`.
+
+Production now uses the dedicated Redis-backed `admin_login` cache and the throttle uses atomic `add`/`incr`. Two independent real application processes observed the same counter, and the committed real-Redis concurrency test passed. Development/test retains an explicit local fallback.
+
+#### R2 — RESOLVED: 2FA has a working provider lifecycle
+
+**Files:** `backend/config/admin_security.py:36-76,113-140`, `backend/config/settings.py:245-259`, `backend/config/urls.py:4-18`.
+
+Missing provider configuration fails startup, the challenge and callback are routed, verification is bound to the pending staff ID, the session rotates, and logout clears verification. The complete redirect chain was reproduced in a real browser, not only through direct session mutation.
+
+#### R3 — PARTIAL: collision is fixed, but the 360 px header is still not an intentional mobile stack
+
+**Files:** `backend/landing/static/admin/css/mycdigitalizacion.css:11-15,29-49`, `backend/templates/admin/base_site.html:11-15`.
+
+There is no longer overlap or horizontal overflow, and controls measure 44 px at all four required widths. At 360 px, however, the literal separators between user-tool elements become anonymous grid items: the screenshot shows a standalone `.` row followed by three standalone `/` rows. The header grows to `254.97px` before content starts. R3 remains partial because the acceptance required an intentional, coherent mobile organization, not only non-overlap.
+
+#### R4 — PARTIAL: drag/keyboard ordering is global, but the promised numeric fallback still corrupts it
+
+**Files:** `backend/landing/admin.py:22-86`, `backend/landing/static/admin/js/mycd-sortable.js:22-60`.
+
+The stable-ID endpoint locks and normalizes the global 205-record sequence; real page-2 keyboard movement and `aria-live` feedback work. But `list_editable = ("order",)` remains active. On actual page 2, changing record 102 from order `100` to `0` and pressing Django's normal Save returned success and left two records with `order=0`. Non-JavaScript/numeric ordering therefore retains the original cross-page corruption path.
+
+#### R5 — PARTIAL: preview is protected and record-specific, but mobile-only content has no rendered image
+
+**Files:** `backend/landing/admin.py:35-48,88-96,112-116`, `backend/templates/admin/landing/scheduledcontent/preview.html:5-13`.
+
+Unauthenticated preview returns 302, while a staff user can inspect disabled/future record state, focal values and safe heights. The template only emits `<img>` when `desktop_image` exists. A valid mobile-only draft rendered one `<source>` and zero `<img>` elements at 360 px, so the picture displays no image. The public preview workflow is not complete for the allowed mobile-only model state.
+
+#### R6 — PARTIAL: MIME/API and happy-path replacement work, but widths are unbounded and storage failure is non-atomic
+
+**Files:** `backend/config/media.py:95-156`, `backend/landing/models.py:103-136`, `backend/catalog/models.py:169-196`, `backend/landing/serializers.py:29-72`, `backend/catalog/serializers.py:23-44`.
+
+Responsive manifests are now public, decoded MIME drives filenames, replacement/removal regenerate and clean assets on the happy path, and AVIF/WebP fallback behavior is covered. Two required lifecycle boundaries still fail:
+
+1. With configured widths `(320, 640, 960, 1440)`, a 2000 px source produced `[320, 640, 960, 1440, 2000]`; the generator creates another full-width derivative even though the original is already retained separately.
+2. A synthetic storage failure on the second write propagated while leaving `source-320.webp` beside the original. Model save happens before derivative publication, so there is no staging/rollback for partially written derivative sets.
+
+#### R7 — RESOLVED: stored suffix follows decoded content
+
+**Files:** `backend/config/media.py:12-39,46-90`, `backend/landing/models.py:48-57`.
+
+Validation records the decoded extension and upload paths reject an undecoded format. The focused real-file tests cover spoofed MIME, wrong client suffix and public serialization, and pass.
+
+#### R8 — RESOLVED: Admin and CSV stock changes are service-backed and audited
+
+**Files:** `backend/catalog/admin.py:31-32,54-63,126-176`, `backend/catalog/admin_io.py:169-207`, `backend/commerce/inventory.py:8-35`, `backend/commerce/migrations/0014_inventorymovement_actor_inventorymovement_source.py`.
+
+Direct Admin fields are readonly, the guarded adjustment route and committed CSV import call the locked inventory service, and movements retain delta, actor, source and reference atomically. The browser/API route and PostgreSQL gates passed.
+
+#### R9 — RESOLVED: malformed/bounded CSV failures are recoverable
+
+**Files:** `backend/catalog/admin_io.py:64-166`.
+
+Byte and row limits, UTF-8 failure, parser/header errors, duplicate headers and incompatible existing slugs return bounded validation results. Dry-run and committed imports preserve the no-partial-write contract in the focused suite.
+
+#### R10 — RESOLVED: cancellation has locked state, payment and return guards
+
+**Files:** `backend/commerce/cancellation.py:8-58`, `backend/commerce/admin_services.py:23-41`, `backend/tests/test_postgres_task5a_admin.py:41-68`.
+
+Shipped/fulfilled orders return the stable return-required error, paid and pending/attention payments are refused, active reservations are released, cancelled retries are idempotent and concurrent PostgreSQL calls create one transition/audit. Both focused and real concurrency selections pass.
+
+#### R11 — RESOLVED: Order Admin is operationally complete and read-only
+
+**Files:** `backend/commerce/admin.py:34-73,103-143,259-286`.
+
+Direct creation/change is disabled, shipment/tracking/status and a scheme-checked label are visible inline, and actions remain service/permission backed. The real change page exposed no add or save path and rendered the logistics fields safely.
+
+#### O1 — RESOLVED: reorder announces keyboard movement
+
+**File:** `backend/landing/static/admin/js/mycd-sortable.js:29-37,54-60`.
+
+The real page-2 keyboard interaction returned focus to the row and populated the live region with its new visible position and global-save status.
+
+#### O2 — PARTIAL: operator UX is bounded, but payment retry keys are still nondeterministic
+
+**Files:** `backend/commerce/admin.py:76-82,145-190`, `backend/commerce/admin_services.py:50-55`.
+
+Reasons are required and preserved; provider/domain failures are contained per selection and reported without diagnostics. Refund actions do not provide an idempotency key, so the dispatcher falls back to `uuid.uuid4()` on every attempt. In an actual database flow where the provider call raised after receiving the request, two identical Admin retries sent two different keys (`b1cc…` then `c0c5…`) and both local transactions rolled back to zero refunds. A provider that completed the first request can therefore process the second again. This is a payment-safety blocker despite O2's original optional classification.
+
+#### O3 — RESOLVED: incompatible existing product slugs are file errors
+
+**File:** `backend/catalog/admin_io.py:99-127`.
+
+The importer now compares existing name/category and rejects incompatible metadata before writes. The focused conflict and dry-run tests pass.
+
+#### O4 — PARTIAL: evidence is much stronger, but it still misses every residual boundary
+
+**Files:** `backend/tests/test_task5a_admin_contracts.py`, `backend/tests/test_postgres_task5a_admin.py`, `.superpowers/sdd/implementation-plan/task-5a-admin-report.md`.
+
+The focused file now contains 37 passing cases and the two real PostgreSQL/Redis cases are genuine. Full, integration, static and schema gates all pass. Coverage still does not exercise the malformed 360 grid/text-node layout, numeric page-2 fallback, mobile-only preview, over-cap derivative width, partial storage failure, or lost-response refund retry. All six escaped while the reported closure suite remained green.
+
+### Final Fix Round 1 assessment
+
+Fix Round 1 closes the shared-cache/2FA security boundary, MIME naming, audited inventory/CSV import, cancellation state machine, logistics visibility and keyboard announcement. It does not yet satisfy Task 5A. Editors can still corrupt global CMS order through the advertised numeric fallback, an allowed draft state cannot be visually previewed, derivative publication is neither bounded nor atomic, and Admin refund retries can send a second external operation with a new key. These are observable contract gaps, not style-only concerns.
