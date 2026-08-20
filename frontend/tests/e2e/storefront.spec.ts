@@ -11,6 +11,10 @@ test("responsive landing, optimized media, product and keyboard-safe cart drawer
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /todo lo que buscás/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ideas para estudio y oficina" })).toBeVisible();
+  const heroMedia = page.locator(".hero-media");
+  await expect(heroMedia.locator("img")).toHaveCount(1);
+  await expect(heroMedia.locator("picture source")).toHaveCount(1);
+  expect(await heroMedia.locator("img").evaluate((image) => getComputedStyle(image).objectPosition)).toBe("58% 50%");
   const sparseCard = await page.locator(".home-grid.count-1 .product-card").boundingBox();
   expect(sparseCard?.width ?? 0).toBeGreaterThan(testInfo.project.name === "360" ? 300 : 520);
   await page.screenshot({ path: `../.impeccable/review/${testInfo.project.name}.png`, fullPage: true });

@@ -9,7 +9,7 @@ export default defineConfig({
   webServer: [
     { command: "node tests/mock-api.mjs", port: 4010, reuseExistingServer: false },
     {
-      command: "pnpm build && pnpm start",
+      command: "pnpm build && node .next/standalone/frontend/server.js",
       port: 3001,
       reuseExistingServer: false,
       timeout: 180_000,

@@ -187,3 +187,30 @@ The only non-failing advisory remains Next development mode occasionally identif
 below-fold collection raster as LCP on the intentionally sparse fixture. It is intentionally lazy;
 the production optimizer test and build pass. The Impeccable detector was not run and `DESIGN.md`
 was not created, as required.
+
+## Fix Round 3 (2026-08-20)
+
+This minimal round closes the sole REQUIRED F7 regression recorded in review commit `9186791`.
+
+- **RED:** the responsive campaign test required authored focal `63% 42%`, exactly one accessible
+  `<img>`, one mobile `<source>` and one high-priority responsive image. The previous implementation
+  failed with two rendered priority images. A second RED caught that the new `<picture>` needed a
+  positioned containing block for Next `fill` semantics.
+- **GREEN:** `CampaignImage` now renders one Next `Image` inside a positioned `<picture>`. The mobile
+  art-directed `srcSet` comes from `getImageProps`, so both desktop and mobile `/media` candidates
+  remain optimized. `fetchPriority="high"` prioritizes the single selected browser resource without
+  generating duplicate hero preloads. Alt text, responsive `sizes` and authored focal coordinates
+  remain on the one image. The mobile `66% center !important` override was removed.
+- The production harness now starts the actual standalone artifact with
+  `node .next/standalone/frontend/server.js`, matching the Docker topology rather than invoking
+  unsupported `next start`.
+- Real production HTML verification found one high-priority hero image, the mobile `<source>`, and
+  zero hero image preload links; the optimizer request to relative `/media` still returned HTTP 200.
+- `pnpm lint`, `pnpm typecheck`, and `pnpm test:ci` pass (`5` files / `25` tests). The production
+  optimizer/HTML suite passes `2/2`; the responsive Playwright path passes `4/4` at 360, 768, 1024
+  and 1440 while asserting one image and computed authored focal `58% 50%` in every project.
+- The four responsive screenshots were refreshed; 360 and 768 were inspected directly. The 768
+  sparse card remains intentionally unchanged because the optional height adjustment offered less
+  value than the risk of disturbing the accepted editorial composition.
+
+The Impeccable detector was not run and `DESIGN.md` was not created.

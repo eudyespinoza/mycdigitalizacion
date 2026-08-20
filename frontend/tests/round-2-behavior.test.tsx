@@ -14,7 +14,7 @@ const product = (id: number): Product => ({
 const facets: CatalogResponse["facets"] = { categories: [], brands: [], price: { min: null, max: null }, availability: { in_stock: 0, out_of_stock: 0 }, offer: { on_offer: 0, regular: 0 }, attributes: [] };
 
 describe("Fix Round 2 CMS behavior", () => {
-  test("responsive campaign media renders authored desktop and mobile sources with focal position", () => {
+  test("responsive campaign media uses one prioritized image with authored mobile art direction and focal position", () => {
     const content: ScheduledContent = {
       id: 7, title: "Colección", body: "", alt_text: "Útiles sobre un escritorio",
       desktop_image_url: "/media/cms/desktop.png", mobile_image_url: "/media/cms/mobile.png",
@@ -22,11 +22,15 @@ describe("Fix Round 2 CMS behavior", () => {
       safe_height_mobile: 320, safe_height_tablet: 460, safe_height_desktop: 580,
       starts_at: null, ends_at: null, order: 1,
     };
-    render(<CampaignImage content={content} prefix="collection" />);
-    const desktop = screen.getByRole("img", { name: content.alt_text });
-    expect(desktop).toHaveAttribute("src", expect.stringContaining("desktop.png"));
-    expect(desktop).toHaveStyle({ objectPosition: "63% 42%" });
-    expect(document.querySelector(".collection-image-mobile")).toHaveAttribute("src", expect.stringContaining("mobile.png"));
+    const { container } = render(<CampaignImage content={content} prefix="hero" priority />);
+    const image = screen.getByRole("img", { name: content.alt_text });
+    expect(container.querySelectorAll("img")).toHaveLength(1);
+    expect(container.querySelectorAll("picture source")).toHaveLength(1);
+    expect(container.querySelector("picture")).toHaveStyle({ position: "absolute", inset: "0" });
+    expect(container.querySelector("picture source")).toHaveAttribute("srcset", expect.stringContaining("mobile.png"));
+    expect(image).toHaveAttribute("src", expect.stringContaining("desktop.png"));
+    expect(image).toHaveAttribute("fetchpriority", "high");
+    expect(image).toHaveStyle({ objectPosition: "63% 42%" });
   });
 
   test("collection product IDs resolve beyond the first server page without loading unnecessary pages", async () => {
