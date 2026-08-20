@@ -242,12 +242,22 @@ STORAGES = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
 
-CACHES = {
-    "default": {
+def default_cache_config(environment: Mapping[str, str]) -> dict[str, object]:
+    redis_url = environment.get("REDIS_URL", "").strip()
+    if redis_url:
+        return {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": redis_url,
+            "KEY_PREFIX": "mycd",
+            "TIMEOUT": 300,
+        }
+    return {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "mycd-default",
     }
-}
+
+
+CACHES = {"default": default_cache_config(environ)}
 
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],

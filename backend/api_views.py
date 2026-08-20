@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.core import signing
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import F
@@ -35,6 +36,7 @@ from accounts.serializers import (
 )
 from accounts.services import consume_email_verification_challenge
 from accounts.throttles import VerificationEmailThrottle, VerificationIPThrottle
+from catalog.cache import catalog_cache_key
 from catalog.models import AttributeDefinition, Category, Product, ProductVariant
 from catalog.serializers import (
     CatalogQuerySerializer,
@@ -126,6 +128,14 @@ class CategoryListView(generics.ListAPIView):
         .select_related("parent")
         .order_by(F("parent_id").asc(nulls_first=True), "parent_id", "name")
     )
+
+    def list(self, request, *args, **kwargs):
+        key = catalog_cache_key("categories", {"active": True})
+        payload = cache.get(key)
+        if payload is None:
+            payload = self.get_serializer(self.get_queryset(), many=True).data
+            cache.set(key, payload, timeout=300)
+        return Response(payload)
 
 
 CATALOG_PARAMETERS = [
@@ -402,10 +412,15 @@ class StorefrontHomeView(generics.GenericAPIView):
             items = [item for item in model.objects.all() if item.is_scheduled(now)]
             return serializer(items, many=True, context={"request": request}).data
 
-        settings = SiteSettings.objects.first()
+        settings_key = catalog_cache_key("branding", {"site": 1})
+        settings_payload = cache.get(settings_key)
+        if settings_payload is None:
+            settings = SiteSettings.objects.first()
+            settings_payload = SiteSettingsSerializer(settings or SiteSettings()).data
+            cache.set(settings_key, settings_payload, timeout=300)
         return Response(
             {
-                "settings": SiteSettingsSerializer(settings or SiteSettings()).data,
+                "settings": settings_payload,
                 "hero_slides": scheduled(HeroSlide, HeroSlideSerializer),
                 "promotion_slides": scheduled(PromotionSlide, PromotionSlideSerializer),
                 "collections": scheduled(LandingCollection, LandingCollectionSerializer),

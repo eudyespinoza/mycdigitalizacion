@@ -1,4 +1,4 @@
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
 from rest_framework.pagination import PageNumberPagination
@@ -10,6 +10,7 @@ from backoffice.catalog_serializers import (
     ManagementCategorySerializer,
     ManagementProductMediaSerializer,
     ManagementProductSerializer,
+    ManagementProductSummarySerializer,
     ManagementVariantSerializer,
     StockAdjustmentSerializer,
 )
@@ -23,7 +24,9 @@ from catalog.models import (
     ProductMedia,
     ProductVariant,
 )
+from catalog.storefront import variant_queryset
 from commerce.inventory import adjust_inventory
+from commerce.models import InventoryMovement
 
 
 class ManagementPagination(PageNumberPagination):
@@ -32,19 +35,36 @@ class ManagementPagination(PageNumberPagination):
     max_page_size = 100
 
 
+def management_variant_queryset():
+    return variant_queryset(active_only=False).prefetch_related(
+        Prefetch(
+            "inventory_movements",
+            queryset=InventoryMovement.objects.select_related("actor").order_by("-created_at")[:5],
+            to_attr="management_recent_movements",
+        )
+    )
+
+
+def management_product_queryset():
+    return Product.objects.select_related("category", "brand").prefetch_related(
+        Prefetch("media", queryset=ProductMedia.objects.select_related("variant")),
+        Prefetch("variants", queryset=management_variant_queryset()),
+    )
+
+
+def management_product_list_queryset():
+    return Product.objects.select_related("category", "brand").prefetch_related(
+        Prefetch("variants", queryset=variant_queryset(active_only=False))
+    )
+
+
 class ProductListCreateView(generics.GenericAPIView):
     permission_classes = (IsManagementUser,)
     serializer_class = ManagementProductSerializer
     pagination_class = ManagementPagination
 
     def get_queryset(self):
-        queryset = Product.objects.select_related("category", "brand").prefetch_related(
-            "media__variant",
-            "variants__stock_reservations",
-            "variants__inventory_movements__actor",
-            "variants__attribute_values__definition",
-            "variants__attribute_values__option",
-        )
+        queryset = management_product_list_queryset()
         search = self.request.query_params.get("search", "").strip()
         if search:
             queryset = queryset.filter(
@@ -65,7 +85,9 @@ class ProductListCreateView(generics.GenericAPIView):
     @extend_schema(tags=("Gestión - catálogo",), responses=ManagementProductSerializer(many=True))
     def get(self, request):
         page = self.paginate_queryset(self.get_queryset())
-        return self.get_paginated_response(self.get_serializer(page, many=True).data)
+        return self.get_paginated_response(
+            ManagementProductSummarySerializer(page, many=True).data
+        )
 
     @extend_schema(
         tags=("Gestión - catálogo",),
@@ -89,13 +111,7 @@ class ProductListCreateView(generics.GenericAPIView):
 class ProductDetailView(generics.GenericAPIView):
     permission_classes = (IsManagementUser,)
     serializer_class = ManagementProductSerializer
-    queryset = Product.objects.select_related("category", "brand").prefetch_related(
-        "media__variant",
-        "variants__stock_reservations",
-        "variants__inventory_movements__actor",
-        "variants__attribute_values__definition",
-        "variants__attribute_values__option",
-    )
+    queryset = management_product_queryset()
 
     def get(self, request, pk):
         return Response(self.get_serializer(self.get_object()).data)
@@ -225,9 +241,7 @@ class InventoryListView(generics.GenericAPIView):
     pagination_class = ManagementPagination
 
     def get(self, request):
-        queryset = ProductVariant.objects.select_related("product").prefetch_related(
-            "stock_reservations", "inventory_movements__actor"
-        )
+        queryset = management_variant_queryset().select_related("product")
         search = request.query_params.get("search", "").strip()
         if search:
             queryset = queryset.filter(

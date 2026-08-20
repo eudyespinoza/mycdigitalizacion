@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from urllib.parse import urlencode
 
+from django.core.cache import cache
 from django.db import connection
 from django.db.models import (
     Exists,
@@ -19,6 +20,7 @@ from django.db.models import (
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+from catalog.cache import catalog_cache_key
 from catalog.models import (
     AttributeDefinition,
     AttributeValue,
@@ -77,9 +79,16 @@ def _reserved_quantity_subquery(*, checked_at):
 
 
 def active_variant_queryset(*, checked_at=None):
+    return variant_queryset(active_only=True, checked_at=checked_at)
+
+
+def variant_queryset(*, active_only=False, checked_at=None):
     checked_at = checked_at or timezone.now()
+    queryset = ProductVariant.objects.all()
+    if active_only:
+        queryset = queryset.filter(is_active=True)
     return (
-        ProductVariant.objects.filter(is_active=True)
+        queryset
         .annotate(
             reserved_stock_value=Coalesce(
                 Subquery(_reserved_quantity_subquery(checked_at=checked_at)),
@@ -358,7 +367,19 @@ def query_catalog(*, params, attribute_filters, search_requires_query=False):
             Prefetch("media", queryset=ProductMedia.objects.select_related("variant")),
         )
 
-    facets = build_facets(filtered_products, snapshots)
+    facet_payload = {
+        "params": {
+            key: value
+            for key, value in params.items()
+            if key not in {"page", "page_size", "ordering"}
+        },
+        "attributes": attribute_filters,
+    }
+    facet_key = catalog_cache_key("facets", facet_payload)
+    facets = cache.get(facet_key)
+    if facets is None:
+        facets = build_facets(filtered_products, snapshots)
+        cache.set(facet_key, facets, timeout=60)
     return CatalogPage(count=count, products=page_products, facets=facets)
 
 

@@ -29,7 +29,11 @@ from commerce.provider_config import get_carrier_adapter, get_payment_adapter
 from commerce.services import transition_order_status
 
 
-def _order_queryset():
+def _order_summary_queryset():
+    return Order.objects.select_related("user", "user__profile")
+
+
+def _order_detail_queryset():
     return Order.objects.select_related("user", "user__profile").prefetch_related(
         "items", "audit_events__actor", "payment_transactions"
     )
@@ -41,7 +45,7 @@ class ManagementOrderListView(generics.GenericAPIView):
     pagination_class = ManagementPagination
 
     def get_queryset(self):
-        queryset = _order_queryset()
+        queryset = _order_summary_queryset()
         search = self.request.query_params.get("search", "").strip()
         if search:
             queryset = queryset.filter(
@@ -77,7 +81,7 @@ class ManagementOrderDetailView(generics.GenericAPIView):
     lookup_url_kwarg = "public_id"
 
     def get_queryset(self):
-        return _order_queryset()
+        return _order_detail_queryset()
 
     def get(self, request, public_id):
         order = self.get_object()
@@ -107,7 +111,7 @@ class ManagementOrderActionView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         action = serializer.validated_data["action"]
         reason = serializer.validated_data["reason"]
-        order = generics.get_object_or_404(_order_queryset(), public_id=public_id)
+        order = generics.get_object_or_404(_order_detail_queryset(), public_id=public_id)
         try:
             if action.startswith("mark_"):
                 value = {
@@ -152,7 +156,7 @@ class ManagementOrderActionView(generics.GenericAPIView):
             return Response(
                 {"code": code, "detail": detail}, status=status.HTTP_400_BAD_REQUEST
             )
-        refreshed = _order_queryset().get(public_id=public_id)
+        refreshed = _order_detail_queryset().get(public_id=public_id)
         try:
             refreshed.management_shipment = refreshed.shipment
         except Shipment.DoesNotExist:

@@ -13,6 +13,7 @@ from catalog.models import (
     ProductMedia,
     ProductVariant,
 )
+from catalog.serializers import variant_available_stock
 from catalog.services import activate_product, move_category, set_variant_active
 from commerce.inventory import adjust_inventory
 from commerce.models import InventoryMovement
@@ -158,7 +159,7 @@ class InventoryMovementSummarySerializer(serializers.ModelSerializer):
 
 class ManagementVariantSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(required=False)
-    available_stock = serializers.IntegerField(read_only=True)
+    available_stock = serializers.SerializerMethodField()
     on_hand = serializers.IntegerField(min_value=0)
     recent_movements = serializers.SerializerMethodField(read_only=True)
     attributes = serializers.SerializerMethodField(read_only=True)
@@ -227,13 +228,27 @@ class ManagementVariantSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(InventoryMovementSummarySerializer(many=True))
     def get_recent_movements(self, variant):
-        movements = variant.inventory_movements.select_related("actor").order_by("-created_at")[:5]
+        movements = getattr(variant, "management_recent_movements", None)
+        if movements is None:
+            movements = variant.inventory_movements.select_related("actor").order_by(
+                "-created_at"
+            )[:5]
         return InventoryMovementSummarySerializer(movements, many=True).data
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_available_stock(self, variant):
+        return variant_available_stock(variant)
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_attributes(self, variant):
         values = []
-        for attribute in variant.attribute_values.select_related("definition", "option"):
+        prefetched = getattr(variant, "_prefetched_objects_cache", {}).get("attribute_values")
+        attributes = (
+            prefetched
+            if prefetched is not None
+            else variant.attribute_values.select_related("definition", "option")
+        )
+        for attribute in attributes:
             definition = attribute.definition
             if definition.value_type == AttributeDefinition.ValueType.OPTION:
                 value = attribute.option.value
@@ -249,6 +264,52 @@ class ManagementVariantSerializer(serializers.ModelSerializer):
                 }
             )
         return values
+
+
+class ManagementVariantSummarySerializer(serializers.ModelSerializer):
+    available_stock = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProductVariant
+        fields = (
+            "id",
+            "sku",
+            "name",
+            "price",
+            "cost",
+            "on_hand",
+            "available_stock",
+            "is_active",
+            "packaged_weight_grams",
+            "length_cm",
+            "width_cm",
+            "height_cm",
+        )
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_available_stock(self, variant):
+        return variant_available_stock(variant)
+
+
+class ManagementProductSummarySerializer(serializers.ModelSerializer):
+    category = ManagementCategorySerializer(read_only=True)
+    brand = ManagementBrandSerializer(read_only=True)
+    variants = ManagementVariantSummarySerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Product
+        fields = (
+            "id",
+            "name",
+            "slug",
+            "description",
+            "category",
+            "brand",
+            "is_active",
+            "is_sellable",
+            "created_at",
+            "variants",
+        )
 
 
 class ManagementProductSerializer(serializers.ModelSerializer):
