@@ -3,10 +3,20 @@ from django.db import transaction
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from catalog.models import Brand, Category, Product, ProductVariant
+from catalog.models import (
+    AttributeDefinition,
+    AttributeOption,
+    AttributeValue,
+    Brand,
+    Category,
+    Product,
+    ProductMedia,
+    ProductVariant,
+)
 from catalog.services import activate_product, move_category, set_variant_active
 from commerce.inventory import adjust_inventory
 from commerce.models import InventoryMovement
+from config.media import public_derivative_sources
 
 
 class ManagementCategorySerializer(serializers.ModelSerializer):
@@ -38,6 +48,87 @@ class ManagementBrandSerializer(serializers.ModelSerializer):
         fields = ("id", "name", "slug")
 
 
+class ManagementAttributeOptionSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False)
+
+    class Meta:
+        model = AttributeOption
+        fields = ("id", "label", "value")
+
+
+class ManagementAttributeDefinitionSerializer(serializers.ModelSerializer):
+    options = ManagementAttributeOptionSerializer(many=True, required=False)
+
+    class Meta:
+        model = AttributeDefinition
+        fields = ("id", "name", "slug", "value_type", "is_filterable", "options")
+
+    def validate_options(self, options):
+        values = [option["value"] for option in options]
+        if len(values) != len(set(values)):
+            raise serializers.ValidationError("Las opciones no pueden repetirse.")
+        return options
+
+    def _sync_options(self, definition, options):
+        definition.options.all().delete()
+        AttributeOption.objects.bulk_create(
+            [
+                AttributeOption(
+                    definition=definition,
+                    **{key: value for key, value in option.items() if key != "id"},
+                )
+                for option in options
+            ]
+        )
+
+    @transaction.atomic
+    def create(self, validated_data):
+        options = validated_data.pop("options", [])
+        definition = AttributeDefinition.objects.create(**validated_data)
+        self._sync_options(definition, options)
+        return definition
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        options = validated_data.pop("options", None)
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        instance.full_clean()
+        instance.save()
+        if options is not None:
+            self._sync_options(instance, options)
+        return instance
+
+
+class ManagementProductMediaSerializer(serializers.ModelSerializer):
+    file = serializers.ImageField(write_only=True)
+    file_url = serializers.SerializerMethodField()
+    responsive_sources = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProductMedia
+        fields = (
+            "id",
+            "file",
+            "file_url",
+            "responsive_sources",
+            "alt_text",
+            "order",
+        )
+        read_only_fields = ("id", "file_url", "responsive_sources")
+
+    @extend_schema_field(serializers.CharField())
+    def get_file_url(self, instance):
+        return instance.file.url if instance.file else ""
+
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
+    def get_responsive_sources(self, instance):
+        return public_derivative_sources(
+            storage=instance.file.storage,
+            derivatives=instance.derivatives,
+        )
+
+
 class InventoryMovementSummarySerializer(serializers.ModelSerializer):
     actor = serializers.EmailField(source="actor.email", allow_null=True)
 
@@ -51,6 +142,12 @@ class ManagementVariantSerializer(serializers.ModelSerializer):
     available_stock = serializers.IntegerField(read_only=True)
     on_hand = serializers.IntegerField(min_value=0)
     recent_movements = serializers.SerializerMethodField(read_only=True)
+    attributes = serializers.SerializerMethodField(read_only=True)
+    attribute_values = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        write_only=True,
+    )
 
     class Meta:
         model = ProductVariant
@@ -68,13 +165,71 @@ class ManagementVariantSerializer(serializers.ModelSerializer):
             "width_cm",
             "height_cm",
             "recent_movements",
+            "attributes",
+            "attribute_values",
         )
-        read_only_fields = ("available_stock", "recent_movements")
+        read_only_fields = ("available_stock", "recent_movements", "attributes")
+
+    def validate_attribute_values(self, values):
+        normalized = []
+        seen = set()
+        for item in values:
+            definition_id = item.get("definition_id")
+            if not definition_id or "value" not in item:
+                raise serializers.ValidationError("Cada atributo necesita definición y valor.")
+            if definition_id in seen:
+                raise serializers.ValidationError("No repitas el mismo atributo.")
+            seen.add(definition_id)
+            try:
+                definition = AttributeDefinition.objects.get(pk=definition_id)
+            except AttributeDefinition.DoesNotExist as exc:
+                raise serializers.ValidationError("El atributo seleccionado no existe.") from exc
+            value = item["value"]
+            try:
+                if definition.value_type == AttributeDefinition.ValueType.INTEGER:
+                    value = int(value)
+                elif definition.value_type == AttributeDefinition.ValueType.DECIMAL:
+                    value = str(value)
+                elif definition.value_type == AttributeDefinition.ValueType.BOOLEAN:
+                    if not isinstance(value, bool):
+                        raise ValueError
+                elif definition.value_type == AttributeDefinition.ValueType.OPTION:
+                    AttributeOption.objects.get(definition=definition, value=str(value))
+                else:
+                    value = str(value).strip()
+                    if not value:
+                        raise ValueError
+            except (AttributeOption.DoesNotExist, TypeError, ValueError) as exc:
+                raise serializers.ValidationError(
+                    f"El valor de {definition.name} no es válido."
+                ) from exc
+            normalized.append({"definition": definition, "value": value})
+        return normalized
 
     @extend_schema_field(InventoryMovementSummarySerializer(many=True))
     def get_recent_movements(self, variant):
         movements = variant.inventory_movements.select_related("actor").order_by("-created_at")[:5]
         return InventoryMovementSummarySerializer(movements, many=True).data
+
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
+    def get_attributes(self, variant):
+        values = []
+        for attribute in variant.attribute_values.select_related("definition", "option"):
+            definition = attribute.definition
+            if definition.value_type == AttributeDefinition.ValueType.OPTION:
+                value = attribute.option.value
+            else:
+                value = getattr(attribute, f"{definition.value_type}_value")
+            values.append(
+                {
+                    "definition_id": definition.pk,
+                    "name": definition.name,
+                    "slug": definition.slug,
+                    "value_type": definition.value_type,
+                    "value": value,
+                }
+            )
+        return values
 
 
 class ManagementProductSerializer(serializers.ModelSerializer):
@@ -91,6 +246,7 @@ class ManagementProductSerializer(serializers.ModelSerializer):
         write_only=True,
     )
     variants = ManagementVariantSerializer(many=True)
+    media = ManagementProductMediaSerializer(many=True, read_only=True)
     publish = serializers.BooleanField(write_only=True, required=False, default=False)
 
     class Meta:
@@ -108,6 +264,7 @@ class ManagementProductSerializer(serializers.ModelSerializer):
             "is_sellable",
             "created_at",
             "variants",
+            "media",
             "publish",
         )
         read_only_fields = ("id", "is_active", "is_sellable", "created_at")
@@ -121,6 +278,7 @@ class ManagementProductSerializer(serializers.ModelSerializer):
         return variants
 
     def _save_variant(self, *, product, values, actor):
+        attribute_values = values.pop("attribute_values", None)
         initial_stock = values.pop("on_hand", 0)
         variant_id = values.pop("id", None)
         if variant_id:
@@ -141,7 +299,34 @@ class ManagementProductSerializer(serializers.ModelSerializer):
                 source="domain",
                 reference=f"Carga de producto: {variant.sku}",
             )
+        if attribute_values is not None:
+            self._sync_attribute_values(variant, attribute_values)
         return variant
+
+    def _sync_attribute_values(self, variant, values):
+        variant.attribute_values.all().delete()
+        for item in values:
+            definition = item["definition"]
+            value = item["value"]
+            fields = {
+                "text_value": "",
+                "integer_value": None,
+                "decimal_value": None,
+                "boolean_value": None,
+                "option": None,
+            }
+            if definition.value_type == AttributeDefinition.ValueType.OPTION:
+                fields["option"] = AttributeOption.objects.get(
+                    definition=definition,
+                    value=str(value),
+                )
+            else:
+                fields[f"{definition.value_type}_value"] = value
+            AttributeValue.objects.create(
+                variant=variant,
+                definition=definition,
+                **fields,
+            )
 
     @transaction.atomic
     def create(self, validated_data):

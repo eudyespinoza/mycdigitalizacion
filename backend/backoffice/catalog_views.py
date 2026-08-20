@@ -5,15 +5,24 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
 from backoffice.catalog_serializers import (
+    ManagementAttributeDefinitionSerializer,
     ManagementBrandSerializer,
     ManagementCategorySerializer,
+    ManagementProductMediaSerializer,
     ManagementProductSerializer,
     ManagementVariantSerializer,
     StockAdjustmentSerializer,
 )
 from backoffice.models import ManagementAuditEvent
 from backoffice.permissions import IsManagementUser
-from catalog.models import Brand, Category, Product, ProductVariant
+from catalog.models import (
+    AttributeDefinition,
+    Brand,
+    Category,
+    Product,
+    ProductMedia,
+    ProductVariant,
+)
 from commerce.inventory import adjust_inventory
 
 
@@ -30,7 +39,11 @@ class ProductListCreateView(generics.GenericAPIView):
 
     def get_queryset(self):
         queryset = Product.objects.select_related("category", "brand").prefetch_related(
-            "variants__stock_reservations", "variants__inventory_movements__actor"
+            "media",
+            "variants__stock_reservations",
+            "variants__inventory_movements__actor",
+            "variants__attribute_values__definition",
+            "variants__attribute_values__option",
         )
         search = self.request.query_params.get("search", "").strip()
         if search:
@@ -77,7 +90,11 @@ class ProductDetailView(generics.GenericAPIView):
     permission_classes = (IsManagementUser,)
     serializer_class = ManagementProductSerializer
     queryset = Product.objects.select_related("category", "brand").prefetch_related(
-        "variants__stock_reservations", "variants__inventory_movements__actor"
+        "media",
+        "variants__stock_reservations",
+        "variants__inventory_movements__actor",
+        "variants__attribute_values__definition",
+        "variants__attribute_values__option",
     )
 
     def get(self, request, pk):
@@ -120,6 +137,77 @@ class BrandListCreateView(generics.ListCreateAPIView):
 
     def list(self, request, *args, **kwargs):
         return Response({"results": self.get_serializer(self.get_queryset(), many=True).data})
+
+
+class AttributeDefinitionListCreateView(generics.ListCreateAPIView):
+    permission_classes = (IsManagementUser,)
+    serializer_class = ManagementAttributeDefinitionSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        return AttributeDefinition.objects.prefetch_related("options").order_by("name")
+
+    def list(self, request, *args, **kwargs):
+        return Response({"results": self.get_serializer(self.get_queryset(), many=True).data})
+
+
+class AttributeDefinitionDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = (IsManagementUser,)
+    serializer_class = ManagementAttributeDefinitionSerializer
+    queryset = AttributeDefinition.objects.prefetch_related("options")
+
+
+class ProductMediaListCreateView(generics.ListCreateAPIView):
+    permission_classes = (IsManagementUser,)
+    serializer_class = ManagementProductMediaSerializer
+    pagination_class = None
+
+    def get_product(self):
+        return generics.get_object_or_404(Product, pk=self.kwargs["pk"])
+
+    def get_queryset(self):
+        return ProductMedia.objects.filter(product=self.get_product())
+
+    def perform_create(self, serializer):
+        media = serializer.save(product=self.get_product())
+        ManagementAuditEvent.objects.create(
+            actor=self.request.user,
+            action="product.media.created",
+            resource="product_media",
+            object_reference=str(media.pk),
+            metadata={"product_id": media.product_id},
+        )
+
+
+class ProductMediaDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = (IsManagementUser,)
+    serializer_class = ManagementProductMediaSerializer
+    lookup_url_kwarg = "media_pk"
+
+    def get_queryset(self):
+        return ProductMedia.objects.filter(product_id=self.kwargs["pk"])
+
+    def perform_update(self, serializer):
+        media = serializer.save()
+        ManagementAuditEvent.objects.create(
+            actor=self.request.user,
+            action="product.media.updated",
+            resource="product_media",
+            object_reference=str(media.pk),
+            metadata={"product_id": media.product_id},
+        )
+
+    def perform_destroy(self, instance):
+        reference = str(instance.pk)
+        product_id = instance.product_id
+        instance.delete()
+        ManagementAuditEvent.objects.create(
+            actor=self.request.user,
+            action="product.media.deleted",
+            resource="product_media",
+            object_reference=reference,
+            metadata={"product_id": product_id},
+        )
 
 
 class InventoryListView(generics.GenericAPIView):

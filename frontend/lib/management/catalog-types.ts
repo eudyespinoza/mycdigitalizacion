@@ -8,6 +8,33 @@ export type ManagementCategory = {
 
 export type ManagementBrand = { id: number; name: string; slug: string };
 
+export type ManagementAttributeOption = { id: number; label: string; value: string };
+
+export type ManagementAttributeDefinition = {
+  id: number;
+  name: string;
+  slug: string;
+  value_type: "text" | "integer" | "decimal" | "boolean" | "option";
+  is_filterable: boolean;
+  options: ManagementAttributeOption[];
+};
+
+export type ManagementAttributeValue = {
+  definition_id: number;
+  name: string;
+  slug: string;
+  value_type: ManagementAttributeDefinition["value_type"];
+  value: string | number | boolean;
+};
+
+export type ManagementProductMedia = {
+  id: number;
+  file_url: string;
+  responsive_sources: Array<Record<string, string | number>>;
+  alt_text: string;
+  order: number;
+};
+
 export type InventoryMovementSummary = {
   id: number;
   kind: string;
@@ -32,6 +59,7 @@ export type ManagementVariant = {
   width_cm: string;
   height_cm: string;
   recent_movements?: InventoryMovementSummary[];
+  attributes: ManagementAttributeValue[];
 };
 
 export type ManagementProduct = {
@@ -45,6 +73,7 @@ export type ManagementProduct = {
   is_sellable: boolean;
   created_at: string;
   variants: ManagementVariant[];
+  media: ManagementProductMedia[];
 };
 
 export type ProductEditorPayload = {
@@ -66,5 +95,6 @@ export type ProductEditorPayload = {
     length_cm: string;
     width_cm: string;
     height_cm: string;
+    attribute_values?: Array<{ definition_id: number; value: string | number | boolean }>;
   }>;
 };

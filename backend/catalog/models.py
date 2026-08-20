@@ -208,6 +208,18 @@ class ProductMedia(models.Model):
             )
         return result
 
+    def delete(self, *args, **kwargs):
+        storage = self.file.storage
+        source_name = self.file.name
+        derivatives = self.derivatives
+        result = super().delete(*args, **kwargs)
+        delete_image_assets(
+            storage=storage,
+            source_name=source_name,
+            derivatives=derivatives,
+        )
+        return result
+
 
 class ProductVariantQuerySet(models.QuerySet):
     def update(self, **kwargs):

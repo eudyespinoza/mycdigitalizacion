@@ -1,8 +1,19 @@
+import io
+
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
+from PIL import Image
 from rest_framework.test import APIClient
 
-from catalog.models import Brand, Category, ProductVariant
+from catalog.models import (
+    AttributeDefinition,
+    AttributeOption,
+    Brand,
+    Category,
+    ProductMedia,
+    ProductVariant,
+)
 from commerce.models import InventoryMovement
 
 pytestmark = pytest.mark.django_db
@@ -183,3 +194,129 @@ def test_customer_cannot_access_management_catalog(django_user_model):
     client = APIClient()
     client.force_login(customer)
     assert client.get("/api/v1/management/products/").status_code == 403
+
+
+def test_management_product_supports_multiple_variants_and_filter_attributes(
+    django_user_model,
+):
+    category = Category.objects.create(name="Mochilas", slug="mochilas")
+    color = AttributeDefinition.objects.create(
+        name="Color",
+        slug="color",
+        value_type=AttributeDefinition.ValueType.OPTION,
+        is_filterable=True,
+    )
+    AttributeOption.objects.create(definition=color, label="Azul", value="azul")
+    AttributeOption.objects.create(definition=color, label="Rosa", value="rosa")
+    client = management_client(django_user_model)
+
+    response = client.post(
+        "/api/v1/management/products/",
+        {
+            "name": "Mochila urbana",
+            "slug": "mochila-urbana",
+            "category_id": category.pk,
+            "variants": [
+                {
+                    "sku": "MOC-AZUL",
+                    "name": "Azul",
+                    "price": "35000.00",
+                    "cost": "21000.00",
+                    "on_hand": 5,
+                    "packaged_weight_grams": 800,
+                    "length_cm": "45.00",
+                    "width_cm": "30.00",
+                    "height_cm": "18.00",
+                    "attribute_values": [{"definition_id": color.pk, "value": "azul"}],
+                },
+                {
+                    "sku": "MOC-ROSA",
+                    "name": "Rosa",
+                    "price": "35000.00",
+                    "cost": "21000.00",
+                    "on_hand": 3,
+                    "packaged_weight_grams": 800,
+                    "length_cm": "45.00",
+                    "width_cm": "30.00",
+                    "height_cm": "18.00",
+                    "attribute_values": [{"definition_id": color.pk, "value": "rosa"}],
+                },
+            ],
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+    assert [variant["sku"] for variant in response.json()["variants"]] == [
+        "MOC-AZUL",
+        "MOC-ROSA",
+    ]
+    assert response.json()["variants"][0]["attributes"] == [
+        {
+            "definition_id": color.pk,
+            "name": "Color",
+            "slug": "color",
+            "value_type": "option",
+            "value": "azul",
+        }
+    ]
+
+
+def test_management_product_image_upload_update_and_delete(
+    django_user_model,
+    settings,
+    tmp_path,
+):
+    settings.MEDIA_ROOT = tmp_path
+    settings.MEDIA_RESPONSIVE_WIDTHS = (32,)
+    category = Category.objects.create(name="Arte", slug="arte")
+    client = management_client(django_user_model)
+    created = client.post(
+        "/api/v1/management/products/",
+        {
+            "name": "Set artístico",
+            "slug": "set-artistico",
+            "category_id": category.pk,
+            "variants": [
+                {
+                    "sku": "ART-001",
+                    "name": "Único",
+                    "price": "12000.00",
+                    "cost": "7000.00",
+                    "on_hand": 4,
+                    "packaged_weight_grams": 500,
+                    "length_cm": "30.00",
+                    "width_cm": "20.00",
+                    "height_cm": "5.00",
+                }
+            ],
+        },
+        format="json",
+    )
+    product_id = created.json()["id"]
+    image = io.BytesIO()
+    Image.new("RGB", (64, 48), "#08aecd").save(image, format="PNG")
+    upload = SimpleUploadedFile("producto.png", image.getvalue(), content_type="image/png")
+
+    uploaded = client.post(
+        f"/api/v1/management/products/{product_id}/media/",
+        {"file": upload, "alt_text": "Set artístico abierto", "order": 1},
+        format="multipart",
+    )
+
+    assert uploaded.status_code == 201
+    media_id = uploaded.json()["id"]
+    assert uploaded.json()["file_url"].startswith("/media/catalog/")
+    assert uploaded.json()["responsive_sources"]
+    updated = client.patch(
+        f"/api/v1/management/products/{product_id}/media/{media_id}/",
+        {"alt_text": "Contenido completo del set", "order": 0},
+        format="json",
+    )
+    assert updated.status_code == 200
+    assert updated.json()["alt_text"] == "Contenido completo del set"
+    deleted = client.delete(
+        f"/api/v1/management/products/{product_id}/media/{media_id}/"
+    )
+    assert deleted.status_code == 204
+    assert not ProductMedia.objects.filter(pk=media_id).exists()

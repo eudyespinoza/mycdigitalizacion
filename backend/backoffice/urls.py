@@ -7,11 +7,15 @@ from backoffice.access_views import (
     ManagementStaffListCreateView,
 )
 from backoffice.catalog_views import (
+    AttributeDefinitionDetailView,
+    AttributeDefinitionListCreateView,
     BrandListCreateView,
     CategoryListCreateView,
     InventoryListView,
     ProductDetailView,
     ProductListCreateView,
+    ProductMediaDetailView,
+    ProductMediaListCreateView,
     StockAdjustmentView,
 )
 from backoffice.content_views import (
@@ -65,8 +69,28 @@ urlpatterns = [
         ProductDetailView.as_view(),
         name="management-product-detail",
     ),
+    path(
+        "products/<int:pk>/media/",
+        ProductMediaListCreateView.as_view(),
+        name="management-product-media",
+    ),
+    path(
+        "products/<int:pk>/media/<int:media_pk>/",
+        ProductMediaDetailView.as_view(),
+        name="management-product-media-detail",
+    ),
     path("categories/", CategoryListCreateView.as_view(), name="management-categories"),
     path("brands/", BrandListCreateView.as_view(), name="management-brands"),
+    path(
+        "attributes/",
+        AttributeDefinitionListCreateView.as_view(),
+        name="management-attributes",
+    ),
+    path(
+        "attributes/<int:pk>/",
+        AttributeDefinitionDetailView.as_view(),
+        name="management-attribute-detail",
+    ),
     path("inventory/", InventoryListView.as_view(), name="management-inventory"),
     path(
         "variants/<int:pk>/adjust-stock/",

@@ -98,7 +98,9 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}, cartTo
   const send = async (retried: boolean): Promise<T> => {
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
-    if (init.body) headers.set("Content-Type", "application/json");
+    if (init.body && !(init.body instanceof FormData)) {
+      headers.set("Content-Type", "application/json");
+    }
     if (cartToken) headers.set("X-Cart-Token", cartToken);
     if (unsafe) headers.set("X-CSRFToken", await csrf());
     const response = await publicFetch(`${PUBLIC_API_ROOT}${path}`, { ...init, headers, credentials: "include" });
