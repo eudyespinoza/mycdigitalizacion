@@ -280,6 +280,8 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .state-approved { background: #e9fbf6; color: #004d3e; }
 .inline-error, .field-error { color: var(--danger); font-weight: 750; }
 .inline-error { padding: 14px 18px; border-radius: 12px; background: #fff0f3; }
+.management-save-error { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.management-save-error a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .field-error { display: block; margin-top: 6px; font-size: .88rem; }
 .auth-page { min-height: 58dvh; display: grid; grid-template-columns: 1fr minmax(340px, 480px); gap: 72px; align-items: center; padding-block: 40px 80px; }
 .auth-page h1 { font-size: clamp(2.8rem, 5vw, 4.8rem); line-height: 1.03; }

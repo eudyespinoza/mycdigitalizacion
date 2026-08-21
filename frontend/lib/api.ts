@@ -28,6 +28,13 @@ function normalizeError(status: number, body: unknown) {
       if (code === "invalid_credentials" || /invalid credentials/i.test(detail)) {
         return new ApiError(status, "invalid_credentials", "El email o la contraseña no son correctos.");
       }
+      if ((status === 401 || status === 403) && /permiso para acceder al panel de gestión/i.test(detail)) {
+        return new ApiError(
+          status,
+          "authentication_required",
+          "Tu sesión de administración venció. Ingresá nuevamente para guardar los cambios.",
+        );
+      }
       if ((status === 401 || status === 403) && /authentication|credentials|not authenticated/i.test(detail)) {
         return new ApiError(status, "authentication_required", "Ingresá a tu cuenta para continuar.");
       }

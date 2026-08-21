@@ -5,6 +5,7 @@ import { InventoryTable } from "@/components/management/inventory-table";
 import { ManagementProductEditor } from "@/components/management/product-editor";
 import { ProductMediaManager } from "@/components/management/product-media-manager";
 import { ManagementProductTable } from "@/components/management/product-table";
+import { ApiError } from "@/lib/api";
 import type { ManagementProduct } from "@/lib/management/catalog-types";
 
 
@@ -142,6 +143,36 @@ describe("gestión de catálogo e inventario", () => {
       }),
     ));
     expect(screen.queryByText(/después vas a poder/i)).not.toBeInTheDocument();
+  });
+
+  test("keeps the product draft visible and offers a new-tab login when the session expires", async () => {
+    const onSave = vi.fn().mockRejectedValue(new ApiError(
+      403,
+      "authentication_required",
+      "Tu sesión de administración venció. Ingresá nuevamente para guardar los cambios.",
+    ));
+    render(
+      <ManagementProductEditor
+        brands={[product.brand!]}
+        categories={[product.category]}
+        initial={product}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Nombre del producto"), {
+      target: { value: "Cuaderno A5 actualizado" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar producto" }));
+
+    expect(await screen.findByText("Tu sesión de administración venció. Ingresá nuevamente para guardar los cambios.")).toBeVisible();
+    expect(screen.getByLabelText("Nombre del producto")).toHaveValue("Cuaderno A5 actualizado");
+    expect(screen.queryByText("No pudimos guardar el producto. Revisá los campos.")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ingresar en otra pestaña" })).toHaveAttribute(
+      "href",
+      "/cuenta/ingresar?next=%2Fgestion%2Fcatalogo%2F11",
+    );
+    expect(screen.getByRole("link", { name: "Ingresar en otra pestaña" })).toHaveAttribute("target", "_blank");
   });
 
   test("ajusta stock con motivo obligatorio", async () => {

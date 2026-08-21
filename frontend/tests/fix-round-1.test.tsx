@@ -91,6 +91,25 @@ describe("Fix Round 1 contracts", () => {
     expect(protectedCalls).toBe(1);
   });
 
+  test("a management permission rejection is presented as an expired session", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/auth/csrf/")) {
+        return new Response(JSON.stringify({ csrf_token: "fresh-token" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        detail: "No tenés permiso para acceder al panel de gestión.",
+      }), { status: 403 });
+    }));
+
+    await expect(apiRequest<void>("/management/products/5/", {
+      method: "PATCH",
+      body: "{}",
+    })).rejects.toMatchObject({
+      code: "authentication_required",
+      message: "Tu sesión de administración venció. Ingresá nuevamente para guardar los cambios.",
+    });
+  });
+
   test("profile editing persists all checkout identity fields and shows the masked DNI", async () => {
     const save = vi.fn(async () => customer);
     render(<ProfileForm customer={{ ...customer, masked_dni: "" }} onSave={save} />);

@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useState } from "react";
 
+import { ApiError } from "@/lib/api";
 import type {
   ManagementAttributeDefinition,
   ManagementBrand,
@@ -98,6 +100,7 @@ export function ManagementProductEditor({
   const [slugWasEdited, setSlugWasEdited] = useState(false);
   const [brandId, setBrandId] = useState(String(initial?.brand?.id ?? ""));
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveError, setSaveError] = useState<{ message: string; requiresLogin: boolean } | null>(null);
 
   const updateVariant = <K extends keyof VariantDraft>(
     index: number,
@@ -134,6 +137,7 @@ export function ManagementProductEditor({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setState("saving");
+    setSaveError(null);
     const form = new FormData(event.currentTarget);
     const payload: ProductEditorPayload = {
       name,
@@ -165,10 +169,18 @@ export function ManagementProductEditor({
     try {
       await onSave(payload);
       setState("saved");
-    } catch {
+    } catch (cause) {
+      const apiError = cause instanceof ApiError ? cause : null;
+      setSaveError({
+        message: apiError?.message ?? "No pudimos guardar el producto. Intentá nuevamente.",
+        requiresLogin: apiError?.code === "authentication_required",
+      });
       setState("error");
     }
   };
+
+  const editorPath = initial ? `/gestion/catalogo/${initial.id}` : "/gestion/catalogo/nuevo";
+  const loginHref = `/cuenta/ingresar?next=${encodeURIComponent(editorPath)}`;
 
   return (
     <form className="management-form" onSubmit={(event) => void submit(event)}>
@@ -231,7 +243,14 @@ export function ManagementProductEditor({
         </div>
       </section>
       {state === "saved" && <p className="success-message">Producto guardado.</p>}
-      {state === "error" && <p className="inline-error">No pudimos guardar el producto. Revisá los campos.</p>}
+      {state === "error" && saveError && (
+        <div className="inline-error management-save-error" role="alert">
+          <span>{saveError.message}</span>
+          {saveError.requiresLogin && (
+            <Link href={loginHref} rel="noreferrer" target="_blank">Ingresar en otra pestaña</Link>
+          )}
+        </div>
+      )}
       <button className="button primary" disabled={state === "saving" || !categories.length} type="submit">{state === "saving" ? "Guardando…" : "Guardar producto"}</button>
     </form>
   );
