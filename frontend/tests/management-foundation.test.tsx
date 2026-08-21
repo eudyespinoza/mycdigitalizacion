@@ -35,7 +35,7 @@ describe("base del panel de gestión", () => {
       "/gestion/integraciones",
     );
     expect(screen.getByText("admin@mycdigitalizacion.local")).toBeVisible();
-    expect(screen.queryByRole("link", { name: /django|admin/i })).not.toBeInTheDocument();
+    expect(document.querySelector('a[href^="/admin"]')).not.toBeInTheDocument();
   });
 
   test("expone navegación completa en lenguaje de negocio", () => {

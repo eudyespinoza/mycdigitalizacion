@@ -10,11 +10,11 @@ type SocialLinks = {
 };
 
 const socialNetworks = [
-  ["instagram_url", "Instagram", InstagramLogo],
-  ["facebook_url", "Facebook", FacebookLogo],
-  ["tiktok_url", "TikTok", TiktokLogo],
-  ["youtube_url", "YouTube", YoutubeLogo],
-  ["linkedin_url", "LinkedIn", LinkedinLogo],
+  ["instagram_url", "Instagram", InstagramLogo, "instagram"],
+  ["facebook_url", "Facebook", FacebookLogo, "facebook"],
+  ["tiktok_url", "TikTok", TiktokLogo, "tiktok"],
+  ["youtube_url", "YouTube", YoutubeLogo, "youtube"],
+  ["linkedin_url", "LinkedIn", LinkedinLogo, "linkedin"],
 ] as const;
 
 export function SiteFooter({
@@ -39,11 +39,11 @@ export function SiteFooter({
           <nav aria-label="Ayuda"><Link href="/catalogo">Catálogo</Link><Link href="/carrito">Carrito</Link><Link href="/cuenta">Mi cuenta</Link></nav>
           <div><strong>Información útil</strong><p>Vas a ver el costo y el plazo de entrega antes de pagar.</p>{contactEmail && <a href={`mailto:${contactEmail}`}>{contactEmail}</a>}</div>
           {configuredNetworks.length > 0 && <nav aria-label="Redes sociales" className="social-links">
-            {configuredNetworks.map(([key, label, Icon]) => <a aria-label={label} href={socialLinks[key]} key={key} rel="noreferrer noopener" target="_blank"><Icon aria-hidden="true" size={22} weight="bold" /></a>)}
+            {configuredNetworks.map(([key, label, Icon, network]) => <a aria-label={label} className={`social-link social-link-${network}`} href={socialLinks[key]} key={key} rel="noreferrer noopener" target="_blank" title={label}><Icon aria-hidden="true" size={24} weight="fill" /></a>)}
           </nav>}
         </div>
       </footer>
-      {whatsapp.enabled && whatsappHref && <a aria-label="Consultar por WhatsApp" className="whatsapp-float" href={whatsappHref} rel="noreferrer noopener" target="_blank"><WhatsappLogo aria-hidden="true" size={30} weight="fill" /><span>Consultar</span></a>}
+      {whatsapp.enabled && whatsappHref && <a aria-label="Consultar por WhatsApp" className="whatsapp-float" href={whatsappHref} rel="noreferrer noopener" target="_blank" title="Consultar por WhatsApp"><WhatsappLogo aria-hidden="true" size={31} weight="fill" /></a>}
     </>
   );
 }

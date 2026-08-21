@@ -1,9 +1,15 @@
 from urllib.parse import urlsplit
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from landing.models import SiteSettings, normalize_whatsapp_number
+from landing.models import (
+    THEME_COLOR_FIELDS,
+    SiteSettings,
+    normalize_whatsapp_number,
+    validate_theme_configuration,
+)
 
 
 class ManagementUserSerializer(serializers.ModelSerializer):
@@ -94,6 +100,21 @@ class GeneralSettingsSerializer(serializers.ModelSerializer):
             errors["whatsapp_number"] = (
                 "Ingresá un número internacional de 8 a 15 dígitos."
             )
+        theme_values = {
+            field_name: attrs.get(
+                field_name,
+                getattr(
+                    self.instance,
+                    field_name,
+                    SiteSettings._meta.get_field(field_name).default,
+                ),
+            )
+            for field_name in THEME_COLOR_FIELDS
+        }
+        try:
+            validate_theme_configuration(theme_values)
+        except DjangoValidationError as exc:
+            errors.update(exc.message_dict)
         if errors:
             raise serializers.ValidationError(errors)
         return attrs
@@ -116,6 +137,12 @@ class GeneralSettingsSerializer(serializers.ModelSerializer):
             "whatsapp_enabled",
             "whatsapp_number",
             "whatsapp_message",
+            "theme_palette",
+            "theme_structure",
+            "theme_action",
+            "theme_wayfinding",
+            "theme_background",
+            "theme_text",
             "logo",
             "favicon",
             "logo_url",

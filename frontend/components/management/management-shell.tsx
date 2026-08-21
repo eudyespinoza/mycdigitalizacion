@@ -16,8 +16,8 @@ export function ManagementShell({
   return (
     <div className="management-app">
       <aside className="management-sidebar">
-        <Link className="management-brand" href="/gestion" aria-label="Inicio de gestión">
-          <span>myc</span> gestión
+        <Link className="management-brand" href="/gestion" aria-label="Inicio de Administración">
+          Administración
         </Link>
         <ManagementNav />
         <div className="management-user">

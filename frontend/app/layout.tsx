@@ -4,6 +4,7 @@ import { CartProvider } from "@/components/cart/cart-provider";
 import { BrandProvider } from "@/components/layout/brand-provider";
 import { loadStorefrontBranding } from "@/lib/branding";
 import { normalizeMediaUrl } from "@/lib/api";
+import { resolveThemeVariables } from "@/lib/theme";
 import "./styles.css";
 
 const rubik = Rubik({ subsets: ["latin"], variable: "--font-display", display: "swap" });
@@ -18,7 +19,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const branding = await loadStorefrontBranding();
   return (
     <html lang="es-AR" className={`${rubik.variable} ${nunito.variable}`} data-scroll-behavior="smooth">
-      <body>
+      <body style={resolveThemeVariables(branding)}>
         <div
           hidden
           data-direction-contract="db399cd4"

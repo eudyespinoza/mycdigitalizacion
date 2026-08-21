@@ -1,3 +1,4 @@
+import re
 from urllib.parse import urlsplit
 
 from django.core.exceptions import ValidationError
@@ -17,6 +18,64 @@ from config.media import (
 )
 
 validate_https_url = URLValidator(schemes=("https",))
+HEX_COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
+THEME_COLOR_FIELDS = (
+    "theme_structure",
+    "theme_action",
+    "theme_wayfinding",
+    "theme_background",
+    "theme_text",
+)
+
+
+def _relative_luminance(color: str) -> float:
+    channels = [int(color[index : index + 2], 16) / 255 for index in (1, 3, 5)]
+    linear = [
+        channel / 12.92
+        if channel <= 0.04045
+        else ((channel + 0.055) / 1.055) ** 2.4
+        for channel in channels
+    ]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def theme_contrast(foreground: str, background: str) -> float:
+    lighter, darker = sorted(
+        (_relative_luminance(foreground), _relative_luminance(background)),
+        reverse=True,
+    )
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def validate_theme_configuration(values: dict[str, str]) -> None:
+    errors = {}
+    for field_name in THEME_COLOR_FIELDS:
+        if not HEX_COLOR_PATTERN.fullmatch(values.get(field_name, "")):
+            errors[field_name] = (
+                "Ingresá un color hexadecimal de seis dígitos, por ejemplo #020530."
+            )
+    if errors:
+        raise ValidationError(errors)
+    background = values["theme_background"]
+    contrast_pairs = (
+        ("theme_text", background, "El texto necesita más contraste con el fondo."),
+        (
+            "theme_structure",
+            background,
+            "El color de estructura necesita más contraste con el fondo.",
+        ),
+        (
+            "theme_wayfinding",
+            background,
+            "El color de orientación necesita más contraste con el fondo.",
+        ),
+        ("theme_action", "#FFFFFF", "El color de acción necesita más contraste con texto blanco."),
+    )
+    for field_name, comparison, message in contrast_pairs:
+        if theme_contrast(values[field_name], comparison) < 4.5:
+            errors[field_name] = message
+    if errors:
+        raise ValidationError(errors)
 
 
 def normalize_whatsapp_number(value: str) -> str:
@@ -24,6 +83,13 @@ def normalize_whatsapp_number(value: str) -> str:
 
 
 class SiteSettings(models.Model):
+    class ThemePalette(models.TextChoices):
+        PULSO = "pulso", "Pulso Comercial"
+        OCEAN = "ocean", "Océano"
+        CREATIVE = "creative", "Creativa"
+        NATURAL = "natural", "Natural"
+        CUSTOM = "custom", "Personalizada"
+
     public_name = models.CharField(max_length=120, default="mycdigitalizacion")
     announcement = models.CharField(max_length=240, blank=True)
     contact_email = models.EmailField(blank=True)
@@ -39,6 +105,16 @@ class SiteSettings(models.Model):
     whatsapp_enabled = models.BooleanField(default=False)
     whatsapp_number = models.CharField(max_length=32, blank=True)
     whatsapp_message = models.CharField(max_length=240, blank=True)
+    theme_palette = models.CharField(
+        max_length=16,
+        choices=ThemePalette.choices,
+        default=ThemePalette.PULSO,
+    )
+    theme_structure = models.CharField(max_length=7, default="#020530")
+    theme_action = models.CharField(max_length=7, default="#BD1D59")
+    theme_wayfinding = models.CharField(max_length=7, default="#007F96")
+    theme_background = models.CharField(max_length=7, default="#FFFFFF")
+    theme_text = models.CharField(max_length=7, default="#020530")
     logo = models.ImageField(
         upload_to=safe_image_upload_to("branding/logo"),
         blank=True,
@@ -58,6 +134,9 @@ class SiteSettings(models.Model):
             raise ValidationError(
                 {"whatsapp_number": "Ingresá un número internacional de 8 a 15 dígitos."}
             )
+        validate_theme_configuration(
+            {field_name: getattr(self, field_name) for field_name in THEME_COLOR_FIELDS}
+        )
 
     def save(self, *args, **kwargs):
         self.pk = 1

@@ -7,6 +7,31 @@ test.beforeEach(async ({ request }) => {
   await control(request, { reset: true });
 });
 
+test("mobile hero keeps its campaign controls and facts inside a compact composition", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "360", "The compact hero contract is specific to the narrow mobile layout.");
+  await page.goto("/");
+  const hero = await page.locator(".hero").boundingBox();
+  const heroMedia = page.locator(".hero-media");
+  const media = await heroMedia.boundingBox();
+  const heroControls = page.locator(".hero-carousel-controls");
+  await expect(heroControls).toBeVisible();
+  const controls = await heroControls.evaluate((item) => {
+    const rect = item.getBoundingClientRect();
+    return { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left };
+  });
+  const whatsapp = await page.locator(".whatsapp-float").boundingBox();
+  const facts = await page.locator(".hero-facts > div").evaluateAll((items) =>
+    items.map((item) => item.getBoundingClientRect().top),
+  );
+  expect(hero?.height ?? 0).toBeLessThanOrEqual(700);
+  expect(media?.height ?? 0).toBeGreaterThanOrEqual(280);
+  expect(media?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(320);
+  expect(controls.bottom).toBeLessThanOrEqual((media?.y ?? 0) + (media?.height ?? 0) - 8);
+  expect(controls.top).toBeGreaterThanOrEqual((media?.y ?? 0) + 8);
+  expect(controls.right).toBeLessThanOrEqual((whatsapp?.x ?? Number.POSITIVE_INFINITY) - 8);
+  expect(Math.max(...facts) - Math.min(...facts)).toBeLessThanOrEqual(1);
+});
+
 test("responsive landing, optimized media, product and keyboard-safe cart drawer", async ({ page }, testInfo) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /todo lo que buscás/i })).toBeVisible();

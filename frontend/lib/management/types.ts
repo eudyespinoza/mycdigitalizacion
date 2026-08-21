@@ -69,6 +69,12 @@ export type GeneralSettings = {
   whatsapp_enabled: boolean;
   whatsapp_number: string;
   whatsapp_message: string;
+  theme_palette: "pulso" | "ocean" | "creative" | "natural" | "custom";
+  theme_structure: string;
+  theme_action: string;
+  theme_wayfinding: string;
+  theme_background: string;
+  theme_text: string;
   logo_url?: string;
   favicon_url?: string;
 };

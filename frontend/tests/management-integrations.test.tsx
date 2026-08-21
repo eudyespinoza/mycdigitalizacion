@@ -77,6 +77,12 @@ describe("configuración e integraciones", () => {
           whatsapp_enabled: false,
           whatsapp_number: "",
           whatsapp_message: "",
+          theme_palette: "pulso",
+          theme_structure: "#020530",
+          theme_action: "#BD1D59",
+          theme_wayfinding: "#007F96",
+          theme_background: "#FFFFFF",
+          theme_text: "#020530",
         }}
         onSave={onSave}
       />,

@@ -16,6 +16,9 @@ export type StorefrontSettings = {
   pickup_enabled: boolean; pickup_label: string; pickup_address: string; pickup_hours: string;
   instagram_url: string; facebook_url: string; tiktok_url: string; youtube_url: string; linkedin_url: string;
   whatsapp_enabled: boolean; whatsapp_number: string; whatsapp_message: string;
+  theme_palette: "pulso" | "ocean" | "creative" | "natural" | "custom";
+  theme_structure: string; theme_action: string; theme_wayfinding: string;
+  theme_background: string; theme_text: string;
   logo_url: string; logo_responsive_sources: ResponsiveMediaSource[]; favicon_url: string;
 };
 export type StorefrontHome = {

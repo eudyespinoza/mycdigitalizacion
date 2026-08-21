@@ -157,6 +157,17 @@ La paleta parte del logo suministrado. Los colores de marca y los colores de int
 
 **The Trust Rule.** Navy y superficies frías dominan la estructura; los acentos nunca sustituyen la legibilidad.
 
+### Paletas administrables
+
+Pulso Comercial es la paleta predeterminada. Administración ofrece además Océano, Creativa y Natural, junto con una opción personalizada basada en cinco roles semánticos: estructura, acción, orientación, fondo y texto. La selección se aplica desde la raíz tanto a la tienda como a Administración; no se implementan temas parciales por página.
+
+- Estructura gobierna navegación, bandas y superficies de máxima jerarquía.
+- Acción gobierna compra, guardado y llamados comerciales.
+- Orientación gobierna foco, enlaces informativos y posición.
+- Fondo y texto gobiernan todas las superficies y la lectura normal.
+- Los estados de error, éxito y las marcas oficiales de redes sociales conservan sus colores semánticos.
+- Una paleta personalizada sólo se guarda si mantiene contraste accesible entre texto, estructura, orientación, acciones y sus fondos de uso.
+
 ## Typography
 
 **Display Font:** Rubik, cargada con `next/font` y fallback sans-serif.  
@@ -187,7 +198,7 @@ La escala espacial sigue un ritmo base de 4/8 px. Separaciones de componente usa
 
 - **Mayor a 1024 px:** contenedor de 1320 px máximo, cuatro productos por fila, hero asimétrico y categorías amplias.
 - **Hasta 1024 px:** header compacto, tres productos por fila, categorías en cuatro columnas y servicios en dos.
-- **Hasta 768 px:** navegación móvil, hero en una columna con imagen posterior a la copia, productos en dos columnas y flujos operativos en una columna.
+- **Hasta 768 px:** navegación móvil, hero en una columna con copia compacta e imagen limitada a 280-320 px, controles dentro del recorte, productos en dos columnas y flujos operativos en una columna.
 - **Hasta 420 px:** encabezados comerciales se apilan, controles de carrusel caben completos, logo se reduce y acciones mantienen su objetivo táctil.
 
 Las pruebas de referencia son 360, 768, 1024 y 1440 px. Ninguna superficie puede ensanchar el documento más que el viewport.
