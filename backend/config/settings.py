@@ -140,6 +140,8 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 CURRENT_CONSENT_VERSION = "privacy-v1"
 
+SESSION_COOKIE_NAME = environ.get("DJANGO_SESSION_COOKIE_NAME", "myc_sessionid")
+CSRF_COOKIE_NAME = environ.get("DJANGO_CSRF_COOKIE_NAME", "myc_csrftoken")
 SESSION_COOKIE_SECURE = APP_ENV == "production"
 CSRF_COOKIE_SECURE = APP_ENV == "production"
 CSRF_FAILURE_VIEW = "config.views.csrf_failure"

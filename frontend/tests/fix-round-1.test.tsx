@@ -110,6 +110,25 @@ describe("Fix Round 1 contracts", () => {
     });
   });
 
+  test("a localized missing-credentials response never leaks framework copy", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/auth/csrf/")) {
+        return new Response(JSON.stringify({ csrf_token: "fresh-token" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        detail: "Las credenciales de autenticación no se proveyeron.",
+      }), { status: 403 });
+    }));
+
+    await expect(apiRequest<void>("/management/products/5/", {
+      method: "PATCH",
+      body: "{}",
+    })).rejects.toMatchObject({
+      code: "authentication_required",
+      message: "Ingresá a tu cuenta para continuar.",
+    });
+  });
+
   test("profile editing persists all checkout identity fields and shows the masked DNI", async () => {
     const save = vi.fn(async () => customer);
     render(<ProfileForm customer={{ ...customer, masked_dni: "" }} onSave={save} />);

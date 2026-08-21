@@ -35,7 +35,7 @@ function normalizeError(status: number, body: unknown) {
           "Tu sesión de administración venció. Ingresá nuevamente para guardar los cambios.",
         );
       }
-      if ((status === 401 || status === 403) && /authentication|credentials|not authenticated/i.test(detail)) {
+      if ((status === 401 || status === 403) && /authentication|credentials|not authenticated|credenciales de autenticación/i.test(detail)) {
         return new ApiError(status, "authentication_required", "Ingresá a tu cuenta para continuar.");
       }
       if (status >= 500) return new ApiError(status, "service_unavailable", "No pudimos completar la solicitud. Intentá nuevamente en unos minutos.");

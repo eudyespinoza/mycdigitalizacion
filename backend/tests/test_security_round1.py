@@ -39,6 +39,34 @@ def test_login_requires_a_valid_csrf_token():
 
 
 @pytest.mark.django_db
+def test_local_apps_using_default_cookie_names_cannot_replace_the_store_session():
+    user = get_user_model().objects.create_user(
+        email="namespaced-session@example.test",
+        password="Correct-Horse-Battery-Staple-42",
+        email_verified_at=timezone.now(),
+        is_staff=True,
+    )
+    browser = Client(enforce_csrf_checks=True)
+    csrf_response = browser.get("/api/v1/auth/csrf/")
+    token = csrf_response.json()["csrf_token"]
+    login_response = browser.post(
+        "/api/v1/auth/login/",
+        {"email": user.email, "password": "Correct-Horse-Battery-Staple-42"},
+        HTTP_X_CSRFTOKEN=token,
+    )
+
+    assert login_response.status_code == 200
+    assert "myc_sessionid" in login_response.cookies
+    assert "myc_csrftoken" in csrf_response.cookies
+    assert browser.get("/api/v1/management/session/").status_code == 200
+
+    browser.cookies["sessionid"] = "another-local-app-session"
+    browser.cookies["csrftoken"] = "another-local-app-csrf"
+
+    assert browser.get("/api/v1/management/session/").status_code == 200
+
+
+@pytest.mark.django_db
 def test_valid_login_ignores_a_stale_anonymous_cart_token():
     user = get_user_model().objects.create_user(
         email="stale-cart-login@example.test",
