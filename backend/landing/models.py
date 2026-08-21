@@ -331,6 +331,23 @@ class ScheduledContent(models.Model):
             delete_image_assets(**assets)
         return result
 
+    def delete(self, *args, **kwargs):
+        assets = [
+            {
+                "storage": field.storage,
+                "source_name": field.name,
+                "derivatives": getattr(self, derivatives_name),
+            }
+            for field, derivatives_name in (
+                (self.desktop_image, "desktop_derivatives"),
+                (self.mobile_image, "mobile_derivatives"),
+            )
+        ]
+        result = super().delete(*args, **kwargs)
+        for image_assets in assets:
+            delete_image_assets(**image_assets)
+        return result
+
 
 class HeroSlide(ScheduledContent):
     title = models.CharField(max_length=160)

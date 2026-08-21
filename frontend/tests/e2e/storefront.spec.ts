@@ -12,6 +12,7 @@ test("mobile hero keeps its campaign controls and facts inside a compact composi
   await page.goto("/");
   const hero = await page.locator(".hero").boundingBox();
   const copy = await page.locator(".hero-copy").boundingBox();
+  const title = await page.locator(".hero-copy h1").boundingBox();
   const heroMedia = page.locator(".hero-media");
   const media = await heroMedia.boundingBox();
   const heroControls = page.locator(".hero-carousel-controls");
@@ -22,17 +23,22 @@ test("mobile hero keeps its campaign controls and facts inside a compact composi
   });
   const whatsapp = await page.locator(".whatsapp-float").boundingBox();
   const facts = await page.locator(".hero-facts > div").evaluateAll((items) =>
-    items.map((item) => item.getBoundingClientRect().top),
+    items.map((item) => {
+      const rect = item.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom };
+    }),
   );
   expect(hero?.height ?? 0).toBeLessThanOrEqual(560);
   expect(Math.abs((media?.y ?? 0) - (hero?.y ?? 0))).toBeLessThanOrEqual(1);
   expect(Math.abs((media?.height ?? 0) - (hero?.height ?? 0))).toBeLessThanOrEqual(1);
   expect(copy?.y ?? 0).toBeGreaterThanOrEqual(media?.y ?? Number.POSITIVE_INFINITY);
   expect((copy?.y ?? 0) + (copy?.height ?? 0)).toBeLessThanOrEqual((media?.y ?? 0) + (media?.height ?? 0));
+  expect(title?.y ?? 0).toBeGreaterThanOrEqual((hero?.y ?? 0) + (hero?.height ?? 0) * 0.25);
+  expect(Math.max(...facts.map((fact) => fact.bottom))).toBeLessThanOrEqual(controls.top - 8);
   expect(controls.bottom).toBeLessThanOrEqual((media?.y ?? 0) + (media?.height ?? 0) - 8);
   expect(controls.top).toBeGreaterThanOrEqual((media?.y ?? 0) + 8);
   expect(controls.right).toBeLessThanOrEqual((whatsapp?.x ?? Number.POSITIVE_INFINITY) - 8);
-  expect(Math.max(...facts) - Math.min(...facts)).toBeLessThanOrEqual(1);
+  expect(Math.max(...facts.map((fact) => fact.top)) - Math.min(...facts.map((fact) => fact.top))).toBeLessThanOrEqual(1);
 });
 
 test("responsive landing, optimized media, product and keyboard-safe cart drawer", async ({ page }, testInfo) => {

@@ -76,7 +76,7 @@ class ContentListCreateView(ContentTypeMixin, generics.ListCreateAPIView):
         self.audit(instance=serializer.save(), action="created")
 
 
-class ContentDetailView(ContentTypeMixin, generics.RetrieveUpdateAPIView):
+class ContentDetailView(ContentTypeMixin, generics.RetrieveUpdateDestroyAPIView):
     @extend_schema(operation_id="management_content_detail")
     def retrieve(self, request, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
@@ -84,6 +84,11 @@ class ContentDetailView(ContentTypeMixin, generics.RetrieveUpdateAPIView):
     @transaction.atomic
     def perform_update(self, serializer):
         self.audit(instance=serializer.save(), action="updated")
+
+    @transaction.atomic
+    def perform_destroy(self, instance):
+        self.audit(instance=instance, action="deleted")
+        instance.delete()
 
 
 class AuditedPromotionMixin:

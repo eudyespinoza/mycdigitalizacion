@@ -1,7 +1,11 @@
+import io
 from datetime import timedelta
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 from django.utils import timezone
+from PIL import Image
 from rest_framework.test import APIClient
 
 from catalog.models import Category, Product
@@ -20,6 +24,12 @@ def management_client(django_user_model):
     client = APIClient()
     client.force_login(owner)
     return client, owner
+
+
+def landing_image_upload():
+    output = io.BytesIO()
+    Image.new("RGB", (96, 64), "#08aecd").save(output, format="PNG")
+    return SimpleUploadedFile("hero.png", output.getvalue(), content_type="image/png")
 
 
 def test_management_landing_content_crud_controls_schedule_height_and_popup(django_user_model):
@@ -72,6 +82,63 @@ def test_management_landing_content_crud_controls_schedule_height_and_popup(djan
     assert popup.status_code == 201
     assert PromotionPopup.objects.get().frequency == "daily"
     assert owner.management_audit_events.filter(resource="landing_content").count() == 3
+
+
+def test_management_can_delete_landing_content_and_its_media(
+    django_user_model, tmp_path
+):
+    storage_settings = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+            "OPTIONS": {"location": str(tmp_path), "base_url": "/media/"},
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        },
+    }
+    with override_settings(
+        MEDIA_ROOT=tmp_path,
+        STORAGES=storage_settings,
+        MEDIA_RESPONSIVE_WIDTHS=(32,),
+    ):
+        client, owner = management_client(django_user_model)
+        created = client.post(
+            "/api/v1/management/content/hero/",
+            {
+                "title": "Hero temporal",
+                "enabled": True,
+                "order": 4,
+                "alt_text": "Producto sobre un escritorio",
+                "desktop_image": landing_image_upload(),
+                "interval_ms": 5000,
+            },
+            format="multipart",
+        )
+        assert created.status_code == 201
+        hero = HeroSlide.objects.get(title="Hero temporal")
+        storage = hero.desktop_image.storage
+        source_name = hero.desktop_image.name
+        derivative_names = [
+            path
+            for source in hero.desktop_derivatives["widths"]
+            for key, path in source.items()
+            if key != "width"
+        ]
+        assert storage.exists(source_name)
+        assert all(storage.exists(path) for path in derivative_names)
+
+        deleted = client.delete(
+            f"/api/v1/management/content/hero/{hero.pk}/"
+        )
+
+        assert deleted.status_code == 204
+        assert not HeroSlide.objects.filter(pk=hero.pk).exists()
+        assert not storage.exists(source_name)
+        assert all(not storage.exists(path) for path in derivative_names)
+        assert owner.management_audit_events.filter(
+            action="content.deleted",
+            object_reference=f"hero:{hero.pk}",
+        ).exists()
 
 
 def test_management_site_settings_exposes_branding_controls(django_user_model):
