@@ -183,6 +183,21 @@ class IntegrationConfigurationResponseSerializer(serializers.Serializer):
     last_test_status = serializers.CharField(allow_blank=True)
     last_tested_at = serializers.DateTimeField(allow_null=True)
     last_test_message = serializers.CharField(allow_blank=True)
+    oauth_ready = serializers.BooleanField(required=False)
+    oauth_status = serializers.CharField(required=False)
+    oauth_callback_url = serializers.URLField(required=False)
+    connected_account_id = serializers.CharField(required=False, allow_blank=True)
+    oauth_connected_at = serializers.CharField(required=False, allow_null=True)
+
+
+class MercadoPagoOAuthStartResponseSerializer(serializers.Serializer):
+    authorization_url = serializers.URLField()
+    callback_url = serializers.URLField()
+
+
+class IntegrationErrorSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    detail = serializers.CharField()
 
 
 class IntegrationListResponseSerializer(serializers.Serializer):

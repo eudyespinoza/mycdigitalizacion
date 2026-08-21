@@ -105,3 +105,22 @@ test("operational layouts reflow before the sidebar squeezes their fields", asyn
   expect(dialogSafety.maxHeight).not.toBe("none");
   expect(["auto", "scroll"]).toContain(dialogSafety.overflow);
 });
+
+
+test("Mercado Pago se conecta desde un único botón", async ({ page }) => {
+  await page.route("https://auth.mercadopago.com/**", async (route) => {
+    await route.fulfill({
+      body: "<main><h1>Confirmar conexion con Mercado Pago</h1></main>",
+      contentType: "text/html; charset=utf-8",
+      status: 200,
+    });
+  });
+  await page.goto("/gestion/integraciones/mercadopago");
+
+  await expect(page.getByRole("heading", { level: 1, name: "Mercado Pago" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Conectar Mercado Pago" })).toBeVisible();
+  await expect(page.getByText(/access token/i)).toHaveCount(0);
+  await page.getByRole("button", { name: "Conectar Mercado Pago" }).click();
+
+  await expect(page.getByRole("heading", { name: "Confirmar conexion con Mercado Pago" })).toBeVisible();
+});

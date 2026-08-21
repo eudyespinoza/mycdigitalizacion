@@ -691,6 +691,17 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .secret-configured { position: absolute; top: 0; right: 0; color: var(--success); font-size: .75rem; }
 .management-form-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 .management-notice { padding: 15px 18px; border-radius: 12px; background: var(--surface-cyan); color: var(--blue); }
+.mercadopago-connect-layout { display: grid; gap: 14px; margin-top: 24px; }
+.mercadopago-connect-card { display: grid; grid-template-columns: 58px minmax(0, 1fr) auto; align-items: center; gap: 18px; }
+.mercadopago-mark { width: 58px; height: 58px; display: grid; place-items: center; border-radius: 50%; background: #009ee3; color: #fff; font-size: 1.15rem; font-weight: 950; letter-spacing: -.06em; }
+.mercadopago-connect-copy { min-width: 0; }
+.mercadopago-connect-copy .management-kicker { margin: 0 0 3px; }
+.mercadopago-connect-copy h2 { margin: 0; }
+.mercadopago-connect-copy p:last-child { max-width: 60ch; margin: 5px 0 0; color: var(--muted); }
+.mercadopago-connect-actions { display: flex; justify-content: flex-end; }
+.mercadopago-connect-help { max-width: 560px; }
+.mercadopago-connect-help ol { margin: 12px 0 0; padding-left: 22px; }
+.mercadopago-connect-help li + li { margin-top: 7px; }
 .theme-settings-section { display: grid; gap: 16px; }
 .theme-settings-section .management-section-heading h2 { margin-bottom: 4px; }
 .theme-reset { min-height: 44px; padding-inline: 16px; }
@@ -717,4 +728,8 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
   .management-section-heading { display: grid; }
   .management-media-grid { grid-template-columns: 1fr; }
   .theme-color-grid { grid-template-columns: repeat(2, minmax(116px, 1fr)); }
+  .mercadopago-connect-card { grid-template-columns: 48px minmax(0, 1fr); align-items: start; }
+  .mercadopago-mark { width: 48px; height: 48px; }
+  .mercadopago-connect-actions { grid-column: 1 / -1; justify-content: stretch; }
+  .mercadopago-connect-actions .button { width: 100%; }
 }

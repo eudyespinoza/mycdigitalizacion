@@ -29,6 +29,7 @@ from api_views import (
     StorefrontHomeView,
     VerifyEmailView,
 )
+from backoffice.oauth_views import MercadoPagoOAuthCallbackView
 
 router = DefaultRouter()
 router.register("billing-profiles", BillingProfileViewSet, basename="billing-profile")
@@ -70,6 +71,11 @@ urlpatterns = [
         "payments/mercadopago/webhook/",
         MercadoPagoWebhookView.as_view(),
         name="mercadopago-webhook",
+    ),
+    path(
+        "payments/mercadopago/oauth/callback/",
+        MercadoPagoOAuthCallbackView.as_view(),
+        name="mercadopago-oauth-callback",
     ),
     path(
         "payments/<uuid:external_reference>/status/",

@@ -28,6 +28,11 @@ export type IntegrationProvider =
   | "backups";
 
 export type IntegrationStatus = "configured" | "incomplete" | "error" | "disabled";
+export type MercadoPagoOAuthStatus =
+  | "not_ready"
+  | "disconnected"
+  | "connected"
+  | "reconnect_required";
 
 export type IntegrationConfiguration = {
   provider: IntegrationProvider;
@@ -43,6 +48,11 @@ export type IntegrationConfiguration = {
   last_test_status: string;
   last_tested_at: string | null;
   last_test_message: string;
+  oauth_ready?: boolean;
+  oauth_status?: MercadoPagoOAuthStatus;
+  oauth_callback_url?: string;
+  connected_account_id?: string;
+  oauth_connected_at?: string | null;
 };
 
 export type IntegrationUpdate = {

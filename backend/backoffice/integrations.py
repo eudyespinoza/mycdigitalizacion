@@ -92,7 +92,7 @@ def get_configuration_status(configuration, definition, secrets=None):
 def serialize_configuration(provider, configuration=None):
     definition = INTEGRATION_DEFINITIONS[provider]
     secrets = unseal_secret_map(configuration.sealed_secrets) if configuration else {}
-    return {
+    serialized = {
         "provider": provider,
         "label": definition.label,
         "enabled": configuration.enabled if configuration else False,
@@ -101,16 +101,63 @@ def serialize_configuration(provider, configuration=None):
         "public_config": configuration.public_config if configuration else {},
         "secret_fields": {field: bool(secrets.get(field)) for field in definition.secret_fields},
         "version": configuration.version if configuration else 0,
-        "updated_at": configuration.updated_at if configuration else None,
+        "updated_at": (
+            configuration.updated_at.isoformat()
+            if configuration and configuration.updated_at
+            else None
+        ),
         "updated_by": (
             configuration.updated_by.email
             if configuration and configuration.updated_by_id
             else ""
         ),
         "last_test_status": configuration.last_test_status if configuration else "",
-        "last_tested_at": configuration.last_tested_at if configuration else None,
+        "last_tested_at": (
+            configuration.last_tested_at.isoformat()
+            if configuration and configuration.last_tested_at
+            else None
+        ),
         "last_test_message": configuration.last_test_message if configuration else "",
     }
+    if provider == "mercadopago":
+        from commerce.mercadopago_oauth import oauth_callback_url, oauth_is_ready
+
+        connected = bool(
+            configuration
+            and configuration.enabled
+            and secrets.get("access_token")
+            and secrets.get("refresh_token")
+        )
+        reconnect_required = bool(
+            configuration
+            and configuration.public_config.get("oauth_reconnect_required", False)
+        )
+        if connected and reconnect_required:
+            oauth_status = "reconnect_required"
+        elif connected:
+            oauth_status = "connected"
+        elif not oauth_is_ready():
+            oauth_status = "not_ready"
+        else:
+            oauth_status = "disconnected"
+        serialized.update(
+            {
+                "oauth_ready": oauth_is_ready(),
+                "oauth_status": oauth_status,
+                "oauth_callback_url": oauth_callback_url(),
+                "connected_account_id": (
+                    str(configuration.public_config.get("collector_id") or "")
+                    if configuration
+                    else ""
+                ),
+                "oauth_connected_at": (
+                    configuration.public_config.get("oauth_connected_at")
+                    if configuration
+                    else None
+                ),
+            }
+        )
+    return serialized
 
 
 def resolved_configuration(provider):

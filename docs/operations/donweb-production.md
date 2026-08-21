@@ -41,6 +41,24 @@ Generá valores independientes con un gestor de secretos; por ejemplo `openssl r
 - `RELEASE_ID` con el commit/digest inmutable que se despliega; cambialo en cada release.
 - `ADMIN_ALLOWED_CIDRS` con CIDR de oficina o VPN separados únicamente por espacios. El validador rechaza comas, `0.0.0.0/0`, `::/0` y uniones que equivalgan a acceso público.
 - Credenciales SID, Mercado Pago y Correo Argentino sólo para los modos realmente habilitados. Un campo vacío no demuestra que el proveedor funciona.
+
+### Conexión de Mercado Pago con un botón
+
+La cuenta vendedora no necesita copiar un access token al panel. La preparación se hace una sola
+vez en el servidor:
+
+1. Creá la aplicación de la tienda en Mercado Pago Developers y habilitá Checkout Pro/OAuth.
+2. Registrá como URL de redirección exacta
+   `https://TU_DOMINIO/api/v1/payments/mercadopago/oauth/callback/`.
+3. Completá `MERCADOPAGO_OAUTH_CLIENT_ID`, `MERCADOPAGO_OAUTH_CLIENT_SECRET` y
+   `MERCADOPAGO_WEBHOOK_SECRET` en `.env.production`. La URL de redirección se deriva del dominio;
+   sólo definí `MERCADOPAGO_OAUTH_REDIRECT_URI` si necesitás sobrescribirla.
+4. Volvé a desplegar `backend`, `worker` y `beat`.
+5. En **Administración → Integraciones → Mercado Pago**, presioná **Conectar Mercado Pago**,
+   iniciá sesión y confirmá. El regreso al panel es automático.
+
+El `client_secret`, los tokens de acceso y renovación nunca llegan al navegador. Los tokens se
+guardan cifrados, se renuevan automáticamente y se eliminan al desconectar la cuenta.
 - `RESTIC_REPOSITORY=s3:s3.amazonaws.com/NOMBRE_BUCKET/prefijo`, `RESTIC_PASSWORD` y credenciales S3 de mínimo privilegio si habrá copia remota cifrada. Como alternativa, guardá el secreto no versionado en `infra/secrets/restic-password` con modo `0600` y usá `RESTIC_PASSWORD_FILE=/run/secrets/restic-password`. El bucket debe tener versionado/bloqueo acorde a la política del negocio.
 - `BACKUP_ALERT_WEBHOOK_URL` a un endpoint que acepte JSON de estado. Nunca apunta a un canal público.
 

@@ -45,6 +45,27 @@ def test_production_configuration_accepts_non_placeholder_values():
     validate_runtime_environment(production_environment())
 
 
+def test_mercadopago_oauth_requires_the_complete_server_configuration():
+    with pytest.raises(ImproperlyConfigured, match="MERCADOPAGO_OAUTH_CLIENT_SECRET"):
+        validate_runtime_environment(
+            production_environment(MERCADOPAGO_OAUTH_CLIENT_ID="123456")
+        )
+
+
+def test_mercadopago_oauth_requires_https_redirect_in_production():
+    with pytest.raises(ImproperlyConfigured, match="must use HTTPS"):
+        validate_runtime_environment(
+            production_environment(
+                MERCADOPAGO_OAUTH_CLIENT_ID="123456",
+                MERCADOPAGO_OAUTH_CLIENT_SECRET="oauth-secret",
+                MERCADOPAGO_WEBHOOK_SECRET="webhook-secret",
+                MERCADOPAGO_OAUTH_REDIRECT_URI=(
+                    "http://shop.example.com/api/v1/payments/mercadopago/oauth/callback/"
+                ),
+            )
+        )
+
+
 def test_production_settings_pass_django_deploy_checks():
     environment = os.environ | production_environment(
         DJANGO_DEBUG="false",

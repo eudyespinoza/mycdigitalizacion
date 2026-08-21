@@ -49,10 +49,38 @@ def validate_runtime_environment(environment: Mapping[str, str]) -> None:
             "MERCADOPAGO_COLLECTOR_ID",
         )
     }
-    mercado_pago_enabled = mercado_pago_live_mode or any(mp_fields.values())
+    mercado_pago_enabled = mercado_pago_live_mode or any(
+        mp_fields[field] for field in ("MERCADOPAGO_ACCESS_TOKEN", "MERCADOPAGO_COLLECTOR_ID")
+    )
     if mercado_pago_enabled and not all(mp_fields.values()):
         missing = next(field for field, value in mp_fields.items() if not value)
         raise ImproperlyConfigured(f"{missing} is required when Mercado Pago is configured")
+
+    oauth_fields = {
+        field: environment.get(field, "").strip()
+        for field in (
+            "MERCADOPAGO_OAUTH_CLIENT_ID",
+            "MERCADOPAGO_OAUTH_CLIENT_SECRET",
+        )
+    }
+    oauth_enabled = any(oauth_fields.values())
+    if oauth_enabled:
+        required_oauth = {
+            **oauth_fields,
+            "MERCADOPAGO_WEBHOOK_SECRET": mp_fields["MERCADOPAGO_WEBHOOK_SECRET"],
+        }
+        if not all(required_oauth.values()):
+            missing = next(field for field, value in required_oauth.items() if not value)
+            raise ImproperlyConfigured(f"{missing} is required for Mercado Pago OAuth")
+        redirect_uri = environment.get("MERCADOPAGO_OAUTH_REDIRECT_URI", "").strip() or (
+            f"https://{environment.get('SITE_ADDRESS', 'localhost')}"
+            "/api/v1/payments/mercadopago/oauth/callback/"
+        )
+        parsed_redirect = urlsplit(redirect_uri)
+        if not parsed_redirect.netloc or parsed_redirect.scheme not in {"http", "https"}:
+            raise ImproperlyConfigured("MERCADOPAGO_OAUTH_REDIRECT_URI must be an absolute URL")
+        if app_env == "production" and parsed_redirect.scheme != "https":
+            raise ImproperlyConfigured("MERCADOPAGO_OAUTH_REDIRECT_URI must use HTTPS")
 
     if carrier_enabled:
         carrier_environment = environment.get("CORREO_ARGENTINO_ENVIRONMENT", "").lower()
@@ -343,6 +371,19 @@ MERCADOPAGO_ACCESS_TOKEN = environ.get("MERCADOPAGO_ACCESS_TOKEN", "")
 MERCADOPAGO_WEBHOOK_SECRET = environ.get("MERCADOPAGO_WEBHOOK_SECRET", "")
 MERCADOPAGO_COLLECTOR_ID = environ.get("MERCADOPAGO_COLLECTOR_ID", "")
 MERCADOPAGO_LIVE_MODE = strict_boolean(environ, "MERCADOPAGO_LIVE_MODE")
+MERCADOPAGO_OAUTH_CLIENT_ID = environ.get("MERCADOPAGO_OAUTH_CLIENT_ID", "")
+MERCADOPAGO_OAUTH_CLIENT_SECRET = environ.get("MERCADOPAGO_OAUTH_CLIENT_SECRET", "")
+MERCADOPAGO_OAUTH_REDIRECT_URI = environ.get("MERCADOPAGO_OAUTH_REDIRECT_URI", "").strip() or (
+    f"{PUBLIC_BACKEND_URL}/api/v1/payments/mercadopago/oauth/callback/"
+)
+MERCADOPAGO_OAUTH_AUTH_URL = environ.get(
+    "MERCADOPAGO_OAUTH_AUTH_URL",
+    "https://auth.mercadopago.com/authorization",
+)
+MERCADOPAGO_OAUTH_TOKEN_URL = environ.get(
+    "MERCADOPAGO_OAUTH_TOKEN_URL",
+    "https://api.mercadopago.com/oauth/token",
+)
 MERCADOPAGO_WEBHOOK_TOLERANCE_SECONDS = int(
     environ.get("MERCADOPAGO_WEBHOOK_TOLERANCE_SECONDS", "300")
 )

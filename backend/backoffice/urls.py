@@ -27,6 +27,10 @@ from backoffice.content_views import (
     PromotionRuleListCreateView,
     PromotionScopeOptionsView,
 )
+from backoffice.oauth_views import (
+    MercadoPagoOAuthDisconnectView,
+    MercadoPagoOAuthStartView,
+)
 from backoffice.operations_views import (
     ManagementCustomerDetailView,
     ManagementCustomerListView,
@@ -58,6 +62,16 @@ urlpatterns = [
         "integrations/<slug:provider>/test/",
         IntegrationTestView.as_view(),
         name="management-integration-test",
+    ),
+    path(
+        "integrations/mercadopago/oauth/start/",
+        MercadoPagoOAuthStartView.as_view(),
+        name="management-mercadopago-oauth-start",
+    ),
+    path(
+        "integrations/mercadopago/oauth/disconnect/",
+        MercadoPagoOAuthDisconnectView.as_view(),
+        name="management-mercadopago-oauth-disconnect",
     ),
     path(
         "settings/general/",

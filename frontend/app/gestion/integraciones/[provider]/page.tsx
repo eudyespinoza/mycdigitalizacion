@@ -7,10 +7,13 @@ import type { IntegrationConfiguration } from "@/lib/management/types";
 
 export default async function IntegrationDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ provider: string }>;
+  searchParams: Promise<{ mp_oauth?: string }>;
 }) {
   const { provider } = await params;
+  const { mp_oauth: oauthResult } = await searchParams;
   const integration = await managementServerGet<IntegrationConfiguration>(
     `/integrations/${provider}/`,
   );
@@ -23,7 +26,7 @@ export default async function IntegrationDetailPage({
           <h1>{integration.label}</h1>
         </div>
       </header>
-      <IntegrationPanel integration={integration} />
+      <IntegrationPanel integration={integration} result={oauthResult} />
     </div>
   );
 }

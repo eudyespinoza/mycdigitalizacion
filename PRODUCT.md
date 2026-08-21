@@ -29,6 +29,9 @@ The store joins a visually rich multi-category catalog with identity-aware check
 - Spanish (Argentina), Argentine pesos and physical inventory by SKU.
 - National delivery through Correo Argentino and configurable free pickup.
 - Payment through Mercado Pago Checkout Pro.
+- One-button Mercado Pago connection from Administración using Authorization Code OAuth with
+  PKCE. The operator confirms access on Mercado Pago and returns to the store without copying
+  access tokens; credentials remain encrypted on the server and refresh automatically.
 - Customer and fiscal data may contain sensitive personal information and must remain masked, auditable and absent from application logs.
 - Production runs in containers on a dedicated VPS.
 

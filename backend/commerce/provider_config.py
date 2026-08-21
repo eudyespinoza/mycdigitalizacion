@@ -54,12 +54,18 @@ def get_payment_adapter():
     if stored is not None:
         public = stored["public_config"]
         secrets = stored["secrets"]
-        if not stored["enabled"] or not secrets.get("access_token") or not secrets.get(
-            "webhook_secret"
-        ):
+        if not stored["enabled"] or not secrets.get("webhook_secret"):
+            return UnconfiguredPaymentAdapter()
+        if secrets.get("refresh_token"):
+            from commerce.mercadopago_oauth import resolve_oauth_access_token
+
+            access_token = resolve_oauth_access_token()
+        else:
+            access_token = secrets.get("access_token", "")
+        if not access_token:
             return UnconfiguredPaymentAdapter()
         adapter = MercadoPagoAdapter(
-            access_token=secrets["access_token"],
+            access_token=access_token,
             webhook_secret=secrets["webhook_secret"],
             back_url_base=settings.PUBLIC_BACKEND_URL,
             live_mode=bool(public.get("live_mode", stored["environment"] == "production")),
