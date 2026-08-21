@@ -16,6 +16,31 @@ export class ApiError extends Error {
   }
 }
 
+function flattenValidationErrors(
+  value: unknown,
+  path = "",
+  fields: Record<string, string[]> = {},
+) {
+  if (Array.isArray(value)) {
+    if (value.every((item) => typeof item !== "object" || item === null)) {
+      if (path) fields[path] = value.map(String);
+      return fields;
+    }
+    value.forEach((item, index) => {
+      flattenValidationErrors(item, path ? `${path}.${index}` : String(index), fields);
+    });
+    return fields;
+  }
+  if (value && typeof value === "object") {
+    Object.entries(value as Record<string, unknown>).forEach(([key, item]) => {
+      flattenValidationErrors(item, path ? `${path}.${key}` : key, fields);
+    });
+    return fields;
+  }
+  if (path && value !== undefined && value !== null) fields[path] = [String(value)];
+  return fields;
+}
+
 function normalizeError(status: number, body: unknown) {
   if (body && typeof body === "object") {
     const record = body as Record<string, unknown>;
@@ -41,7 +66,7 @@ function normalizeError(status: number, body: unknown) {
       if (status >= 500) return new ApiError(status, "service_unavailable", "No pudimos completar la solicitud. Intentá nuevamente en unos minutos.");
       return new ApiError(status, code, detail);
     }
-    const fields = Object.fromEntries(Object.entries(record).map(([key, value]) => [key, Array.isArray(value) ? value.map(String) : [String(value)]]));
+    const fields = flattenValidationErrors(record);
     return new ApiError(status, "validation_error", "Revisá los datos ingresados.", fields);
   }
   return new ApiError(status, "request_failed", "No pudimos completar la solicitud.");

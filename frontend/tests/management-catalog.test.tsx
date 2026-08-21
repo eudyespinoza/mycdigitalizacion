@@ -5,7 +5,7 @@ import { InventoryTable } from "@/components/management/inventory-table";
 import { ManagementProductEditor } from "@/components/management/product-editor";
 import { ProductMediaManager } from "@/components/management/product-media-manager";
 import { ManagementProductTable } from "@/components/management/product-table";
-import { ApiError } from "@/lib/api";
+import { ApiError, apiRequest } from "@/lib/api";
 import type { ManagementProduct } from "@/lib/management/catalog-types";
 
 
@@ -173,6 +173,58 @@ describe("gestión de catálogo e inventario", () => {
       "/cuenta/ingresar?next=%2Fgestion%2Fcatalogo%2F11",
     );
     expect(screen.getByRole("link", { name: "Ingresar en otra pestaña" })).toHaveAttribute("target", "_blank");
+  });
+
+  test("muestra el error de una variante junto al campo exacto y conserva el borrador", async () => {
+    const onSave = vi.fn().mockRejectedValue(new ApiError(
+      400,
+      "validation_error",
+      "Revisá los datos ingresados.",
+      { "variants.1.sku": ["Ya existe otra variante con este SKU."] },
+    ));
+    render(
+      <ManagementProductEditor
+        brands={[product.brand!]}
+        categories={[product.category]}
+        initial={product}
+        onSave={onSave}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Agregar variante" }));
+    fireEvent.change(screen.getByLabelText("SKU de variante 2"), {
+      target: { value: "CUA-A5-ROSA" },
+    });
+    fireEvent.change(screen.getByLabelText("Precio de variante 2"), {
+      target: { value: "4990" },
+    });
+    fireEvent.change(screen.getByLabelText("Costo de variante 2"), {
+      target: { value: "2700" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar producto" }));
+
+    expect(await screen.findByText("Variante 2 · SKU: Ya existe otra variante con este SKU.")).toBeVisible();
+    expect(screen.getByLabelText("SKU de variante 2")).toHaveFocus();
+    expect(screen.getByLabelText("SKU de variante 2")).toHaveValue("CUA-A5-ROSA");
+  });
+
+  test("conserva la ubicación de errores anidados devuelta por el servidor", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(
+      JSON.stringify({
+        variants: [
+          {},
+          { sku: ["Ya existe otra variante con este SKU."] },
+        ],
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    ));
+
+    await expect(apiRequest("/management/products/5/")).rejects.toMatchObject({
+      code: "validation_error",
+      fields: {
+        "variants.1.sku": ["Ya existe otra variante con este SKU."],
+      },
+    });
+    fetchMock.mockRestore();
   });
 
   test("ajusta stock con motivo obligatorio", async () => {

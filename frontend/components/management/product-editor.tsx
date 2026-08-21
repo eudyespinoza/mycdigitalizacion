@@ -77,6 +77,35 @@ function accessibleLabel(label: string, index: number) {
   return index === 0 ? undefined : `${label} de variante ${index + 1}`;
 }
 
+const VARIANT_FIELD_LABELS: Record<string, string> = {
+  sku: "SKU",
+  name: "Nombre",
+  price: "Precio",
+  cost: "Costo",
+  on_hand: "Stock físico",
+  packaged_weight_grams: "Peso embalado",
+  length_cm: "Largo",
+  width_cm: "Ancho",
+  height_cm: "Alto",
+  id: "Variante",
+};
+
+type EditorIssue = { field: string; label: string; message: string };
+
+function editorIssues(fields: Record<string, string[]>): EditorIssue[] {
+  return Object.entries(fields).flatMap(([field, messages]) => {
+    const variant = field.match(/^variants\.(\d+)\.([^.]+)$/);
+    const label = variant
+      ? `Variante ${Number(variant[1]) + 1} · ${VARIANT_FIELD_LABELS[variant[2]] ?? "Dato"}`
+      : field === "slug" ? "Identificador para la web"
+        : field === "category_id" || field === "category" ? "Categoría"
+          : field === "brand_id" || field === "brand" ? "Marca"
+            : field === "name" ? "Nombre del producto"
+              : "Producto";
+    return messages.map((message) => ({ field, label, message }));
+  });
+}
+
 export function ManagementProductEditor({
   categories,
   brands,
@@ -100,7 +129,11 @@ export function ManagementProductEditor({
   const [slugWasEdited, setSlugWasEdited] = useState(false);
   const [brandId, setBrandId] = useState(String(initial?.brand?.id ?? ""));
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [saveError, setSaveError] = useState<{ message: string; requiresLogin: boolean } | null>(null);
+  const [saveError, setSaveError] = useState<{
+    message: string;
+    requiresLogin: boolean;
+    issues: EditorIssue[];
+  } | null>(null);
 
   const updateVariant = <K extends keyof VariantDraft>(
     index: number,
@@ -136,6 +169,7 @@ export function ManagementProductEditor({
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const formElement = event.currentTarget;
     setState("saving");
     setSaveError(null);
     const form = new FormData(event.currentTarget);
@@ -171,11 +205,22 @@ export function ManagementProductEditor({
       setState("saved");
     } catch (cause) {
       const apiError = cause instanceof ApiError ? cause : null;
+      const issues = editorIssues(apiError?.fields ?? {});
       setSaveError({
-        message: apiError?.message ?? "No pudimos guardar el producto. Intentá nuevamente.",
+        message: issues.length
+          ? "No pudimos guardar el producto. Corregí lo indicado:"
+          : apiError?.message ?? "No pudimos guardar el producto. Intentá nuevamente.",
         requiresLogin: apiError?.code === "authentication_required",
+        issues,
       });
       setState("error");
+      const firstField = issues[0]?.field;
+      if (firstField) {
+        window.setTimeout(() => {
+          const control = formElement.elements.namedItem(firstField);
+          if (control instanceof HTMLElement) control.focus();
+        }, 0);
+      }
     }
   };
 
@@ -207,17 +252,17 @@ export function ManagementProductEditor({
               <legend>Variante {index + 1}</legend>
               <div className="management-field-grid">
                 <div className="management-sku-field">
-                  <label><span>SKU</span><input aria-label={accessibleLabel("SKU", index)} onChange={(event) => updateVariant(index, "sku", event.target.value)} required value={variant.sku} /></label>
+                  <label><span>SKU</span><input aria-invalid={saveError?.issues.some((issue) => issue.field === `variants.${index}.sku`) || undefined} aria-label={accessibleLabel("SKU", index)} name={`variants.${index}.sku`} onChange={(event) => updateVariant(index, "sku", event.target.value)} required value={variant.sku} /></label>
                   <button aria-label={accessibleLabel("Generar SKU", index)} className="button secondary" onClick={() => generateVariantSku(index)} type="button">Generar SKU</button>
                 </div>
-                <label><span>Nombre de la variante</span><input aria-label={accessibleLabel("Nombre de la variante", index)} onChange={(event) => updateVariant(index, "name", event.target.value)} placeholder="Ej.: Azul, A4 o Pack x6" value={variant.name} /></label>
-                <label><span>Precio</span><input aria-label={accessibleLabel("Precio", index)} min="0" onChange={(event) => updateVariant(index, "price", event.target.value)} required step="0.01" type="number" value={variant.price} /></label>
-                <label><span>Costo</span><input aria-label={accessibleLabel("Costo", index)} min="0" onChange={(event) => updateVariant(index, "cost", event.target.value)} required step="0.01" type="number" value={variant.cost} /></label>
-                <label><span>Stock físico</span><input aria-label={accessibleLabel("Stock físico", index)} min="0" onChange={(event) => updateVariant(index, "on_hand", event.target.value)} type="number" value={variant.on_hand} /></label>
-                <label><span>Peso embalado (gramos)</span><input aria-label={accessibleLabel("Peso embalado (gramos)", index)} min="1" onChange={(event) => updateVariant(index, "packaged_weight_grams", event.target.value)} type="number" value={variant.packaged_weight_grams} /></label>
-                <label><span>Largo (cm)</span><input aria-label={accessibleLabel("Largo (cm)", index)} min="0.01" onChange={(event) => updateVariant(index, "length_cm", event.target.value)} step="0.01" type="number" value={variant.length_cm} /></label>
-                <label><span>Ancho (cm)</span><input aria-label={accessibleLabel("Ancho (cm)", index)} min="0.01" onChange={(event) => updateVariant(index, "width_cm", event.target.value)} step="0.01" type="number" value={variant.width_cm} /></label>
-                <label><span>Alto (cm)</span><input aria-label={accessibleLabel("Alto (cm)", index)} min="0.01" onChange={(event) => updateVariant(index, "height_cm", event.target.value)} step="0.01" type="number" value={variant.height_cm} /></label>
+                <label><span>Nombre de la variante</span><input aria-label={accessibleLabel("Nombre de la variante", index)} name={`variants.${index}.name`} onChange={(event) => updateVariant(index, "name", event.target.value)} placeholder="Ej.: Azul, A4 o Pack x6" value={variant.name} /></label>
+                <label><span>Precio</span><input aria-label={accessibleLabel("Precio", index)} min="0" name={`variants.${index}.price`} onChange={(event) => updateVariant(index, "price", event.target.value)} required step="0.01" type="number" value={variant.price} /></label>
+                <label><span>Costo</span><input aria-label={accessibleLabel("Costo", index)} min="0" name={`variants.${index}.cost`} onChange={(event) => updateVariant(index, "cost", event.target.value)} required step="0.01" type="number" value={variant.cost} /></label>
+                <label><span>Stock físico</span><input aria-label={accessibleLabel("Stock físico", index)} min="0" name={`variants.${index}.on_hand`} onChange={(event) => updateVariant(index, "on_hand", event.target.value)} type="number" value={variant.on_hand} /></label>
+                <label><span>Peso embalado (gramos)</span><input aria-label={accessibleLabel("Peso embalado (gramos)", index)} min="1" name={`variants.${index}.packaged_weight_grams`} onChange={(event) => updateVariant(index, "packaged_weight_grams", event.target.value)} type="number" value={variant.packaged_weight_grams} /></label>
+                <label><span>Largo (cm)</span><input aria-label={accessibleLabel("Largo (cm)", index)} min="0.01" name={`variants.${index}.length_cm`} onChange={(event) => updateVariant(index, "length_cm", event.target.value)} step="0.01" type="number" value={variant.length_cm} /></label>
+                <label><span>Ancho (cm)</span><input aria-label={accessibleLabel("Ancho (cm)", index)} min="0.01" name={`variants.${index}.width_cm`} onChange={(event) => updateVariant(index, "width_cm", event.target.value)} step="0.01" type="number" value={variant.width_cm} /></label>
+                <label><span>Alto (cm)</span><input aria-label={accessibleLabel("Alto (cm)", index)} min="0.01" name={`variants.${index}.height_cm`} onChange={(event) => updateVariant(index, "height_cm", event.target.value)} step="0.01" type="number" value={variant.height_cm} /></label>
                 {attributes.map((definition) => (
                   <label key={definition.id}>
                     <span>{definition.name}</span>
@@ -246,6 +291,11 @@ export function ManagementProductEditor({
       {state === "error" && saveError && (
         <div className="inline-error management-save-error" role="alert">
           <span>{saveError.message}</span>
+          {saveError.issues.length > 0 && (
+            <ul>{saveError.issues.map((issue) => (
+              <li key={`${issue.field}-${issue.message}`}>{issue.label}: {issue.message}</li>
+            ))}</ul>
+          )}
           {saveError.requiresLogin && (
             <Link href={loginHref} rel="noreferrer" target="_blank">Ingresar en otra pestaña</Link>
           )}

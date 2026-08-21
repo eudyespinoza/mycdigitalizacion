@@ -75,6 +75,75 @@ def test_management_product_creation_uses_variants_and_audited_initial_stock(
     assert movement.actor.email == "catalog-owner@example.test"
 
 
+def test_management_product_update_keeps_existing_sku_and_adds_a_variant(
+    django_user_model,
+):
+    category = Category.objects.create(name="Cuadernos", slug="cuadernos")
+    client = management_client(django_user_model)
+    created = client.post(
+        "/api/v1/management/products/",
+        {
+            "name": "Libreta tapa dura",
+            "slug": "libreta-tapa-dura",
+            "category_id": category.pk,
+            "variants": [
+                {
+                    "sku": "MYC-LIB-TAP-80",
+                    "name": "80 Hojas",
+                    "price": "9750.00",
+                    "cost": "5100.00",
+                    "on_hand": 25,
+                    "packaged_weight_grams": 140,
+                    "length_cm": "22.00",
+                    "width_cm": "8.00",
+                    "height_cm": "7.00",
+                }
+            ],
+        },
+        format="json",
+    )
+    existing = created.json()["variants"][0]
+
+    response = client.patch(
+        f"/api/v1/management/products/{created.json()['id']}/",
+        {
+            "variants": [
+                {
+                    "id": existing["id"],
+                    "sku": "MYC-LIB-TAP-80",
+                    "name": "80 Hojas",
+                    "price": "9750.00",
+                    "cost": "5100.00",
+                    "on_hand": 25,
+                    "packaged_weight_grams": 140,
+                    "length_cm": "22.00",
+                    "width_cm": "8.00",
+                    "height_cm": "7.00",
+                },
+                {
+                    "sku": "MYC-LIB-TAP-60",
+                    "name": "60 Hojas",
+                    "price": "7650.00",
+                    "cost": "3500.00",
+                    "on_hand": 15,
+                    "packaged_weight_grams": 126,
+                    "length_cm": "22.00",
+                    "width_cm": "18.00",
+                    "height_cm": "4.00",
+                },
+            ]
+        },
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert [variant["sku"] for variant in response.json()["variants"]] == [
+        "MYC-LIB-TAP-80",
+        "MYC-LIB-TAP-60",
+    ]
+    assert ProductVariant.objects.filter(product_id=created.json()["id"]).count() == 2
+
+
 def test_management_product_list_searches_real_catalog_and_includes_cost(django_user_model):
     category = Category.objects.create(name="Escritura", slug="escritura")
     client = management_client(django_user_model)
