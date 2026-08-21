@@ -111,6 +111,11 @@ class AuditedPromotionMixin:
     def perform_update(self, serializer):
         self.audit(instance=serializer.save(), action="updated")
 
+    @transaction.atomic
+    def perform_destroy(self, instance):
+        self.audit(instance=instance, action="deleted")
+        instance.delete()
+
 
 class PromotionRuleListCreateView(AuditedPromotionMixin, generics.ListCreateAPIView):
     serializer_class = ManagementPromotionRuleSerializer
@@ -150,7 +155,9 @@ class PromotionScopeOptionsView(APIView):
         return Response({"products": products, "categories": categories})
 
 
-class PromotionRuleDetailView(AuditedPromotionMixin, generics.RetrieveUpdateAPIView):
+class PromotionRuleDetailView(
+    AuditedPromotionMixin, generics.RetrieveUpdateDestroyAPIView
+):
     serializer_class = ManagementPromotionRuleSerializer
     queryset = PromotionRule.objects.prefetch_related("products", "categories")
 
@@ -181,7 +188,7 @@ class CouponListCreateView(AuditedPromotionMixin, generics.ListCreateAPIView):
         )
 
 
-class CouponDetailView(AuditedPromotionMixin, generics.RetrieveUpdateAPIView):
+class CouponDetailView(AuditedPromotionMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = ManagementCouponSerializer
 
     def get_queryset(self):

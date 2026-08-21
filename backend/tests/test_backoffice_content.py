@@ -198,6 +198,45 @@ def test_management_promotions_and_coupons_cover_scope_and_schedule(django_user_
     assert owner.management_audit_events.filter(resource="promotion").count() == 2
 
 
+def test_management_deletes_offers_and_unused_coupons_with_audit(django_user_model):
+    client, owner = management_client(django_user_model)
+    now = timezone.now()
+    rule = PromotionRule.objects.create(
+        name="Oferta temporal",
+        discount_type="percentage",
+        value="12.00",
+        starts_at=now,
+        ends_at=now + timedelta(days=3),
+    )
+    coupon = Coupon.objects.create(
+        code="TEMPORAL12",
+        discount_type="percentage",
+        value="12.00",
+        starts_at=now,
+        ends_at=now + timedelta(days=3),
+    )
+
+    deleted_rule = client.delete(
+        f"/api/v1/management/promotions/rules/{rule.pk}/"
+    )
+    deleted_coupon = client.delete(
+        f"/api/v1/management/promotions/coupons/{coupon.pk}/"
+    )
+
+    assert deleted_rule.status_code == 204
+    assert deleted_coupon.status_code == 204
+    assert not PromotionRule.objects.filter(pk=rule.pk).exists()
+    assert not Coupon.objects.filter(pk=coupon.pk).exists()
+    assert owner.management_audit_events.filter(
+        action="promotion.deleted",
+        object_reference=f"promotionrule:{rule.pk}",
+    ).exists()
+    assert owner.management_audit_events.filter(
+        action="promotion.deleted",
+        object_reference=f"coupon:{coupon.pk}",
+    ).exists()
+
+
 def test_customer_cannot_manage_content(django_user_model):
     customer = django_user_model.objects.create_user(
         email="content-customer@example.test",

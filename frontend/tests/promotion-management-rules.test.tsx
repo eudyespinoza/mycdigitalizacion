@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { ManagementProductTable } from "@/components/management/product-table";
 import { PromotionEditor } from "@/components/management/promotion-editor";
@@ -9,6 +9,10 @@ import type { ManagementProduct } from "@/lib/management/catalog-types";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
+
+const { managementRequest } = vi.hoisted(() => ({ managementRequest: vi.fn() }));
+
+vi.mock("@/lib/management/api", () => ({ managementRequest }));
 
 const productOptions = [
   { id: 11, label: "Cuaderno A5", description: "Cuadernos" },
@@ -20,7 +24,103 @@ const categoryOptions = [
   { id: 5, label: "Cuadernos" },
 ];
 
+const offer = {
+  id: 1,
+  name: "Oferta cuadernos",
+  discount_type: "percentage" as const,
+  value: "15.00",
+  starts_at: "2026-08-20T10:00:00Z",
+  ends_at: "2026-08-27T10:00:00Z",
+  enabled: true,
+  product_ids: [11],
+  category_ids: [5],
+};
+
+const coupon = {
+  id: 3,
+  code: "UNO10",
+  discount_type: "percentage" as const,
+  value: "10.00",
+  starts_at: "2026-08-20T10:00:00Z",
+  ends_at: "2026-08-27T10:00:00Z",
+  enabled: true,
+  combinable: false,
+  max_redemptions: 10,
+  used_redemptions: 3,
+  reserved_redemptions: 1,
+};
+
 describe("reglas de promociones en gestión", () => {
+  beforeEach(() => {
+    managementRequest.mockReset();
+    vi.restoreAllMocks();
+  });
+
+  test("edita una oferta con su alcance actual", async () => {
+    managementRequest.mockResolvedValueOnce({ ...offer, value: "18.00" });
+    render(
+      <PromotionManagementPanel
+        categoryOptions={categoryOptions}
+        coupons={[]}
+        productOptions={productOptions}
+        rules={[offer]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Editar Oferta cuadernos" }));
+    const editForm = screen.getByRole("heading", { name: "Editar oferta automática" }).closest("form");
+    expect(editForm).not.toBeNull();
+    expect(within(editForm!).getByLabelText("Nombre interno")).toHaveValue("Oferta cuadernos");
+    expect(within(editForm!).getByRole("checkbox", { name: /Cuaderno A5/ })).toBeChecked();
+    expect(within(editForm!).getByRole("checkbox", { name: "Cuadernos" })).toBeChecked();
+    fireEvent.change(within(editForm!).getByLabelText("Valor"), { target: { value: "18" } });
+    fireEvent.click(within(editForm!).getByRole("button", { name: "Guardar cambios de oferta" }));
+
+    await waitFor(() => expect(screen.getByText(/18\.00%/)).toBeVisible());
+    expect(screen.queryByRole("heading", { name: "Editar oferta automática" })).not.toBeInTheDocument();
+  });
+
+  test("edita un cupón con su límite de usos actual", async () => {
+    managementRequest.mockResolvedValueOnce({ ...coupon, max_redemptions: 25 });
+    render(
+      <PromotionManagementPanel
+        coupons={[coupon]}
+        rules={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Editar UNO10" }));
+    expect(screen.getByRole("heading", { name: "Editar cupón" })).toBeVisible();
+    expect(screen.getByLabelText("Código")).toHaveValue("UNO10");
+    expect(screen.getByLabelText("Cantidad máxima de usos")).toHaveValue(10);
+    fireEvent.change(screen.getByLabelText("Cantidad máxima de usos"), {
+      target: { value: "25" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar cambios del cupón" }));
+
+    await waitFor(() => expect(screen.getByText(/3 de 25 usados/)).toBeVisible());
+    expect(screen.queryByRole("heading", { name: "Editar cupón" })).not.toBeInTheDocument();
+  });
+
+  test("elimina ofertas y cupones después de confirmar", async () => {
+    managementRequest.mockResolvedValue(undefined);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(
+      <PromotionManagementPanel
+        coupons={[coupon]}
+        rules={[offer]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar Oferta cuadernos" }));
+    await waitFor(() => expect(screen.queryByText("Oferta cuadernos")).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar UNO10" }));
+
+    await waitFor(() => expect(screen.queryByText("UNO10")).not.toBeInTheDocument());
+    expect(screen.getByText("No hay ofertas automáticas.")).toBeVisible();
+    expect(screen.getByText("No hay cupones.")).toBeVisible();
+  });
+
   test("selecciona varios productos y categorías por nombre", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(

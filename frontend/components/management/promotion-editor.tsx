@@ -2,7 +2,11 @@
 
 import { FormEvent, useMemo, useState } from "react";
 
-import type { PromotionScopeOption } from "@/lib/management/content-types";
+import type {
+  ManagedCoupon,
+  ManagedPromotionRule,
+  PromotionScopeOption,
+} from "@/lib/management/content-types";
 
 
 type PromotionPayload = Record<string, string | number | boolean | number[] | null>;
@@ -10,9 +14,18 @@ type PromotionPayload = Record<string, string | number | boolean | number[] | nu
 type PromotionEditorProps = {
   kind: "rule" | "coupon";
   onSave: (payload: PromotionPayload) => Promise<void>;
+  initialValue?: ManagedPromotionRule | ManagedCoupon;
+  onCancel?: () => void;
   productOptions?: PromotionScopeOption[];
   categoryOptions?: PromotionScopeOption[];
 };
+
+function localDateTime(value: Date | string) {
+  const date = typeof value === "string" ? new Date(value) : value;
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 16);
+}
 
 function ScopePicker({
   label,
@@ -72,16 +85,22 @@ function ScopePicker({
 export function PromotionEditor({
   kind,
   onSave,
+  initialValue,
+  onCancel,
   productOptions = [],
   categoryOptions = [],
 }: PromotionEditorProps) {
   const [feedback, setFeedback] = useState("");
   const [saving, setSaving] = useState(false);
-  const [productIds, setProductIds] = useState<number[]>([]);
-  const [categoryIds, setCategoryIds] = useState<number[]>([]);
+  const [productIds, setProductIds] = useState<number[]>(
+    initialValue && "product_ids" in initialValue ? initialValue.product_ids : [],
+  );
+  const [categoryIds, setCategoryIds] = useState<number[]>(
+    initialValue && "category_ids" in initialValue ? initialValue.category_ids : [],
+  );
   const now = new Date();
   const nextWeek = new Date(now.getTime() + 7 * 86400000);
-  const local = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const editing = Boolean(initialValue);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -107,10 +126,12 @@ export function PromotionEditor({
     setFeedback("");
     try {
       await onSave(payload);
-      formElement.reset();
-      setProductIds([]);
-      setCategoryIds([]);
-      setFeedback("Promoción guardada. Podés cargar otra.");
+      if (!editing) {
+        formElement.reset();
+        setProductIds([]);
+        setCategoryIds([]);
+        setFeedback("Promoción guardada. Podés cargar otra.");
+      }
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "No pudimos guardar la promoción.");
     } finally {
@@ -121,31 +142,35 @@ export function PromotionEditor({
   return (
     <form className="management-form" onSubmit={(event) => void submit(event)}>
       <section className="management-form-section">
-        <h2>{kind === "coupon" ? "Nuevo cupón" : "Nueva oferta automática"}</h2>
+        <h2>
+          {editing
+            ? kind === "coupon" ? "Editar cupón" : "Editar oferta automática"
+            : kind === "coupon" ? "Nuevo cupón" : "Nueva oferta automática"}
+        </h2>
         <div className="management-field-grid">
           {kind === "coupon" ? (
-            <label><span>Código</span><input name="code" required /></label>
+            <label><span>Código</span><input defaultValue={initialValue && "code" in initialValue ? initialValue.code : ""} name="code" required /></label>
           ) : (
-            <label><span>Nombre interno</span><input name="name" required /></label>
+            <label><span>Nombre interno</span><input defaultValue={initialValue && "name" in initialValue ? initialValue.name : ""} name="name" required /></label>
           )}
           <label>
             <span>Tipo de descuento</span>
-            <select defaultValue="percentage" name="discount_type">
+            <select defaultValue={initialValue?.discount_type ?? "percentage"} name="discount_type">
               <option value="percentage">Porcentaje</option>
               <option value="fixed">Monto fijo</option>
             </select>
           </label>
-          <label><span>Valor</span><input min="0.01" name="value" required step="0.01" type="number" /></label>
-          <label><span>Comienza</span><input defaultValue={local(now)} name="starts_at" required type="datetime-local" /></label>
-          <label><span>Finaliza</span><input defaultValue={local(nextWeek)} name="ends_at" required type="datetime-local" /></label>
-          <label className="management-check"><input defaultChecked name="enabled" type="checkbox" /><span>Habilitada</span></label>
+          <label><span>Valor</span><input defaultValue={initialValue?.value ?? ""} min="0.01" name="value" required step="0.01" type="number" /></label>
+          <label><span>Comienza</span><input defaultValue={localDateTime(initialValue?.starts_at ?? now)} name="starts_at" required type="datetime-local" /></label>
+          <label><span>Finaliza</span><input defaultValue={localDateTime(initialValue?.ends_at ?? nextWeek)} name="ends_at" required type="datetime-local" /></label>
+          <label className="management-check"><input defaultChecked={initialValue?.enabled ?? true} name="enabled" type="checkbox" /><span>Habilitada</span></label>
           {kind === "coupon" ? (
             <>
               <label>
                 <span>Cantidad máxima de usos</span>
-                <input min="1" name="max_redemptions" placeholder="Sin límite" type="number" />
+                <input defaultValue={initialValue && "max_redemptions" in initialValue ? initialValue.max_redemptions ?? "" : ""} min="1" name="max_redemptions" placeholder="Sin límite" type="number" />
               </label>
-              <label className="management-check"><input name="combinable" type="checkbox" /><span>Combinable con ofertas</span></label>
+              <label className="management-check"><input defaultChecked={initialValue && "combinable" in initialValue ? initialValue.combinable : false} name="combinable" type="checkbox" /><span>Combinable con ofertas</span></label>
             </>
           ) : (
             <>
@@ -156,9 +181,16 @@ export function PromotionEditor({
         </div>
       </section>
       {feedback ? <p className={feedback.startsWith("Promoción guardada") ? "success-message" : "inline-error"}>{feedback}</p> : null}
-      <button className="button primary" disabled={saving} type="submit">
-        {saving ? "Guardando..." : `Guardar ${kind === "coupon" ? "cupón" : "oferta"}`}
-      </button>
+      <div className="management-form-actions">
+        <button className="button primary" disabled={saving} type="submit">
+          {saving
+            ? "Guardando..."
+            : editing
+              ? `Guardar cambios ${kind === "coupon" ? "del cupón" : "de oferta"}`
+              : `Guardar ${kind === "coupon" ? "cupón" : "oferta"}`}
+        </button>
+        {editing && onCancel ? <button className="button secondary" onClick={onCancel} type="button">Cancelar</button> : null}
+      </div>
     </form>
   );
 }
