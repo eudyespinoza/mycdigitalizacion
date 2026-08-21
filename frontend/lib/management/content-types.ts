@@ -53,4 +53,13 @@ export type ManagedCoupon = {
   ends_at: string;
   enabled: boolean;
   combinable: boolean;
+  max_redemptions: number | null;
+  used_redemptions: number;
+  reserved_redemptions: number;
+};
+
+export type PromotionScopeOption = {
+  id: number;
+  label: string;
+  description?: string;
 };

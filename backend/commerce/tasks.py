@@ -14,7 +14,7 @@ from commerce.models import (
 )
 from commerce.payments import PaymentMismatch, apply_payment, process_webhook_event
 from commerce.provider_config import get_carrier_adapter, get_payment_adapter
-from commerce.services import release_reservation
+from commerce.services import release_expired_coupon_redemptions, release_reservation
 from commerce.shipping import ShipmentError, create_order_shipment
 from providers import ProviderError
 
@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 @shared_task
 def release_expired_reservations():
+    release_expired_coupon_redemptions()
     ids = list(
         StockReservation.objects.filter(
             status=StockReservation.Status.ACTIVE, expires_at__lte=timezone.now()

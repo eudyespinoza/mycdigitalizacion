@@ -25,6 +25,7 @@ from backoffice.content_views import (
     CouponListCreateView,
     PromotionRuleDetailView,
     PromotionRuleListCreateView,
+    PromotionScopeOptionsView,
 )
 from backoffice.operations_views import (
     ManagementCustomerDetailView,
@@ -140,6 +141,11 @@ urlpatterns = [
         "promotions/rules/",
         PromotionRuleListCreateView.as_view(),
         name="management-promotion-rules",
+    ),
+    path(
+        "promotions/scope-options/",
+        PromotionScopeOptionsView.as_view(),
+        name="management-promotion-scope-options",
     ),
     path(
         "promotions/rules/<int:pk>/",

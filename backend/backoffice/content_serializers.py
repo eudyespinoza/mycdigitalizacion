@@ -1,8 +1,12 @@
+from django.db import connection, transaction
+from django.db.models import Q
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+from rest_framework.exceptions import APIException
 
 from catalog.models import Category, Product
-from commerce.models import Coupon, PromotionRule
+from commerce.models import Coupon, CouponRedemption, PromotionRule
 from config.api_serializers import ResponsiveMediaSourceSerializer
 from config.media import public_derivative_sources
 from landing.models import (
@@ -11,6 +15,17 @@ from landing.models import (
     PromotionPopup,
     PromotionSlide,
 )
+
+
+class PromotionScopeOptionSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    label = serializers.CharField()
+    description = serializers.CharField(required=False)
+
+
+class PromotionScopeOptionsSerializer(serializers.Serializer):
+    products = PromotionScopeOptionSerializer(many=True)
+    categories = PromotionScopeOptionSerializer(many=True)
 
 
 class ManagementScheduledContentSerializer(serializers.ModelSerializer):
@@ -106,6 +121,21 @@ class ManagementPopupSerializer(ManagementScheduledContentSerializer):
         )
 
 
+class OfferScopeConflict(APIException):
+    status_code = 400
+
+    def __init__(self, detail):
+        super().__init__({"code": "offer_scope_conflict", "detail": detail})
+
+
+def lock_offer_scope_writes():
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(%s)", [6_217_004])
+        return
+    list(PromotionRule.objects.select_for_update().values_list("pk", flat=True))
+
+
 class ManagementPromotionRuleSerializer(serializers.ModelSerializer):
     product_ids = serializers.PrimaryKeyRelatedField(
         source="products", many=True, queryset=Product.objects.all(), required=False
@@ -128,8 +158,64 @@ class ManagementPromotionRuleSerializer(serializers.ModelSerializer):
             "category_ids",
         )
 
+    def validate(self, attrs):
+        instance = self.instance
+        enabled = attrs.get("enabled", instance.enabled if instance else True)
+        if not enabled:
+            return attrs
+        starts_at = attrs.get("starts_at", instance.starts_at if instance else None)
+        ends_at = attrs.get("ends_at", instance.ends_at if instance else None)
+        products = attrs.get(
+            "products",
+            list(instance.products.all()) if instance else [],
+        )
+        categories = attrs.get(
+            "categories",
+            list(instance.categories.all()) if instance else [],
+        )
+        if not starts_at or not ends_at:
+            return attrs
+
+        product_ids = {product.pk for product in products}
+        category_ids = {category.pk for category in categories}
+        product_category_ids = {product.category_id for product in products}
+        overlapping = PromotionRule.objects.filter(
+            enabled=True,
+            starts_at__lte=ends_at,
+            ends_at__gte=starts_at,
+        )
+        if instance:
+            overlapping = overlapping.exclude(pk=instance.pk)
+        conflicting = overlapping.filter(
+            Q(products__pk__in=product_ids)
+            | Q(categories__pk__in=category_ids)
+            | Q(categories__pk__in=product_category_ids)
+            | Q(products__category_id__in=category_ids)
+        ).exists()
+        if conflicting:
+            raise OfferScopeConflict(
+                "Ese producto o categoría ya pertenece a otra oferta "
+                "durante la vigencia seleccionada."
+            )
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        lock_offer_scope_writes()
+        self.validate(validated_data)
+        return super().create(validated_data)
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        lock_offer_scope_writes()
+        self.validate(validated_data)
+        return super().update(instance, validated_data)
+
 
 class ManagementCouponSerializer(serializers.ModelSerializer):
+    used_redemptions = serializers.SerializerMethodField()
+    reserved_redemptions = serializers.SerializerMethodField()
+
     class Meta:
         model = Coupon
         fields = (
@@ -141,4 +227,26 @@ class ManagementCouponSerializer(serializers.ModelSerializer):
             "ends_at",
             "enabled",
             "combinable",
+            "max_redemptions",
+            "used_redemptions",
+            "reserved_redemptions",
         )
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_used_redemptions(self, coupon):
+        annotated = getattr(coupon, "used_redemptions_value", None)
+        if annotated is not None:
+            return annotated
+        return coupon.redemptions.filter(
+            status=CouponRedemption.Status.CONSUMED
+        ).count()
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_reserved_redemptions(self, coupon):
+        annotated = getattr(coupon, "reserved_redemptions_value", None)
+        if annotated is not None:
+            return annotated
+        return coupon.redemptions.filter(
+            status=CouponRedemption.Status.RESERVED,
+            expires_at__gt=timezone.now(),
+        ).count()

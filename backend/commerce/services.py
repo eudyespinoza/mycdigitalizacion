@@ -13,6 +13,7 @@ from commerce.models import (
     Cart,
     CartLine,
     Coupon,
+    CouponRedemption,
     InventoryMovement,
     Order,
     OrderAuditEvent,
@@ -154,18 +155,144 @@ def calculate_cart_totals(cart, *, at=None):
     return CartTotals(subtotal=subtotal, discount=discount, total=money(subtotal - discount))
 
 
+def _release_expired_coupon_redemptions(*, coupon, at):
+    return CouponRedemption.objects.select_for_update().filter(
+        coupon=coupon,
+        status=CouponRedemption.Status.RESERVED,
+        expires_at__lte=at,
+    ).update(
+        status=CouponRedemption.Status.RELEASED,
+        released_at=at,
+    )
+
+
+def _coupon_redemptions_in_use(*, coupon, at, exclude=None):
+    queryset = CouponRedemption.objects.filter(coupon=coupon).filter(
+        Q(status=CouponRedemption.Status.CONSUMED)
+        | Q(status=CouponRedemption.Status.RESERVED, expires_at__gt=at)
+    )
+    if exclude is not None:
+        queryset = queryset.exclude(pk=exclude)
+    return queryset.count()
+
+
+def _ensure_coupon_capacity(*, coupon, at, exclude=None):
+    _release_expired_coupon_redemptions(coupon=coupon, at=at)
+    if coupon.max_redemptions is None:
+        return
+    if _coupon_redemptions_in_use(coupon=coupon, at=at, exclude=exclude) >= coupon.max_redemptions:
+        raise ValidationError("El cupo de usos de este cupón está agotado.")
+
+
+@transaction.atomic
+def reserve_coupon_redemption(*, coupon, order, expires_at=None, at=None):
+    checked_at = at or timezone.now()
+    effective_expiry = expires_at or checked_at + timezone.timedelta(minutes=20)
+    locked_coupon = Coupon.objects.select_for_update().get(pk=coupon.pk)
+    redemption = CouponRedemption.objects.select_for_update().filter(order=order).first()
+    if redemption and redemption.coupon_id != locked_coupon.pk:
+        raise ValidationError("El pedido ya tiene otro cupón reservado.")
+    if (
+        redemption
+        and redemption.status == CouponRedemption.Status.RESERVED
+        and redemption.expires_at > checked_at
+    ):
+        return redemption
+    if redemption and redemption.status == CouponRedemption.Status.CONSUMED:
+        return redemption
+    _ensure_coupon_capacity(
+        coupon=locked_coupon,
+        at=checked_at,
+        exclude=redemption.pk if redemption else None,
+    )
+    if redemption:
+        redemption.status = CouponRedemption.Status.RESERVED
+        redemption.reserved_at = checked_at
+        redemption.expires_at = effective_expiry
+        redemption.consumed_at = None
+        redemption.released_at = None
+        redemption.save(
+            update_fields=(
+                "status",
+                "reserved_at",
+                "expires_at",
+                "consumed_at",
+                "released_at",
+            )
+        )
+        return redemption
+    return CouponRedemption.objects.create(
+        coupon=locked_coupon,
+        order=order,
+        expires_at=effective_expiry,
+        reserved_at=checked_at,
+    )
+
+
+@transaction.atomic
+def consume_coupon_redemption(*, order, at=None):
+    checked_at = at or timezone.now()
+    redemption = (
+        CouponRedemption.objects.select_for_update()
+        .select_related("coupon")
+        .filter(order=order)
+        .first()
+    )
+    if not redemption or redemption.status == CouponRedemption.Status.CONSUMED:
+        return redemption
+    coupon = Coupon.objects.select_for_update().get(pk=redemption.coupon_id)
+    _ensure_coupon_capacity(
+        coupon=coupon,
+        at=checked_at,
+        exclude=redemption.pk,
+    )
+    redemption.status = CouponRedemption.Status.CONSUMED
+    redemption.consumed_at = checked_at
+    redemption.released_at = None
+    redemption.save(update_fields=("status", "consumed_at", "released_at"))
+    return redemption
+
+
+@transaction.atomic
+def release_coupon_redemption(*, order, at=None):
+    redemption = CouponRedemption.objects.select_for_update().filter(order=order).first()
+    if not redemption or redemption.status == CouponRedemption.Status.RELEASED:
+        return redemption
+    redemption.status = CouponRedemption.Status.RELEASED
+    redemption.released_at = at or timezone.now()
+    redemption.save(update_fields=("status", "released_at"))
+    return redemption
+
+
+def release_expired_coupon_redemptions(*, at=None):
+    checked_at = at or timezone.now()
+    return CouponRedemption.objects.filter(
+        status=CouponRedemption.Status.RESERVED,
+        expires_at__lte=checked_at,
+    ).update(
+        status=CouponRedemption.Status.RELEASED,
+        released_at=checked_at,
+    )
+
+
+@transaction.atomic
 def apply_coupon(cart, code, *, at=None):
     if cart.coupon_id:
         raise ValidationError("A cart accepts only one coupon")
+    checked_at = at or timezone.now()
     try:
-        coupon = Coupon.objects.get(code=code.strip().upper())
+        coupon = Coupon.objects.select_for_update().get(code=code.strip().upper())
     except Coupon.DoesNotExist as exc:
         raise ValidationError("Coupon is invalid") from exc
-    if not coupon.is_active(at):
+    if not coupon.is_active(checked_at):
         raise ValidationError("Coupon is not active")
+    _ensure_coupon_capacity(coupon=coupon, at=checked_at)
+    locked_cart = Cart.objects.select_for_update().get(pk=cart.pk)
+    locked_cart.coupon = coupon
+    locked_cart.save(update_fields=["coupon", "updated_at"])
     cart.coupon = coupon
-    cart.save(update_fields=["coupon", "updated_at"])
-    return cart
+    cart.updated_at = locked_cart.updated_at
+    return locked_cart
 
 
 def get_or_create_user_cart(*, user):
@@ -536,6 +663,13 @@ def create_pending_identity_order(
         != total
     ):
         raise ValidationError("Order item snapshots do not reconcile with order total")
+    if locked_cart.coupon_id:
+        reserve_coupon_redemption(
+            coupon=locked_cart.coupon,
+            order=order,
+            expires_at=checked_at + timezone.timedelta(minutes=20),
+            at=checked_at,
+        )
     OrderAuditEvent.objects.create(order=order, kind="created_pending_identity")
     return order
 

@@ -19,6 +19,8 @@ const product: ManagementProduct = {
   is_active: true,
   is_sellable: true,
   created_at: "2026-08-20T12:00:00Z",
+  on_offer: false,
+  active_offer_names: [],
   media: [],
   variants: [{
     id: 21,

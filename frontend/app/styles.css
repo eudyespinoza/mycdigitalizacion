@@ -457,6 +457,9 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .management-pill { display: inline-flex; padding: 5px 9px; border-radius: 999px; font-size: .75rem; font-weight: 900; }
 .management-pill.is-live { background: #dff8f1; color: #00614f; }
 .management-pill.is-draft { background: #e9edf4; color: #556175; }
+.management-product-offer { width: fit-content; display: flex; align-items: center; gap: 7px; margin-top: 8px; }
+.management-product-offer b { padding: 4px 8px; border-radius: 999px; background: #ffe3ee; color: #971144; font-size: .72rem; }
+.management-product-offer small { margin: 0 !important; color: #7d3151 !important; }
 .management-empty { margin-top: 30px; padding: 40px; border: 1px dashed #aebbd0; border-radius: 16px; background: white; text-align: center; }
 .management-form textarea, .management-form select, .compact-management-form input, .compact-management-form select, .management-dialog input, .management-dialog textarea { width: 100%; min-height: 48px; border: 1px solid #aab8ce; border-radius: 11px; padding: 10px 13px; background: white; color: var(--ink); font: inherit; }
 .management-form textarea { resize: vertical; }
@@ -504,6 +507,16 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .management-simple-list li small { color: var(--muted); }
 .promotion-management-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
 .promotion-management-grid > section { display: grid; gap: 20px; }
+.promotion-scope-picker { min-width: 0; margin: 0; padding: 16px; border: 1px solid #ccd8e8; border-radius: 13px; background: #f8fbff; }
+.promotion-scope-picker legend { padding-inline: 7px; color: var(--blue); font-weight: 900; }
+.promotion-scope-picker > label { display: grid; gap: 7px; color: var(--muted); font-size: .82rem; }
+.promotion-scope-options { max-height: 236px; display: grid; gap: 6px; margin-top: 12px; overflow-y: auto; }
+.promotion-scope-options > p { margin: 10px 4px; color: var(--muted); }
+.promotion-scope-option { min-height: 48px; display: flex !important; align-items: center; gap: 11px !important; padding: 8px 10px; border-radius: 9px; background: white; cursor: pointer; }
+.promotion-scope-option:hover { background: #eef6fc; }
+.promotion-scope-option input { width: 20px !important; min-height: 20px !important; flex: 0 0 auto; accent-color: var(--blue); }
+.promotion-scope-option > span { display: grid; gap: 2px; }
+.promotion-scope-option small { color: var(--muted); font-weight: 500; }
 .branding-form { display: grid; gap: 24px; }
 .branding-form > div:first-child p { color: var(--muted); }
 .branding-preview-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }

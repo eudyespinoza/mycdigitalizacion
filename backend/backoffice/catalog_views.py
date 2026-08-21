@@ -1,4 +1,5 @@
 from django.db.models import Prefetch, Q
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
 from rest_framework.pagination import PageNumberPagination
@@ -26,7 +27,7 @@ from catalog.models import (
 )
 from catalog.storefront import variant_queryset
 from commerce.inventory import adjust_inventory
-from commerce.models import InventoryMovement
+from commerce.models import InventoryMovement, PromotionRule
 
 
 class ManagementPagination(PageNumberPagination):
@@ -45,16 +46,43 @@ def management_variant_queryset():
     )
 
 
+def management_active_promotions():
+    checked_at = timezone.now()
+    return PromotionRule.objects.filter(
+        enabled=True,
+        starts_at__lte=checked_at,
+        ends_at__gte=checked_at,
+    ).only("id", "name")
+
+
+def management_offer_prefetches():
+    promotions = management_active_promotions()
+    return (
+        Prefetch(
+            "promotion_rules",
+            queryset=promotions,
+            to_attr="active_management_promotions",
+        ),
+        Prefetch(
+            "category__promotion_rules",
+            queryset=promotions,
+            to_attr="active_management_promotions",
+        ),
+    )
+
+
 def management_product_queryset():
     return Product.objects.select_related("category", "brand").prefetch_related(
         Prefetch("media", queryset=ProductMedia.objects.select_related("variant")),
         Prefetch("variants", queryset=management_variant_queryset()),
+        *management_offer_prefetches(),
     )
 
 
 def management_product_list_queryset():
     return Product.objects.select_related("category", "brand").prefetch_related(
-        Prefetch("variants", queryset=variant_queryset(active_only=False))
+        Prefetch("variants", queryset=variant_queryset(active_only=False)),
+        *management_offer_prefetches(),
     )
 
 

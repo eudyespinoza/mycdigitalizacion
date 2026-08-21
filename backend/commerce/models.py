@@ -98,6 +98,20 @@ class PromotionRule(ScheduledDiscount):
 class Coupon(ScheduledDiscount):
     code = models.CharField(max_length=64, unique=True)
     combinable = models.BooleanField(default=False)
+    max_redemptions = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1)],
+    )
+
+    class Meta(ScheduledDiscount.Meta):
+        constraints = ScheduledDiscount.Meta.constraints + [
+            models.CheckConstraint(
+                condition=models.Q(max_redemptions__isnull=True)
+                | models.Q(max_redemptions__gte=1),
+                name="coupon_max_redemptions_positive",
+            )
+        ]
 
     def save(self, *args, **kwargs):
         self.code = self.code.strip().upper()
@@ -367,6 +381,41 @@ class Order(models.Model):
             self.save(update_fields=[field])
         finally:
             del self._allow_status_transition
+
+
+class CouponRedemption(models.Model):
+    class Status(models.TextChoices):
+        RESERVED = "reserved", "Reserved"
+        CONSUMED = "consumed", "Consumed"
+        RELEASED = "released", "Released"
+
+    coupon = models.ForeignKey(
+        Coupon,
+        related_name="redemptions",
+        on_delete=models.PROTECT,
+    )
+    order = models.OneToOneField(
+        Order,
+        related_name="coupon_redemption",
+        on_delete=models.PROTECT,
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.RESERVED,
+    )
+    reserved_at = models.DateTimeField(default=timezone.now)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    released_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=("coupon", "status", "expires_at"),
+                name="comm_coupon_usage_idx",
+            )
+        ]
 
 
 class OrderItem(AppendOnlyModel):

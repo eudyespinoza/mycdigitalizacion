@@ -1,9 +1,12 @@
 from django.db import transaction
+from django.db.models import Count, Q
 from django.http import Http404
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from backoffice.content_serializers import (
     ManagementCollectionSerializer,
@@ -12,10 +15,12 @@ from backoffice.content_serializers import (
     ManagementPopupSerializer,
     ManagementPromotionRuleSerializer,
     ManagementPromotionSlideSerializer,
+    PromotionScopeOptionsSerializer,
 )
 from backoffice.models import ManagementAuditEvent
 from backoffice.permissions import IsManagementUser
-from commerce.models import Coupon, PromotionRule
+from catalog.models import Category, Product
+from commerce.models import Coupon, CouponRedemption, PromotionRule
 from landing.models import HeroSlide, LandingCollection, PromotionPopup, PromotionSlide
 
 CONTENT_TYPES = {
@@ -113,6 +118,33 @@ class PromotionRuleListCreateView(AuditedPromotionMixin, generics.ListCreateAPIV
         )
 
 
+class PromotionScopeOptionsView(APIView):
+    permission_classes = (IsManagementUser,)
+
+    @extend_schema(
+        tags=("Gestión - promociones",),
+        responses=PromotionScopeOptionsSerializer,
+    )
+    def get(self, request):
+        products = [
+            {
+                "id": product_id,
+                "label": name,
+                "description": category_name,
+            }
+            for product_id, name, category_name in Product.objects.order_by(
+                "name", "id"
+            ).values_list("id", "name", "category__name")
+        ]
+        categories = [
+            {"id": category_id, "label": name}
+            for category_id, name in Category.objects.order_by("name", "id").values_list(
+                "id", "name"
+            )
+        ]
+        return Response({"products": products, "categories": categories})
+
+
 class PromotionRuleDetailView(AuditedPromotionMixin, generics.RetrieveUpdateAPIView):
     serializer_class = ManagementPromotionRuleSerializer
     queryset = PromotionRule.objects.prefetch_related("products", "categories")
@@ -120,8 +152,23 @@ class PromotionRuleDetailView(AuditedPromotionMixin, generics.RetrieveUpdateAPIV
 
 class CouponListCreateView(AuditedPromotionMixin, generics.ListCreateAPIView):
     serializer_class = ManagementCouponSerializer
-    queryset = Coupon.objects.order_by("-id")
     pagination_class = None
+
+    def get_queryset(self):
+        checked_at = timezone.now()
+        return Coupon.objects.annotate(
+            used_redemptions_value=Count(
+                "redemptions",
+                filter=Q(redemptions__status=CouponRedemption.Status.CONSUMED),
+            ),
+            reserved_redemptions_value=Count(
+                "redemptions",
+                filter=Q(
+                    redemptions__status=CouponRedemption.Status.RESERVED,
+                    redemptions__expires_at__gt=checked_at,
+                ),
+            ),
+        ).order_by("-id")
 
     def list(self, request, *args, **kwargs):
         return Response(
@@ -131,4 +178,19 @@ class CouponListCreateView(AuditedPromotionMixin, generics.ListCreateAPIView):
 
 class CouponDetailView(AuditedPromotionMixin, generics.RetrieveUpdateAPIView):
     serializer_class = ManagementCouponSerializer
-    queryset = Coupon.objects.all()
+
+    def get_queryset(self):
+        checked_at = timezone.now()
+        return Coupon.objects.annotate(
+            used_redemptions_value=Count(
+                "redemptions",
+                filter=Q(redemptions__status=CouponRedemption.Status.CONSUMED),
+            ),
+            reserved_redemptions_value=Count(
+                "redemptions",
+                filter=Q(
+                    redemptions__status=CouponRedemption.Status.RESERVED,
+                    redemptions__expires_at__gt=checked_at,
+                ),
+            ),
+        )

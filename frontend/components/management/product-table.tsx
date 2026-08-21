@@ -39,6 +39,12 @@ export function ManagementProductTable({ products }: { products: ManagementProdu
                 <td>
                   <Link href={`/gestion/catalogo/${product.id}`}>{product.name}</Link>
                   <small>{product.category.name}</small>
+                  {product.on_offer ? (
+                    <span className="management-product-offer">
+                      <b>En oferta</b>
+                      <small>{product.active_offer_names.join(", ")}</small>
+                    </span>
+                  ) : null}
                 </td>
                 <td>{variant?.sku ?? "Sin variante"}</td>
                 <td>{variant ? formatMoney(variant.price) : "—"}</td>

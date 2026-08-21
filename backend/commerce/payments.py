@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -17,7 +18,13 @@ from commerce.models import (
     Refund,
     StockReservation,
 )
-from commerce.services import consume_reservation, release_reservation, transition_order_status
+from commerce.services import (
+    consume_coupon_redemption,
+    consume_reservation,
+    release_coupon_redemption,
+    release_reservation,
+    transition_order_status,
+)
 
 
 def parse_signature(value):
@@ -235,8 +242,21 @@ def _apply_payment_atomic(*, payment_transaction, payment):
     payment_transaction.provider_status = provider_status
     payment_transaction.provider_summary = _safe_payment_summary(payment)
     if provider_status in {"approved", "paid"}:
+        try:
+            consume_coupon_redemption(order=order)
+        except ValidationError:
+            payment_transaction.status = PaymentTransaction.Status.NEEDS_ATTENTION
+            payment_transaction.staff_diagnostics = "coupon_redemption_limit_reached"
+            payment_transaction.save()
+            transition_order_status(
+                order=order,
+                field="payment_status",
+                value=order.PaymentStatus.NEEDS_ATTENTION,
+            )
+            return payment_transaction, True
         consumed = [consume_reservation(item) for item in order.reservations.all()]
         if any(item.status != StockReservation.Status.CONSUMED for item in consumed):
+            release_coupon_redemption(order=order)
             payment_transaction.status = PaymentTransaction.Status.NEEDS_ATTENTION
             payment_transaction.staff_diagnostics = "reservation_expired_before_payment"
             payment_transaction.save()
@@ -250,6 +270,7 @@ def _apply_payment_atomic(*, payment_transaction, payment):
         payment_transaction.save()
         transition_order_status(order=order, field="payment_status", value=order.PaymentStatus.PAID)
     elif provider_status in {"rejected", "cancelled", "expired"}:
+        release_coupon_redemption(order=order)
         payment_transaction.status = PaymentTransaction.Status.REJECTED
         payment_transaction.save()
         transition_order_status(
@@ -407,4 +428,5 @@ def refund_order(*, order, adapter, idempotency_key):
         transition_order_status(
             order=order, field="payment_status", value=order.PaymentStatus.REFUNDED
         )
+        release_coupon_redemption(order=order)
         return refund

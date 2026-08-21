@@ -2,7 +2,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from commerce.models import Order, OrderAuditEvent, StockReservation
-from commerce.services import release_reservation
+from commerce.services import release_coupon_redemption, release_reservation
 
 
 class OrderCancellationError(ValidationError):
@@ -46,6 +46,7 @@ def cancel_order(*, order, actor, reason):
         )
         for reservation in active:
             release_reservation(reservation)
+        release_coupon_redemption(order=locked)
         locked.fulfillment_status = Order.FulfillmentStatus.CANCELLED
         locked._save_status_transition(field="fulfillment_status")
     if not locked.audit_events.filter(kind="admin_cancelled").exists():

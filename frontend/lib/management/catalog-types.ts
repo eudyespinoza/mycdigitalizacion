@@ -76,6 +76,8 @@ export type ManagementProduct = {
   is_active: boolean;
   is_sellable: boolean;
   created_at: string;
+  on_offer: boolean;
+  active_offer_names: string[];
   variants: ManagementVariant[];
   media: ManagementProductMedia[];
 };

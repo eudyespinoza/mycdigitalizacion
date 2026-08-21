@@ -1,5 +1,7 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
+from django.db.models import Q
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -16,7 +18,7 @@ from catalog.models import (
 from catalog.serializers import variant_available_stock
 from catalog.services import activate_product, move_category, set_variant_active
 from commerce.inventory import adjust_inventory
-from commerce.models import InventoryMovement
+from commerce.models import InventoryMovement, PromotionRule
 from config.media import public_derivative_sources
 
 
@@ -296,7 +298,42 @@ class ManagementVariantSummarySerializer(serializers.ModelSerializer):
         return variant_available_stock(variant)
 
 
-class ManagementProductSummarySerializer(serializers.ModelSerializer):
+def active_offer_names(product):
+    product_rules = getattr(product, "active_management_promotions", None)
+    category_rules = getattr(product.category, "active_management_promotions", None)
+    if product_rules is not None and category_rules is not None:
+        return sorted({rule.name for rule in (*product_rules, *category_rules)})
+    checked_at = timezone.now()
+    return list(
+        PromotionRule.objects.filter(
+            enabled=True,
+            starts_at__lte=checked_at,
+            ends_at__gte=checked_at,
+        )
+        .filter(Q(products=product) | Q(categories=product.category))
+        .order_by("name")
+        .values_list("name", flat=True)
+        .distinct()
+    )
+
+
+class ManagementOfferStateMixin(serializers.Serializer):
+    on_offer = serializers.SerializerMethodField()
+    active_offer_names = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_on_offer(self, product):
+        return bool(active_offer_names(product))
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_active_offer_names(self, product):
+        return active_offer_names(product)
+
+
+class ManagementProductSummarySerializer(
+    ManagementOfferStateMixin,
+    serializers.ModelSerializer,
+):
     category = ManagementCategorySerializer(read_only=True)
     brand = ManagementBrandSerializer(read_only=True)
     variants = ManagementVariantSummarySerializer(many=True, read_only=True)
@@ -313,11 +350,13 @@ class ManagementProductSummarySerializer(serializers.ModelSerializer):
             "is_active",
             "is_sellable",
             "created_at",
+            "on_offer",
+            "active_offer_names",
             "variants",
         )
 
 
-class ManagementProductSerializer(serializers.ModelSerializer):
+class ManagementProductSerializer(ManagementOfferStateMixin, serializers.ModelSerializer):
     category = ManagementCategorySerializer(read_only=True)
     category_id = serializers.PrimaryKeyRelatedField(
         source="category", queryset=Category.objects.all(), write_only=True
@@ -348,6 +387,8 @@ class ManagementProductSerializer(serializers.ModelSerializer):
             "is_active",
             "is_sellable",
             "created_at",
+            "on_offer",
+            "active_offer_names",
             "variants",
             "media",
             "publish",
