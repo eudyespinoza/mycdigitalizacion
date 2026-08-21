@@ -1,7 +1,9 @@
+from urllib.parse import urlsplit
+
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from landing.models import SiteSettings
+from landing.models import SiteSettings, normalize_whatsapp_number
 
 
 class ManagementUserSerializer(serializers.ModelSerializer):
@@ -50,6 +52,11 @@ class IntegrationUpdateSerializer(serializers.Serializer):
 
 
 class GeneralSettingsSerializer(serializers.ModelSerializer):
+    whatsapp_number = serializers.CharField(
+        allow_blank=True,
+        max_length=32,
+        required=False,
+    )
     logo_url = serializers.SerializerMethodField()
     favicon_url = serializers.SerializerMethodField()
 
@@ -58,6 +65,38 @@ class GeneralSettingsSerializer(serializers.ModelSerializer):
 
     def get_favicon_url(self, settings) -> str:
         return settings.favicon.url if settings.favicon else "/brand/mycdigitalizacion-logo.png"
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        errors = {}
+        for field_name in (
+            "instagram_url",
+            "facebook_url",
+            "tiktok_url",
+            "youtube_url",
+            "linkedin_url",
+        ):
+            value = attrs.get(field_name)
+            if value and urlsplit(value).scheme != "https":
+                errors[field_name] = "La dirección debe comenzar con https://"
+        enabled = attrs.get(
+            "whatsapp_enabled",
+            getattr(self.instance, "whatsapp_enabled", False),
+        )
+        number = normalize_whatsapp_number(
+            attrs.get(
+                "whatsapp_number",
+                getattr(self.instance, "whatsapp_number", ""),
+            )
+        )
+        attrs["whatsapp_number"] = number
+        if enabled and not 8 <= len(number) <= 15:
+            errors["whatsapp_number"] = (
+                "Ingresá un número internacional de 8 a 15 dígitos."
+            )
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
 
     class Meta:
         model = SiteSettings
@@ -69,6 +108,14 @@ class GeneralSettingsSerializer(serializers.ModelSerializer):
             "pickup_label",
             "pickup_address",
             "pickup_hours",
+            "instagram_url",
+            "facebook_url",
+            "tiktok_url",
+            "youtube_url",
+            "linkedin_url",
+            "whatsapp_enabled",
+            "whatsapp_number",
+            "whatsapp_message",
             "logo",
             "favicon",
             "logo_url",

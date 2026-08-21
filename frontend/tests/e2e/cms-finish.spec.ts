@@ -12,22 +12,22 @@ test("authored carousels, reduced motion and CMS branding remain operable", asyn
   await expect(page.getByRole("link", { name: "mycdigitalizacion, inicio" }).locator("img").first()).toHaveAttribute("src", /active\.png/);
   await expect(page.locator('link[rel~="icon"]')).toHaveAttribute("href", /media\/branding\/favicon\/active\.png/);
   await page.getByRole("region", { name: "Promociones vigentes" }).hover();
-  await expect(page.getByText("Diapositiva 1 de 2")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ir a campaña 1" })).toHaveAttribute("aria-current", "true");
   await page.waitForTimeout(1_100);
-  await expect(page.getByText("Diapositiva 2 de 2")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ir a campaña 2" })).toHaveAttribute("aria-current", "true");
   await page.waitForTimeout(1_200);
-  await expect(page.getByText("Diapositiva 2 de 2")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ir a campaña 2" })).toHaveAttribute("aria-current", "true");
   await page.getByRole("button", { name: "Hero anterior" }).click();
   await expect(page.getByRole("heading", { name: "Todo lo que buscás, en un solo lugar" })).toBeVisible();
   await page.getByRole("button", { name: "Promoción siguiente" }).click();
-  await expect(page.getByText("Promoción 2 de 2")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ir a promoción 2" })).toHaveAttribute("aria-current", "true");
 
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.reload();
   await page.waitForTimeout(1_200);
-  await expect(page.getByText("Diapositiva 1 de 2")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ir a campaña 1" })).toHaveAttribute("aria-current", "true");
   await page.getByRole("button", { name: "Hero siguiente" }).click();
-  await expect(page.getByText("Diapositiva 2 de 2")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ir a campaña 2" })).toHaveAttribute("aria-current", "true");
 });
 
 test("promotion touch snap stays announced without widening the 360px document", async ({ page }) => {
@@ -53,16 +53,29 @@ test("promotion touch snap stays announced without widening the 360px document",
   }
 
   await page.getByRole("button", { name: "Promoción siguiente" }).click();
-  await expect(page.getByText("Promoción 2 de 2")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ir a promoción 2" })).toHaveAttribute("aria-current", "true");
   await page.getByRole("button", { name: "Promoción anterior" }).click();
-  await expect(page.getByText("Promoción 1 de 2")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ir a promoción 1" })).toHaveAttribute("aria-current", "true");
   if (width <= 768) {
     await track.evaluate((element) => {
       element.scrollTo({ left: element.scrollWidth - element.clientWidth, behavior: "instant" });
       element.dispatchEvent(new Event("scroll", { bubbles: true }));
     });
-    await expect(page.getByText("Promoción 2 de 2")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Ir a promoción 2" })).toHaveAttribute("aria-current", "true");
   }
+});
+
+test("segmented controls and configured contact channels stay direct and conditional", async ({ page, request }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Ir a campaña 2" }).click();
+  await expect(page.getByRole("heading", { name: "Elegí a tu ritmo" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Instagram" })).toHaveAttribute("href", "https://instagram.com/mycdigitalizacion");
+  await expect(page.getByRole("link", { name: "Consultar por WhatsApp" })).toHaveAttribute("href", /wa\.me\/5491155551234/);
+
+  await control(request, { socialEnabled: false });
+  await page.reload();
+  await expect(page.getByRole("navigation", { name: "Redes sociales" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Consultar por WhatsApp" })).toHaveCount(0);
 });
 
 test("popup honors daily persistence, elapsed policy, versioned key, image and dismissibility", async ({ page, request }) => {
@@ -74,7 +87,7 @@ test("popup honors daily persistence, elapsed policy, versioned key, image and d
   await popup.getByRole("button", { name: "Cerrar promoción" }).click();
   await page.reload();
   await page.getByRole("button", { name: "Hero siguiente" }).click();
-  await expect(page.getByText("Diapositiva 2 de 2")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ir a campaña 2" })).toHaveAttribute("aria-current", "true");
   await expect(popup).toBeHidden();
   await page.evaluate(() => localStorage.setItem("myc-popup:8:v1", String(Date.now() - 86_400_001)));
   await page.reload();

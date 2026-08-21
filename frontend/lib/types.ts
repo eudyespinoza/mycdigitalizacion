@@ -14,6 +14,8 @@ export type LandingCollection = ScheduledContent & { product_ids: number[] };
 export type StorefrontSettings = {
   public_name: string; announcement: string; contact_email: string;
   pickup_enabled: boolean; pickup_label: string; pickup_address: string; pickup_hours: string;
+  instagram_url: string; facebook_url: string; tiktok_url: string; youtube_url: string; linkedin_url: string;
+  whatsapp_enabled: boolean; whatsapp_number: string; whatsapp_message: string;
   logo_url: string; logo_responsive_sources: ResponsiveMediaSource[]; favicon_url: string;
 };
 export type StorefrontHome = {

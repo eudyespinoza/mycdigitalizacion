@@ -61,6 +61,14 @@ export type GeneralSettings = {
   pickup_label: string;
   pickup_address: string;
   pickup_hours: string;
+  instagram_url: string;
+  facebook_url: string;
+  tiktok_url: string;
+  youtube_url: string;
+  linkedin_url: string;
+  whatsapp_enabled: boolean;
+  whatsapp_number: string;
+  whatsapp_message: string;
   logo_url?: string;
   favicon_url?: string;
 };

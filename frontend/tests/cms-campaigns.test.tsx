@@ -68,7 +68,7 @@ describe("CMS campaign behavior", () => {
     render(<Hero slides={[campaign(1, "Primera", 1_000), campaign(2, "Segunda", 2_000)]} />);
 
     expect(screen.getByRole("heading", { name: "Primera" })).toBeVisible();
-    expect(screen.getByText("Diapositiva 1 de 2")).toBeVisible();
+    expect(screen.getByText("Campaña 1 de 2")).toHaveClass("sr-only");
     act(() => vi.advanceTimersByTime(1_000));
     expect(screen.getByRole("heading", { name: "Segunda" })).toBeVisible();
     act(() => vi.advanceTimersByTime(1_999));
@@ -77,6 +77,21 @@ describe("CMS campaign behavior", () => {
     expect(screen.getByRole("heading", { name: "Primera" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Hero anterior" }));
     expect(screen.getByRole("heading", { name: "Segunda" })).toBeVisible();
+  });
+
+  test("hero and promotions expose direct segmented navigation without a visible technical counter", () => {
+    const hero = render(<Hero slides={[campaign(1, "Primera", 30_000), campaign(2, "Segunda", 30_000), campaign(3, "Tercera", 30_000)]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Ir a campaña 2" }));
+    expect(screen.getByRole("heading", { name: "Segunda" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Ir a campaña 2" })).toHaveAttribute("aria-current", "true");
+    expect(screen.getByText("Campaña 2 de 3")).toHaveClass("sr-only");
+    hero.unmount();
+
+    render(<PromotionCarousel slides={[campaign(1, "Promo uno", 30_000), campaign(2, "Promo dos", 30_000)]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Ir a promoción 2" }));
+    expect(screen.getByRole("button", { name: "Ir a promoción 2" })).toHaveAttribute("aria-current", "true");
+    expect(screen.getByText("Promoción 2 de 2")).toHaveClass("sr-only");
   });
 
   test("hero pauses automatic changes for hover, focus, hidden pages and configured reduced motion", () => {
@@ -232,6 +247,14 @@ describe("CMS campaign behavior", () => {
       pickup_label: "Retiro",
       pickup_address: "",
       pickup_hours: "",
+      instagram_url: "",
+      facebook_url: "",
+      tiktok_url: "",
+      youtube_url: "",
+      linkedin_url: "",
+      whatsapp_enabled: false,
+      whatsapp_number: "",
+      whatsapp_message: "",
       logo_url: "/media/branding/logo/nueva.png",
       logo_responsive_sources: [{ width: 320, fallback: "/media/branding/logo/nueva-320.png", webp: "/media/branding/logo/nueva-320.webp", avif: "/media/branding/logo/nueva-320.avif" }],
       favicon_url: "/media/branding/favicon/icono.png",

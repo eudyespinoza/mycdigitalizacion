@@ -1,8 +1,8 @@
 "use client";
 
-import { CaretLeft, CaretRight } from "@phosphor-icons/react";
 import Link from "next/link";
 import { CampaignImage } from "@/components/home/campaign-image";
+import { CarouselNavigation } from "@/components/home/carousel-navigation";
 import { useAuthoredCarousel } from "@/components/home/use-authored-carousel";
 import { campaignHeightStyle } from "@/lib/campaign-presentation";
 import type { TimedCampaign } from "@/lib/types";
@@ -24,6 +24,6 @@ export function Hero({ slides, slide }: { slides?: TimedCampaign[]; slide?: Time
   return <section className="hero shell hero-carousel" aria-label="Campañas destacadas" style={campaignHeightStyle(content)} {...carousel.pauseProps}>
     <div className="hero-copy"><h1 id="hero-title">{content.title}</h1>{content.body && <p>{content.body}</p>}<Link className="button primary" href={content.cta_url || "/catalogo"}>{content.cta_label || "Explorar catálogo"}</Link><dl className="hero-facts"><div><dt>Entrega</dt><dd>Todo el país</dd></div><div><dt>Pago</dt><dd>Mercado Pago</dd></div><div><dt>Compra</dt><dd>Protegida</dd></div></dl></div>
     <div className="hero-media"><CampaignImage content={content} prefix="hero" priority /></div>
-    {items.length > 1 && <div className="hero-carousel-controls"><button className="icon-button" type="button" aria-label="Hero anterior" onClick={() => carousel.go(carousel.index - 1)}><CaretLeft size={20} /></button><span aria-live="polite">Diapositiva {carousel.index + 1} de {items.length}</span><button className="icon-button" type="button" aria-label="Hero siguiente" onClick={() => carousel.go(carousel.index + 1)}><CaretRight size={20} /></button></div>}
+    <CarouselNavigation className="hero-carousel-controls" index={carousel.index} length={items.length} onSelect={carousel.go} itemLabel="campaña" previousLabel="Hero anterior" nextLabel="Hero siguiente" />
   </section>;
 }

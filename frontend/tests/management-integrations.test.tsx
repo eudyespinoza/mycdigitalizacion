@@ -69,6 +69,14 @@ describe("configuración e integraciones", () => {
           pickup_label: "Retiro en tienda",
           pickup_address: "",
           pickup_hours: "",
+          instagram_url: "",
+          facebook_url: "",
+          tiktok_url: "",
+          youtube_url: "",
+          linkedin_url: "",
+          whatsapp_enabled: false,
+          whatsapp_number: "",
+          whatsapp_message: "",
         }}
         onSave={onSave}
       />,
@@ -77,9 +85,21 @@ describe("configuración e integraciones", () => {
     fireEvent.change(screen.getByLabelText("Email de contacto"), {
       target: { value: "ventas@example.test" },
     });
+    fireEvent.change(screen.getByLabelText("Instagram"), {
+      target: { value: "https://instagram.com/mycdigitalizacion" },
+    });
+    fireEvent.click(screen.getByLabelText("Mostrar botón de WhatsApp"));
+    fireEvent.change(screen.getByLabelText("Número de WhatsApp"), {
+      target: { value: "+54 9 11 5555-1234" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(
-      expect.objectContaining({ contact_email: "ventas@example.test" }),
+      expect.objectContaining({
+        contact_email: "ventas@example.test",
+        instagram_url: "https://instagram.com/mycdigitalizacion",
+        whatsapp_enabled: true,
+        whatsapp_number: "+54 9 11 5555-1234",
+      }),
     ));
   });
 });

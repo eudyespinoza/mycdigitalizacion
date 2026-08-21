@@ -1,7 +1,11 @@
 from urllib.parse import urlsplit
 
 from django.core.exceptions import ValidationError
-from django.core.validators import MaxValueValidator, MinValueValidator
+from django.core.validators import (
+    MaxValueValidator,
+    MinValueValidator,
+    URLValidator,
+)
 from django.db import models, transaction
 from django.utils import timezone
 
@@ -12,6 +16,12 @@ from config.media import (
     validate_image_upload,
 )
 
+validate_https_url = URLValidator(schemes=("https",))
+
+
+def normalize_whatsapp_number(value: str) -> str:
+    return "".join(character for character in value if character.isdigit())
+
 
 class SiteSettings(models.Model):
     public_name = models.CharField(max_length=120, default="mycdigitalizacion")
@@ -21,6 +31,14 @@ class SiteSettings(models.Model):
     pickup_label = models.CharField(max_length=120, default="Retiro en tienda")
     pickup_address = models.CharField(max_length=240, blank=True)
     pickup_hours = models.CharField(max_length=240, blank=True)
+    instagram_url = models.URLField(blank=True, validators=[validate_https_url])
+    facebook_url = models.URLField(blank=True, validators=[validate_https_url])
+    tiktok_url = models.URLField(blank=True, validators=[validate_https_url])
+    youtube_url = models.URLField(blank=True, validators=[validate_https_url])
+    linkedin_url = models.URLField(blank=True, validators=[validate_https_url])
+    whatsapp_enabled = models.BooleanField(default=False)
+    whatsapp_number = models.CharField(max_length=32, blank=True)
+    whatsapp_message = models.CharField(max_length=240, blank=True)
     logo = models.ImageField(
         upload_to=safe_image_upload_to("branding/logo"),
         blank=True,
@@ -32,6 +50,14 @@ class SiteSettings(models.Model):
         blank=True,
         validators=[validate_image_upload],
     )
+
+    def clean(self):
+        super().clean()
+        self.whatsapp_number = normalize_whatsapp_number(self.whatsapp_number)
+        if self.whatsapp_enabled and not 8 <= len(self.whatsapp_number) <= 15:
+            raise ValidationError(
+                {"whatsapp_number": "Ingresá un número internacional de 8 a 15 dígitos."}
+            )
 
     def save(self, *args, **kwargs):
         self.pk = 1

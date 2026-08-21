@@ -62,6 +62,10 @@ export default async function HomePage() {
       <section className="service-notes shell" aria-label="Beneficios de comprar"><article><ShieldCheck size={30} /><h2>Tus datos, siempre cuidados</h2><p>Protegemos tu información durante toda la compra.</p></article><article><Truck size={30} /><h2>Envíos claros</h2><p>Vas a ver el costo y el plazo antes de pagar.</p></article><article><CreditCard size={30} /><h2>Pagá con confianza</h2><p>Completá el pago en Mercado Pago y seguí tu pedido desde tu cuenta.</p></article><article><MapPin size={30} /><h2>Entrega donde quieras</h2><p>Elegí tu dirección en el mapa o retiralo en el punto disponible.</p></article></section>
     </main>
     {home.promotion_popups[0] && <ScheduledPromotionPopup popup={home.promotion_popups[0]} />}
-    <SiteFooter contactEmail={home.settings.contact_email} />
+    <SiteFooter
+      contactEmail={home.settings.contact_email}
+      socialLinks={home.settings}
+      whatsapp={{ enabled: home.settings.whatsapp_enabled, number: home.settings.whatsapp_number, message: home.settings.whatsapp_message }}
+    />
   </>;
 }

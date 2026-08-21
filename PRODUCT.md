@@ -41,7 +41,7 @@ The store joins a visually rich multi-category catalog with identity-aware check
 - SID RENAPER, GeoRef, Andreani locality data, Correo Argentino and Mercado Pago are isolated behind provider adapters.
 - If SID is unavailable, checkout enters manual identity review without payment or stock reservation.
 - V1 stores and exports fiscal data but does not issue ARCA electronic invoices.
-- V1 excludes marketplaces, multiple stores, digital goods, reviews, wishlists, WhatsApp, local courier delivery and active non-Correo carriers.
+- V1 excludes marketplaces, multiple stores, digital goods, reviews, wishlists, local courier delivery and active non-Correo carriers. Social profiles and a floating WhatsApp contact are optional landing settings and remain hidden until configured.
 
 ## Brand Commitments
 
