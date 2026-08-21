@@ -60,4 +60,20 @@ describe("galería por variante", () => {
     expect(screen.getByAltText("Vista general")).toBeVisible();
     expect(screen.queryByAltText("Mochila azul")).not.toBeInTheDocument();
   });
+
+  test("muestra precio anterior y descuento en las tarjetas compartidas del landing y catálogo", () => {
+    render(<ProductCard product={{
+      ...product,
+      effective_price: "6120.00",
+      on_offer: true,
+      variants: [
+        { ...product.variants[0], pricing: { list_price: "9750.00", effective_price: "7800.00", discount_amount: "1950.00", discount_percentage: "20.00", on_offer: true } },
+        { ...product.variants[1], pricing: { list_price: "7650.00", effective_price: "6120.00", discount_amount: "1530.00", discount_percentage: "20.00", on_offer: true } },
+      ],
+    }} />);
+
+    expect(screen.getByText("Oferta · 20% menos")).toBeVisible();
+    expect(screen.getByText("$ 7.650,00")).toBeVisible();
+    expect(screen.getByText("$ 6.120,00")).toBeVisible();
+  });
 });
