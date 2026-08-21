@@ -135,7 +135,6 @@ class IntegrationDetailView(APIView):
         values = serializer.validated_data
         configuration = (
             IntegrationConfiguration.objects.select_for_update()
-            .select_related("updated_by")
             .filter(provider=provider)
             .first()
         )

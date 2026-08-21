@@ -42,6 +42,29 @@ def test_integration_list_exposes_all_business_providers_without_secrets(django_
     assert all("secrets" not in row for row in response.json()["results"])
 
 
+@pytest.mark.postgresql
+@pytest.mark.django_db(transaction=True)
+def test_google_configuration_can_be_created_on_postgresql(django_user_model):
+    if connection.vendor != "postgresql":
+        pytest.skip("PostgreSQL row-locking regression")
+
+    response = owner_client(django_user_model).patch(
+        "/api/v1/management/integrations/google_identity/",
+        {
+            "enabled": True,
+            "environment": "production",
+            "public_config": {
+                "client_id": "284032958360-example.apps.googleusercontent.com"
+            },
+            "secrets": {},
+        },
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "configured"
+
+
 @override_settings(
     CONFIG_ENCRYPTION_MASTER_KEY="integration-config-master-key-for-tests",
     PUBLIC_BACKEND_URL="https://shop.example.test",
