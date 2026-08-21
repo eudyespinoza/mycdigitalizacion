@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { cartApi } from "@/lib/api";
+import { ApiError, cartApi } from "@/lib/api";
 import { createSerializedQueue } from "@/lib/mutation-queue";
 import type { Cart } from "@/lib/types";
 
@@ -13,7 +13,18 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const token = () => typeof window === "undefined" ? null : window.sessionStorage.getItem(TOKEN_KEY);
   const accept = (next: Cart) => { setCart(next); if (next.cart_token && typeof window !== "undefined") window.sessionStorage.setItem(TOKEN_KEY, next.cart_token); };
   const perform = useCallback(async (request: () => Promise<Cart>) => { setPending((value) => value + 1); setError(""); try { await queue.current.enqueue(async () => accept(await request())); } catch (cause) { setError(cause instanceof Error ? cause.message : "No pudimos actualizar el carrito."); throw cause; } finally { setPending((value) => Math.max(0, value - 1)); } }, []);
-  const refresh = useCallback(() => perform(() => cartApi.get(token())), [perform]);
+  const refresh = useCallback(async () => {
+    try {
+      await perform(() => cartApi.get(token()));
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.code === "cart_not_found") {
+        sessionStorage.removeItem(TOKEN_KEY);
+        setCart(null);
+        return;
+      }
+      throw cause;
+    }
+  }, [perform]);
   const setOpen = useCallback((next: boolean) => { if (next && document.activeElement instanceof HTMLElement) opener.current = document.activeElement; setOpenState(next); }, []);
   const restoreFocus = useCallback(() => requestAnimationFrame(() => opener.current?.focus()), []);
   useEffect(() => { void refresh().catch(() => undefined); }, [refresh]);

@@ -1,5 +1,8 @@
+import uuid
+
 import pytest
 from django.contrib.auth import get_user_model
+from django.core import signing
 from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.test import Client
 from django.utils import timezone
@@ -30,6 +33,31 @@ def test_login_requires_a_valid_csrf_token():
         == 403
     )
     response = client.post("/api/v1/auth/login/", payload, HTTP_X_CSRFTOKEN=token)
+
+    assert response.status_code == 200
+    assert client.session["_auth_user_id"] == str(user.pk)
+
+
+@pytest.mark.django_db
+def test_valid_login_ignores_a_stale_anonymous_cart_token():
+    user = get_user_model().objects.create_user(
+        email="stale-cart-login@example.test",
+        password="Correct-Horse-Battery-Staple-42",
+        email_verified_at=timezone.now(),
+    )
+    stale_token = signing.dumps(str(uuid.uuid4()), salt="commerce.cart")
+    client, token = csrf_client()
+
+    response = client.post(
+        "/api/v1/auth/login/",
+        {
+            "email": user.email,
+            "password": "Correct-Horse-Battery-Staple-42",
+            "cart_token": stale_token,
+        },
+        content_type="application/json",
+        HTTP_X_CSRFTOKEN=token,
+    )
 
     assert response.status_code == 200
     assert client.session["_auth_user_id"] == str(user.pk)

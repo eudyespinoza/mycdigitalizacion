@@ -551,12 +551,9 @@ class LoginView(generics.GenericAPIView):
         if anonymous_token:
             try:
                 merge_carts(anonymous_cart=Cart.from_signed_token(anonymous_token), user=user)
-            except (signing.BadSignature, Cart.DoesNotExist) as exc:
-                raise DomainError(
-                    code="invalid_cart_token",
-                    detail="Invalid cart token",
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                ) from exc
+            except (signing.BadSignature, Cart.DoesNotExist):
+                # A stale anonymous cart must not invalidate otherwise valid credentials.
+                pass
         login(request, user)
         return Response(CustomerSerializer(user).data)
 
