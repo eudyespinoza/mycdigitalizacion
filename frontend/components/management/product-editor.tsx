@@ -288,9 +288,11 @@ export function ManagementProductEditor({
                     )}
                   </label>
                 ))}
-                <label className="management-check field-wide"><input checked={variant.stock_is_infinite} onChange={(event) => updateVariant(index, "stock_is_infinite", event.target.checked)} type="checkbox" /><span>Stock infinito</span></label>
+                <div className="field-wide management-variant-options">
+                  <label className="management-check"><input checked={variant.stock_is_infinite} onChange={(event) => updateVariant(index, "stock_is_infinite", event.target.checked)} type="checkbox" /><span>Stock infinito</span></label>
+                  <label className="management-check"><input checked={variant.is_active} onChange={(event) => updateVariant(index, "is_active", event.target.checked)} type="checkbox" /><span>Variante activa</span></label>
+                </div>
                 {variant.stock_is_infinite && <p className="field-wide management-field-help">Esta variante no descuenta unidades al concretar una venta.</p>}
-                <label className="management-check field-wide"><input checked={variant.is_active} onChange={(event) => updateVariant(index, "is_active", event.target.checked)} type="checkbox" /><span>Variante activa</span></label>
               </div>
               {!variant.id && variants.length > 1 && <button className="button text" onClick={() => setVariants((rows) => rows.filter((_, rowIndex) => rowIndex !== index))} type="button">Quitar variante</button>}
             </fieldset>
