@@ -3,7 +3,7 @@ import type { Cart } from "@/lib/types";
 const PUBLIC_API_ROOT = "/api/v1";
 const SERVER_API_ROOT = process.env.API_INTERNAL_URL ?? "http://backend:8000/api/v1";
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
-const ROTATING_AUTH_PATHS = new Set(["/auth/login/", "/auth/logout/"]);
+const ROTATING_AUTH_PATHS = new Set(["/auth/login/", "/auth/google/", "/auth/logout/"]);
 
 export class ApiError extends Error {
   constructor(

@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 
 from api_views import (
     AddressViewSet,
+    AuthConfigurationView,
     BillingProfileViewSet,
     CartView,
     CategoryListView,
@@ -11,6 +12,7 @@ from api_views import (
     CsrfView,
     CustomerMeView,
     GeocodeView,
+    GoogleAuthenticationView,
     IdentityStatusView,
     IdentityValidateView,
     LoginView,
@@ -46,9 +48,11 @@ urlpatterns = [
     path("products/<slug:slug>/", ProductDetailView.as_view(), name="product-detail"),
     path("search/", SearchView.as_view(), name="search"),
     path("auth/csrf/", CsrfView.as_view(), name="csrf"),
+    path("auth/config/", AuthConfigurationView.as_view(), name="auth-config"),
     path("auth/register/", RegisterView.as_view(), name="register"),
     path("auth/email-verify/", VerifyEmailView.as_view(), name="email-verify"),
     path("auth/login/", LoginView.as_view(), name="login"),
+    path("auth/google/", GoogleAuthenticationView.as_view(), name="google-auth"),
     path("auth/logout/", LogoutView.as_view(), name="logout"),
     path("customers/me/", CustomerMeView.as_view(), name="customer-me"),
     path("cart/", CartView.as_view(), name="cart"),

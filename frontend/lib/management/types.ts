@@ -25,6 +25,7 @@ export type IntegrationProvider =
   | "andreani"
   | "sid_renaper"
   | "smtp"
+  | "google_identity"
   | "geolocation"
   | "backups";
 

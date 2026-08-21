@@ -77,6 +77,11 @@ export type Customer = {
   masked_dni: string; masked_cuit: string;
 };
 export type IdentityStatus = { status: string; can_validate?: boolean; detail?: string };
+export type AuthConfiguration = {
+  email_verification_required: boolean;
+  google_enabled: boolean;
+  google_client_id: string;
+};
 export type BillingProfile = { id: number; label: string; legal_name: string; tax_condition: string; is_default: boolean; masked_cuit: string };
 export type Address = {
   id: number; label: string; raw_address: string; normalized_address: string; street: string; number: string;

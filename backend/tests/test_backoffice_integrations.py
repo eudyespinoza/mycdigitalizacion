@@ -35,6 +35,7 @@ def test_integration_list_exposes_all_business_providers_without_secrets(django_
         "andreani",
         "sid_renaper",
         "smtp",
+        "google_identity",
         "geolocation",
         "backups",
     ]

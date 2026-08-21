@@ -84,6 +84,13 @@ INTEGRATION_DEFINITIONS = {
         ("host", "port", "from_email"),
         ("username", "password"),
     ),
+    "google_identity": IntegrationDefinition(
+        "Acceso con Google",
+        ("client_id",),
+        (),
+        ("client_id",),
+        (),
+    ),
     "geolocation": IntegrationDefinition(
         "Mapas",
         ("provider", "google_maps_map_id"),

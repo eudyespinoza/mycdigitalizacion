@@ -317,6 +317,7 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "verify_email": "10/hour",
         "verify_ip": "20/hour",
+        "google_auth": "30/hour",
     },
 }
 AUTH_PASSWORD_VALIDATORS = [

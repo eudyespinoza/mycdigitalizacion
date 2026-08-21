@@ -49,6 +49,31 @@ class User(AbstractUser):
         ]
 
 
+class ExternalIdentity(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="external_identities",
+        on_delete=models.CASCADE,
+    )
+    provider = models.CharField(max_length=32)
+    subject = models.CharField(max_length=255)
+    email_at_link = models.EmailField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("provider", "subject"),
+                name="unique_external_identity_subject",
+            ),
+            models.UniqueConstraint(
+                fields=("user", "provider"),
+                name="unique_external_identity_provider_per_user",
+            ),
+        ]
+
+
 class Profile(models.Model):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, related_name="profile", on_delete=models.CASCADE

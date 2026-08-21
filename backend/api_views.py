@@ -24,18 +24,35 @@ from rest_framework.exceptions import APIException
 from rest_framework.exceptions import PermissionDenied as DRFPermissionDenied
 from rest_framework.response import Response
 
-from accounts.models import BillingProfile, CustomerProfile, EmailVerificationChallenge, Profile
+from accounts import google_identity
+from accounts.email_policy import (
+    email_verification_required,
+    ensure_email_verified_when_delivery_is_unavailable,
+)
+from accounts.models import (
+    BillingProfile,
+    CustomerProfile,
+    EmailVerificationChallenge,
+    ExternalIdentity,
+    Profile,
+)
 from accounts.permissions import IsVerifiedEmail
 from accounts.serializers import (
+    AuthConfigurationSerializer,
     BillingProfileSerializer,
     CustomerSerializer,
     CustomerUpdateRequestSerializer,
+    GoogleAuthenticationRequestSerializer,
     LoginRequestSerializer,
     RegistrationRequestSerializer,
     VerifyEmailRequestSerializer,
 )
 from accounts.services import consume_email_verification_challenge
-from accounts.throttles import VerificationEmailThrottle, VerificationIPThrottle
+from accounts.throttles import (
+    GoogleAuthenticationThrottle,
+    VerificationEmailThrottle,
+    VerificationIPThrottle,
+)
 from catalog.cache import catalog_cache_key
 from catalog.models import AttributeDefinition, Category, Product, ProductVariant
 from catalog.serializers import (
@@ -488,12 +505,15 @@ class RegisterView(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        verification_required = email_verification_required()
         if get_user_model().objects.filter(email__iexact=data["email"]).exists():
             return Response({"code": "email_already_registered"}, status=status.HTTP_409_CONFLICT)
         try:
             with transaction.atomic():
                 user = get_user_model().objects.create_user(
-                    email=data["email"], password=data["password"]
+                    email=data["email"],
+                    password=data["password"],
+                    email_verified_at=(None if verification_required else timezone.now()),
                 )
                 Profile.objects.create(
                     user=user,
@@ -508,9 +528,154 @@ class RegisterView(generics.GenericAPIView):
             if not is_email_unique_conflict(exc):
                 raise
             return Response({"code": "email_already_registered"}, status=status.HTTP_409_CONFLICT)
-        code = f"{secrets.randbelow(1_000_000):06d}"
-        EmailVerificationChallenge.issue(user=user, code=code)
+        if verification_required:
+            code = f"{secrets.randbelow(1_000_000):06d}"
+            EmailVerificationChallenge.issue(user=user, code=code)
         return Response(CustomerSerializer(user).data, status=status.HTTP_201_CREATED)
+
+
+class AuthConfigurationView(generics.GenericAPIView):
+    permission_classes = (permissions.AllowAny,)
+    serializer_class = AuthConfigurationSerializer
+
+    @extend_schema(responses={200: AuthConfigurationSerializer})
+    def get(self, request):
+        del request
+        google = google_identity.google_identity_configuration()
+        return Response(
+            {
+                "email_verification_required": email_verification_required(),
+                "google_enabled": google["enabled"],
+                "google_client_id": google["client_id"],
+            }
+        )
+
+
+def merge_anonymous_cart_for_login(data, user):
+    anonymous_token = data.get("cart_token")
+    if not anonymous_token:
+        return
+    try:
+        merge_carts(anonymous_cart=Cart.from_signed_token(anonymous_token), user=user)
+    except (signing.BadSignature, Cart.DoesNotExist):
+        pass
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class GoogleAuthenticationView(generics.GenericAPIView):
+    permission_classes = (permissions.AllowAny,)
+    serializer_class = GoogleAuthenticationRequestSerializer
+    throttle_classes = (GoogleAuthenticationThrottle,)
+
+    @extend_schema(
+        request=GoogleAuthenticationRequestSerializer,
+        responses={
+            200: CustomerSerializer,
+            201: CustomerSerializer,
+            400: ErrorSerializer,
+            403: CSRF_ERROR_RESPONSE,
+            409: ErrorSerializer,
+            429: ErrorSerializer,
+            503: ErrorSerializer,
+        },
+    )
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        configuration = google_identity.google_identity_configuration()
+        if not configuration["enabled"]:
+            raise DomainError(
+                code="google_auth_not_configured",
+                detail="El acceso con Google no está configurado.",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        try:
+            claims = google_identity.verify_google_token(
+                data["credential"], configuration["client_id"]
+            )
+        except google_identity.GoogleIdentityError as exc:
+            raise DomainError(
+                code="invalid_google_credential",
+                detail=str(exc),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            ) from exc
+        subject = str(claims.get("sub") or "").strip()
+        email = str(claims.get("email") or "").strip().casefold()
+        if not subject or not email or claims.get("email_verified") is not True:
+            raise DomainError(
+                code="google_email_not_verified",
+                detail="Google no confirmó el email de esta cuenta.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        created = False
+        with transaction.atomic():
+            identity = (
+                ExternalIdentity.objects.select_for_update()
+                .select_related("user")
+                .filter(provider="google", subject=subject)
+                .first()
+            )
+            if identity:
+                user = identity.user
+            else:
+                user = (
+                    get_user_model()
+                    .objects.select_for_update()
+                    .filter(email__iexact=email)
+                    .first()
+                )
+                if user is None:
+                    if data["mode"] != "register":
+                        raise DomainError(
+                            code="google_registration_required",
+                            detail="Completá el registro para crear tu cuenta con Google.",
+                            status_code=status.HTTP_409_CONFLICT,
+                        )
+                    user = get_user_model().objects.create_user(
+                        email=email,
+                        password=None,
+                        email_verified_at=timezone.now(),
+                    )
+                    Profile.objects.create(
+                        user=user,
+                        first_name=str(claims.get("given_name") or "").strip(),
+                        last_name=str(claims.get("family_name") or "").strip(),
+                        phone=data["phone"],
+                    )
+                    CustomerProfile.objects.create(
+                        user=user,
+                        consent_version=settings.CURRENT_CONSENT_VERSION,
+                    )
+                    created = True
+                ExternalIdentity.objects.create(
+                    user=user,
+                    provider="google",
+                    subject=subject,
+                    email_at_link=email,
+                )
+            if not user.is_active:
+                raise DomainError(
+                    code="account_disabled",
+                    detail="Esta cuenta está deshabilitada.",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                )
+            if user.email_verified_at is None:
+                user.email_verified_at = timezone.now()
+                user.save(update_fields=("email_verified_at",))
+            Profile.objects.get_or_create(user=user)
+            CustomerProfile.objects.get_or_create(
+                user=user,
+                defaults={"consent_version": settings.CURRENT_CONSENT_VERSION},
+            )
+
+        merge_anonymous_cart_for_login(data, user)
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        return Response(
+            CustomerSerializer(user).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
 
 class VerifyEmailView(generics.GenericAPIView):
@@ -566,13 +731,8 @@ class LoginView(generics.GenericAPIView):
                 detail="Invalid credentials",
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
-        anonymous_token = data.get("cart_token")
-        if anonymous_token:
-            try:
-                merge_carts(anonymous_cart=Cart.from_signed_token(anonymous_token), user=user)
-            except (signing.BadSignature, Cart.DoesNotExist):
-                # A stale anonymous cart must not invalidate otherwise valid credentials.
-                pass
+        ensure_email_verified_when_delivery_is_unavailable(user)
+        merge_anonymous_cart_for_login(data, user)
         login(request, user)
         return Response(CustomerSerializer(user).data)
 

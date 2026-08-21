@@ -81,6 +81,17 @@ export const integrationFields: Record<
       { key: "password", label: "Contraseña", type: "password" },
     ],
   },
+  google_identity: {
+    description: "Registro e ingreso con el botón oficial de Google.",
+    public: [
+      {
+        key: "client_id",
+        label: "Client ID web de Google",
+        hint: "Crealo como aplicación web y agregá el dominio de la tienda a los orígenes autorizados.",
+      },
+    ],
+    secrets: [],
+  },
   geolocation: {
     description: "OpenStreetMap funciona por defecto; Google Maps es una alternativa opcional.",
     public: [

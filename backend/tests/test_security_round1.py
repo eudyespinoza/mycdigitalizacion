@@ -4,7 +4,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core import signing
 from django.core.exceptions import ImproperlyConfigured, ValidationError
-from django.test import Client
+from django.test import Client, override_settings
 from django.utils import timezone
 
 from accounts.models import BillingProfile, CustomerProfile, EmailVerificationChallenge
@@ -136,7 +136,23 @@ def test_logout_requires_a_valid_csrf_token():
 
 
 @pytest.mark.django_db
+@override_settings(CONFIG_ENCRYPTION_MASTER_KEY="security-smtp-contract-key")
 def test_unverified_user_cannot_mutate_customer_pii_but_verified_user_can():
+    from backoffice.models import IntegrationConfiguration
+    from backoffice.secrets import seal_secret_map
+
+    IntegrationConfiguration.objects.create(
+        provider="smtp",
+        enabled=True,
+        environment="production",
+        public_config={
+            "host": "smtp.example.test",
+            "port": 587,
+            "use_tls": True,
+            "from_email": "ventas@example.test",
+        },
+        sealed_secrets=seal_secret_map({"username": "mailer", "password": "smtp-password"}),
+    )
     user = get_user_model().objects.create_user(email="unverified@example.test")
     client = Client()
     client.force_login(user)

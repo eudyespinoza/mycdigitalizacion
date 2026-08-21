@@ -62,6 +62,35 @@ class LoginRequestSerializer(serializers.Serializer):
     cart_token = serializers.CharField(required=False)
 
 
+class AuthConfigurationSerializer(serializers.Serializer):
+    email_verification_required = serializers.BooleanField()
+    google_enabled = serializers.BooleanField()
+    google_client_id = serializers.CharField(allow_blank=True)
+
+
+class GoogleAuthenticationRequestSerializer(serializers.Serializer):
+    credential = serializers.CharField(max_length=8192, write_only=True)
+    mode = serializers.ChoiceField(choices=("login", "register"))
+    phone = serializers.CharField(
+        max_length=32,
+        required=False,
+        default="",
+        validators=(validate_phone,),
+    )
+    consent_version = serializers.CharField(required=False, default="")
+    cart_token = serializers.CharField(required=False)
+
+    def validate(self, attrs):
+        if attrs["mode"] == "register":
+            if not attrs["phone"]:
+                raise serializers.ValidationError({"phone": ["Ingresá un teléfono válido."]})
+            if attrs["consent_version"] != settings.CURRENT_CONSENT_VERSION:
+                raise serializers.ValidationError(
+                    {"consent_version": ["Aceptá la política de privacidad vigente."]}
+                )
+        return attrs
+
+
 class VerifyEmailRequestSerializer(serializers.Serializer):
     email = serializers.EmailField()
     code = serializers.RegexField(r"^\d{6}$")

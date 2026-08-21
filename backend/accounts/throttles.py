@@ -7,6 +7,10 @@ class VerificationIPThrottle(AnonRateThrottle):
     scope = "verify_ip"
 
 
+class GoogleAuthenticationThrottle(AnonRateThrottle):
+    scope = "google_auth"
+
+
 class VerificationEmailThrottle(SimpleRateThrottle):
     scope = "verify_email"
 

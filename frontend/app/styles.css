@@ -322,6 +322,12 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .form-stack p:last-child { text-align: center; }
 .check-label { min-height: 44px; display: flex !important; align-items: center; gap: 10px; }
 .check-label input { width: 20px; min-height: 20px; }
+.auth-separator { display: flex; align-items: center; gap: 12px; margin: 18px 0 14px; color: var(--muted); }
+.auth-separator::before, .auth-separator::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+.auth-separator span { font-size: .84rem; font-weight: 800; text-transform: uppercase; }
+.google-auth-control, .google-auth-button { display: flex; justify-content: center; min-height: 44px; }
+.google-auth-button { width: 100%; }
+.google-auth-helper { margin: 0; color: var(--muted); font-size: .92rem; line-height: 1.45; text-align: left !important; }
 .account-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .account-panel { padding: 28px; border-radius: 16px; background: var(--surface-cold); }
 .account-panel h2 { font-size: 1.55rem; }

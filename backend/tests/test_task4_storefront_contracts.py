@@ -4,14 +4,17 @@ from decimal import Decimal
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client
+from django.test import Client, override_settings
 from django.utils import timezone
 from PIL import Image
 
+from backoffice.models import IntegrationConfiguration
+from backoffice.secrets import seal_secret_map
 from tests.test_commerce_domain import make_variant
 
 
 @pytest.mark.django_db
+@override_settings(CONFIG_ENCRYPTION_MASTER_KEY="storefront-smtp-contract-key")
 def test_registered_customer_can_reach_safe_checkout_through_real_cookie_and_csrf_contracts(
     django_user_model, monkeypatch
 ):
@@ -36,6 +39,18 @@ def test_registered_customer_can_reach_safe_checkout_through_real_cookie_and_csr
 
     monkeypatch.setattr("api_views.secrets.randbelow", lambda upper: 123456)
     monkeypatch.setattr("api_views.GeoRefAdapter", Geocoder)
+    IntegrationConfiguration.objects.create(
+        provider="smtp",
+        enabled=True,
+        environment="production",
+        public_config={
+            "host": "smtp.example.test",
+            "port": 587,
+            "use_tls": True,
+            "from_email": "ventas@example.test",
+        },
+        sealed_secrets=seal_secret_map({"username": "mailer", "password": "smtp-password"}),
+    )
     variant = make_variant(sku="JOURNEY-CONTRACT", price="120.00", on_hand=5)
     browser = Client(enforce_csrf_checks=True)
     registered = browser.post(
