@@ -86,16 +86,23 @@ export type Address = {
   needs_review: boolean; reviewed_at: string | null; created_at: string; updated_at: string;
 };
 export type ShippingQuote = {
-  public_id: string; service: string; parcels: unknown[]; base_amount: string; surcharge_amount: string;
-  total_amount: string; currency: string; expires_at: string;
+  public_id: string; provider: string; provider_label: string; service: string; parcels: unknown[];
+  base_amount: string; surcharge_amount: string; total_amount: string; amount_pending: boolean;
+  currency: string; expires_at: string;
 };
-export type CheckoutResponse = { order_id: string; identity_status: string; payment_status: string; checkout_url: string };
+export type ShippingQuoteOptions = {
+  results: ShippingQuote[];
+  errors: Array<{ provider: string; label: string; code: string }>;
+  manual_fallback: boolean;
+};
+export type CheckoutResponse = { order_id: string; identity_status: string; payment_status: string; checkout_url: string; shipping_cost_status: string };
 export type TimelineEvent = { status: string; label: string; occurred_at: string | null };
 export type ShipmentSummary = { carrier: string; tracking_number: string; status: string; updated_at: string };
 export type PickupSummary = { enabled: boolean; label: string; address: string; hours: string };
 export type Order = {
   public_id: string; identity_status: string; payment_status: string; fulfillment_status: string;
   fulfillment_method: string; customer_snapshot: Record<string, unknown>; address_snapshot: Record<string, unknown>;
+  shipping_cost_status: string;
   fiscal_snapshot: BillingProfile; coupon_code_snapshot: string; subtotal_snapshot: string;
   discount_snapshot: string; shipping_amount_snapshot: string; total_snapshot: string;
   items: Array<{ product_name_snapshot: string; variant_name_snapshot: string; sku_snapshot: string; quantity: number; unit_price_snapshot: string; discount_snapshot: string; line_total_snapshot: string }>;

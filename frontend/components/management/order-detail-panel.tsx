@@ -11,11 +11,11 @@ import { managementStatusLabel } from "@/components/management/order-table";
 
 export function ManagementOrderDetailPanel({ order }: { order: ManagementOrderDetail }) {
   const router = useRouter();
-  const act = async (action: string, reason: string) => {
+  const act = async (action: string, reason: string, shippingAmount?: string) => {
     await managementRequest(`/orders/${order.public_id}/actions/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, reason }),
+      body: JSON.stringify({ action, reason, ...(shippingAmount ? { shipping_amount: shippingAmount } : {}) }),
     });
     router.refresh();
   };
@@ -31,7 +31,7 @@ export function ManagementOrderDetailPanel({ order }: { order: ManagementOrderDe
         <dl className="management-facts">
           <div><dt>Subtotal</dt><dd>{formatMoney(order.subtotal)}</dd></div>
           <div><dt>Descuento</dt><dd>{formatMoney(order.discount)}</dd></div>
-          <div><dt>Envío</dt><dd>{formatMoney(order.shipping_amount)}</dd></div>
+          <div><dt>Envío</dt><dd>{order.shipping_cost_status === "pending_agreement" ? "A confirmar" : formatMoney(order.shipping_amount)}</dd></div>
           <div><dt>Total</dt><dd>{formatMoney(order.total)}</dd></div>
         </dl>
       </section>

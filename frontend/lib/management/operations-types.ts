@@ -5,6 +5,8 @@ export type ManagementOrder = {
   payment_status: string;
   fulfillment_status: string;
   fulfillment_method: string;
+  shipping_cost_status?: string;
+  shipping_provider?: string;
   total: string;
   created_at: string;
 };

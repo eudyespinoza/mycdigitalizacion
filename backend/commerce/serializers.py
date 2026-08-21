@@ -225,6 +225,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "payment_status",
             "fulfillment_status",
             "fulfillment_method",
+            "shipping_cost_status",
             "customer_snapshot",
             "address_snapshot",
             "fiscal_snapshot",
@@ -326,6 +327,7 @@ class CheckoutResponseSerializer(serializers.Serializer):
     identity_status = serializers.CharField()
     payment_status = serializers.CharField()
     checkout_url = serializers.URLField(allow_blank=True)
+    shipping_cost_status = serializers.CharField()
 
 
 class IdentityValidationRequestSerializer(serializers.Serializer):
@@ -347,18 +349,38 @@ class ShippingQuoteRequestSerializer(serializers.Serializer):
 
 
 class ShippingQuoteSerializer(serializers.ModelSerializer):
+    provider_label = serializers.SerializerMethodField()
+
     class Meta:
         model = ShippingQuote
         fields = (
             "public_id",
+            "provider",
+            "provider_label",
             "service",
             "parcels",
             "base_amount",
             "surcharge_amount",
             "total_amount",
+            "amount_pending",
             "currency",
             "expires_at",
         )
+
+    def get_provider_label(self, quote) -> str:
+        return str(quote.provider_summary.get("label") or quote.provider)
+
+
+class ShippingQuoteErrorSerializer(serializers.Serializer):
+    provider = serializers.CharField()
+    label = serializers.CharField()
+    code = serializers.CharField()
+
+
+class ShippingQuoteOptionsSerializer(serializers.Serializer):
+    results = ShippingQuoteSerializer(many=True)
+    errors = ShippingQuoteErrorSerializer(many=True)
+    manual_fallback = serializers.BooleanField()
 
 
 class PaymentStatusSerializer(serializers.ModelSerializer):

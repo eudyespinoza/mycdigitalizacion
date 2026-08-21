@@ -22,6 +22,7 @@ export type ManagementDashboard = {
 export type IntegrationProvider =
   | "mercadopago"
   | "correo_argentino"
+  | "andreani"
   | "sid_renaper"
   | "smtp"
   | "geolocation"

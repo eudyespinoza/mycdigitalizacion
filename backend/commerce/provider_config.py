@@ -4,7 +4,13 @@ from django.conf import settings
 
 from commerce.identity import DisabledSIDAdapter, SIDAdapter
 from commerce.mercadopago import MercadoPagoAdapter
-from commerce.shipping import CorreoArgentinoAdapter, DisabledCarrierAdapter, ShippingPolicy
+from commerce.shipping import (
+    AndreaniAdapter,
+    CarrierBinding,
+    CorreoArgentinoAdapter,
+    DisabledCarrierAdapter,
+    ShippingPolicy,
+)
 from providers import ProviderNotConfigured
 
 
@@ -84,38 +90,20 @@ def get_payment_adapter():
     return adapter
 
 
-def get_carrier_adapter():
-    stored = _stored("correo_argentino")
-    if stored is not None:
-        public = stored["public_config"]
-        secrets = stored["secrets"]
-        if not stored["enabled"]:
-            return DisabledCarrierAdapter()
-        return CorreoArgentinoAdapter(
-            base_url=public.get("base_url", ""),
-            username=secrets.get("username", ""),
-            password=secrets.get("password", ""),
-            customer_id=public.get("customer_id", ""),
-            origin_postal_code=public.get("origin_postal_code", ""),
-        )
-    if not settings.CORREO_ARGENTINO_ENABLED:
-        return DisabledCarrierAdapter()
-    base_url = (
-        settings.CORREO_ARGENTINO_PRODUCTION_BASE_URL
-        if settings.CORREO_ARGENTINO_ENVIRONMENT == "production"
-        else settings.CORREO_ARGENTINO_QA_BASE_URL
-    )
-    return CorreoArgentinoAdapter(
-        base_url=base_url,
-        username=settings.CORREO_ARGENTINO_USERNAME,
-        password=settings.CORREO_ARGENTINO_PASSWORD,
-        customer_id=settings.CORREO_ARGENTINO_CUSTOMER_ID,
-        origin_postal_code=settings.CORREO_ARGENTINO_ORIGIN_POSTAL_CODE,
-    )
+MICORREO_BASE_URLS = {
+    "sandbox": "https://apitest.correoargentino.com.ar/micorreo/v1",
+    "qa": "https://apitest.correoargentino.com.ar/micorreo/v1",
+    "production": "https://api.correoargentino.com.ar/micorreo/v1",
+}
+ANDREANI_BASE_URLS = {
+    "sandbox": "https://apisqa.andreani.com",
+    "qa": "https://apisqa.andreani.com",
+    "production": "https://apis.andreani.com",
+}
 
 
-def get_shipping_policy():
-    stored = _stored("correo_argentino")
+def get_shipping_policy(provider="correo_argentino"):
+    stored = _stored(provider)
     if stored is not None:
         public = stored["public_config"]
         threshold = public.get("free_shipping_threshold", "")
@@ -130,3 +118,104 @@ def get_shipping_policy():
         surcharge_value=Decimal(settings.SHIPPING_SURCHARGE_VALUE),
         free_shipping_threshold=Decimal(threshold) if threshold else None,
     )
+
+
+def _stored_carrier_binding(provider):
+    stored = _stored(provider)
+    if stored is None or not stored["enabled"]:
+        return None
+    public = stored["public_config"]
+    secrets = stored["secrets"]
+    environment = stored["environment"]
+    try:
+        if provider == "correo_argentino":
+            adapter = CorreoArgentinoAdapter(
+                base_url=public.get("base_url") or MICORREO_BASE_URLS[environment],
+                username=secrets.get("username", ""),
+                password=secrets.get("password", ""),
+                customer_id=public.get("customer_id", ""),
+                origin_postal_code=public.get("origin_postal_code", ""),
+            )
+            label = "API MiCorreo"
+        elif provider == "andreani":
+            adapter = AndreaniAdapter(
+                base_url=public.get("base_url") or ANDREANI_BASE_URLS[environment],
+                username=secrets.get("username", ""),
+                password=secrets.get("password", ""),
+                customer_id=public.get("customer_id", ""),
+                contract=public.get("contract", ""),
+                origin={
+                    "postal_code": public.get("origin_postal_code", ""),
+                    "street": public.get("origin_street", ""),
+                    "number": public.get("origin_number", ""),
+                    "city": public.get("origin_city", ""),
+                    "province": public.get("origin_province", ""),
+                },
+                sender={
+                    "name": public.get("sender_name", ""),
+                    "email": public.get("sender_email", ""),
+                    "phone": public.get("sender_phone", ""),
+                    "document_type": public.get("sender_document_type", ""),
+                    "document_number": public.get("sender_document_number", ""),
+                },
+            )
+            label = "Andreani"
+        else:
+            return None
+    except ProviderNotConfigured:
+        return None
+    return CarrierBinding(
+        provider=provider,
+        label=label,
+        adapter=adapter,
+        policy=get_shipping_policy(provider),
+    )
+
+
+def get_carrier_bindings():
+    bindings = [
+        binding
+        for provider in ("correo_argentino", "andreani")
+        if (binding := _stored_carrier_binding(provider)) is not None
+    ]
+    stored_micorreo = _stored("correo_argentino")
+    if (
+        not any(binding.provider == "correo_argentino" for binding in bindings)
+        and stored_micorreo is None
+        and settings.CORREO_ARGENTINO_ENABLED
+    ):
+        base_url = (
+            settings.CORREO_ARGENTINO_PRODUCTION_BASE_URL
+            if settings.CORREO_ARGENTINO_ENVIRONMENT == "production"
+            else settings.CORREO_ARGENTINO_QA_BASE_URL
+        )
+        try:
+            adapter = CorreoArgentinoAdapter(
+                base_url=base_url,
+                username=settings.CORREO_ARGENTINO_USERNAME,
+                password=settings.CORREO_ARGENTINO_PASSWORD,
+                customer_id=settings.CORREO_ARGENTINO_CUSTOMER_ID,
+                origin_postal_code=settings.CORREO_ARGENTINO_ORIGIN_POSTAL_CODE,
+            )
+        except ProviderNotConfigured:
+            pass
+        else:
+            bindings.append(
+                CarrierBinding(
+                    provider="correo_argentino",
+                    label="API MiCorreo",
+                    adapter=adapter,
+                    policy=get_shipping_policy("correo_argentino"),
+                )
+            )
+    return bindings
+
+
+def get_carrier_adapter(provider=None):
+    bindings = get_carrier_bindings()
+    if provider:
+        for binding in bindings:
+            if binding.provider == provider:
+                return binding.adapter
+        return DisabledCarrierAdapter()
+    return bindings[0].adapter if bindings else DisabledCarrierAdapter()

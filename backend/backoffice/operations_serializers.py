@@ -66,6 +66,7 @@ class ManagementOrderSummarySerializer(serializers.ModelSerializer):
             "payment_status",
             "fulfillment_status",
             "fulfillment_method",
+            "shipping_cost_status",
             "total",
             "created_at",
         )
@@ -153,6 +154,7 @@ class ManagementOrderDetailSerializer(ManagementOrderSummarySerializer):
     shipping_amount = serializers.DecimalField(
         source="shipping_amount_snapshot", max_digits=12, decimal_places=2
     )
+    shipping_provider = serializers.SerializerMethodField()
 
     class Meta(ManagementOrderSummarySerializer.Meta):
         fields = ManagementOrderSummarySerializer.Meta.fields + (
@@ -162,6 +164,7 @@ class ManagementOrderDetailSerializer(ManagementOrderSummarySerializer):
             "subtotal",
             "discount",
             "shipping_amount",
+            "shipping_provider",
             "items",
             "audit_events",
             "payments",
@@ -173,6 +176,9 @@ class ManagementOrderDetailSerializer(ManagementOrderSummarySerializer):
         shipment = getattr(order, "management_shipment", None)
         return ManagementShipmentSerializer(shipment).data if shipment else None
 
+    def get_shipping_provider(self, order) -> str:
+        return order.shipping_quote.provider if order.shipping_quote_id else ""
+
 
 class ManagementOrderActionSerializer(serializers.Serializer):
     action = serializers.ChoiceField(
@@ -182,12 +188,23 @@ class ManagementOrderActionSerializer(serializers.Serializer):
             "refund",
             "create_shipment",
             "refresh_tracking",
+            "set_shipping_cost",
             "mark_preparing",
             "mark_ready_for_pickup",
             "mark_fulfilled",
         )
     )
     reason = serializers.CharField(min_length=3, max_length=500, trim_whitespace=True)
+    shipping_amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=0, required=False
+    )
+
+    def validate(self, attrs):
+        if attrs.get("action") == "set_shipping_cost" and "shipping_amount" not in attrs:
+            raise serializers.ValidationError(
+                {"shipping_amount": "Indicá el costo de envío acordado."}
+            )
+        return attrs
 
 
 class ManagementAddressSerializer(serializers.ModelSerializer):

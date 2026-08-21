@@ -10,7 +10,7 @@ export function ManagementOrderActions({
   onAction,
 }: {
   order: ManagementOrder;
-  onAction: (action: string, reason: string) => Promise<void>;
+  onAction: (action: string, reason: string, shippingAmount?: string) => Promise<void>;
 }) {
   const [action, setAction] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -18,11 +18,17 @@ export function ManagementOrderActions({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!action) return;
-    const reason = String(new FormData(event.currentTarget).get("reason") ?? "");
+    const form = new FormData(event.currentTarget);
+    const reason = String(form.get("reason") ?? "");
+    const shippingAmount = String(form.get("shipping_amount") ?? "");
     setBusy(true);
     setMessage("");
     try {
-      await onAction(action, reason);
+      if (action === "set_shipping_cost") {
+        await onAction(action, reason, shippingAmount);
+      } else {
+        await onAction(action, reason);
+      }
       setAction(null);
       setMessage("Acción registrada correctamente.");
     } catch (cause) {
@@ -35,7 +41,8 @@ export function ManagementOrderActions({
     ...(order.identity_status === "manual_review" ? [["approve_identity", "Aprobar identidad"]] : []),
     ...(order.payment_status === "paid" ? [["refund", "Reintegrar pago"]] : []),
     ...(order.payment_status === "failed" || order.payment_status === "not_started" ? [["cancel", "Cancelar pedido"]] : []),
-    ...(order.payment_status === "paid" && order.fulfillment_method === "shipping" && order.fulfillment_status === "unfulfilled" ? [["create_shipment", "Crear envío"]] : []),
+    ...(order.shipping_cost_status === "pending_agreement" ? [["set_shipping_cost", "Definir costo de envío"]] : []),
+    ...(order.payment_status === "paid" && order.fulfillment_method === "shipping" && order.shipping_provider !== "manual" && order.fulfillment_status === "unfulfilled" ? [["create_shipment", "Crear envío"]] : []),
     ...(order.payment_status === "paid" && order.fulfillment_status === "unfulfilled" ? [["mark_preparing", "Marcar en preparación"]] : []),
     ...(order.fulfillment_method === "pickup" && order.fulfillment_status === "preparing" ? [["mark_ready_for_pickup", "Listo para retirar"]] : []),
     ...(order.fulfillment_status === "shipped" || order.fulfillment_status === "ready_for_pickup" ? [["mark_fulfilled", "Marcar entregado"]] : []),
@@ -54,7 +61,8 @@ export function ManagementOrderActions({
       {action && (
         <div className="management-dialog-layer" role="presentation">
           <form aria-label="Confirmar acción sobre pedido" className="management-dialog" onSubmit={(event) => void submit(event)}>
-            <div><p className="management-kicker">Confirmación</p><h2>{action === "cancel" ? "Cancelar pedido" : "Confirmar acción"}</h2></div>
+            <div><p className="management-kicker">Confirmación</p><h2>{action === "cancel" ? "Cancelar pedido" : action === "set_shipping_cost" ? "Definir costo de envío" : "Confirmar acción"}</h2></div>
+            {action === "set_shipping_cost" && <label><span>Costo de envío</span><input min="0" name="shipping_amount" required step="0.01" type="number" /></label>}
             <label><span>Motivo de la acción</span><textarea maxLength={500} name="reason" required rows={4} /></label>
             <div className="management-form-actions">
               <button className="button primary" disabled={busy} type="submit">{action === "cancel" ? "Confirmar cancelación" : "Confirmar"}</button>

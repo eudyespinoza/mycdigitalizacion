@@ -9,10 +9,12 @@ from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 from django.db import transaction
 
 from providers import (
+    ProviderError,
     ProviderHttpClient,
     ProviderInvalidResponse,
     ProviderNotConfigured,
     ProviderNotSupported,
+    ProviderUnavailable,
     UrllibJsonTransport,
 )
 
@@ -63,6 +65,10 @@ def _money(value):
     return Decimal(str(value)).quantize(MONEY, rounding=ROUND_HALF_UP)
 
 
+def _plain_decimal(value):
+    return format(Decimal(str(value)), "f")
+
+
 def quote_is_valid(expires_at, *, now):
     return expires_at > now
 
@@ -81,6 +87,21 @@ class CarrierQuote:
     total_amount: Decimal
     service: str
     provider_summary: dict[str, str]
+
+
+@dataclass(frozen=True)
+class CarrierBinding:
+    provider: str
+    label: str
+    adapter: object
+    policy: ShippingPolicy
+
+
+@dataclass(frozen=True)
+class ShippingQuoteOptions:
+    quotes: list[object]
+    errors: list[dict[str, str]]
+    manual_fallback: bool = False
 
 
 class DisabledCarrierAdapter:
@@ -102,6 +123,9 @@ class DisabledCarrierAdapter:
 
 
 class CorreoArgentinoAdapter:
+    provider = "correo_argentino"
+    provider_label = "API MiCorreo"
+
     def __init__(
         self,
         *,
@@ -141,6 +165,10 @@ class CorreoArgentinoAdapter:
 
     def _headers(self):
         return {"Authorization": f"Bearer {self._authenticate()}"}
+
+    def test_connection(self):
+        self._authenticate()
+        return True
 
     def quote(self, *, postal_code, parcels, policy, merchandise_amount=None):
         amounts = []
@@ -235,15 +263,219 @@ class CorreoArgentinoAdapter:
         )
 
 
-def create_shipping_quote(*, cart, user, address, adapter, policy, now=None):
-    from django.utils import timezone
+class AndreaniAdapter:
+    provider = "andreani"
+    provider_label = "Andreani"
 
+    def __init__(
+        self,
+        *,
+        base_url,
+        username,
+        password,
+        customer_id,
+        contract,
+        origin,
+        sender,
+        transport=None,
+    ):
+        if not all((base_url, username, password, customer_id, contract)):
+            raise ProviderNotConfigured("Andreani no está configurado")
+        if not all(origin.get(key) for key in ("postal_code", "street", "number", "city")):
+            raise ProviderNotConfigured("Completá el domicilio de origen de Andreani")
+        if not all(
+            sender.get(key)
+            for key in ("name", "email", "phone", "document_type", "document_number")
+        ):
+            raise ProviderNotConfigured("Completá los datos del remitente de Andreani")
+        self.base_url = str(base_url).rstrip("/")
+        self.username = username
+        self.password = password
+        self.customer_id = customer_id
+        self.contract = contract
+        self.origin = origin
+        self.sender = sender
+        self.http = ProviderHttpClient(transport or UrllibJsonTransport())
+        self._access_token = ""
+
+    def _authenticate(self):
+        if self._access_token:
+            return self._access_token
+        data = self.http.request_json(
+            "POST",
+            f"{self.base_url}/v2/login",
+            payload={"usuario": self.username, "password": self.password},
+        )
+        token = str(data.get("token", ""))
+        if not token:
+            raise ProviderInvalidResponse("Andreani no devolvió una sesión válida")
+        self._access_token = token
+        return token
+
+    def _headers(self):
+        return {"x-authorization-token": self._authenticate()}
+
+    def test_connection(self):
+        self._authenticate()
+        return True
+
+    def quote(self, *, postal_code, parcels, policy, merchandise_amount=None):
+        params = {
+            "cpDestino": postal_code,
+            "contrato": self.contract,
+            "cliente": self.customer_id,
+        }
+        declared_value = _money(merchandise_amount or 0)
+        for index, parcel in enumerate(parcels):
+            length = Decimal(str(parcel["length_cm"]))
+            width = Decimal(str(parcel["width_cm"]))
+            height = Decimal(str(parcel["height_cm"]))
+            weight = Decimal(str(parcel["weight_grams"])) / Decimal("1000")
+            prefix = f"bultos[{index}]"
+            params.update(
+                {
+                    f"{prefix}[volumen]": int(
+                        (length * width * height).to_integral_value(rounding=ROUND_CEILING)
+                    ),
+                    f"{prefix}[kilos]": f"{weight:.3f}",
+                    f"{prefix}[altoCm]": _plain_decimal(height),
+                    f"{prefix}[largoCm]": _plain_decimal(length),
+                    f"{prefix}[anchoCm]": _plain_decimal(width),
+                    f"{prefix}[valorDeclarado]": f"{declared_value:.2f}",
+                }
+            )
+        data = self.http.request_json(
+            "GET",
+            f"{self.base_url}/v1/tarifas",
+            params=params,
+        )
+        try:
+            base = _money(data["tarifaConIva"]["total"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProviderInvalidResponse("Andreani devolvió una tarifa inválida") from exc
+        if (
+            policy.free_shipping_threshold is not None
+            and merchandise_amount is not None
+            and _money(merchandise_amount) >= _money(policy.free_shipping_threshold)
+        ):
+            surcharge = Decimal("0.00")
+            total = Decimal("0.00")
+        else:
+            surcharge = (
+                _money(base * policy.surcharge_value / Decimal("100"))
+                if policy.surcharge_type == "percentage"
+                else _money(policy.surcharge_value)
+            )
+            total = _money(base + surcharge)
+        return CarrierQuote(
+            base_amount=base,
+            surcharge_amount=surcharge,
+            total_amount=total,
+            service="andreani_domicilio",
+            provider_summary={
+                "parcel_count": str(len(parcels)),
+                "service": "andreani_domicilio",
+                "label": self.provider_label,
+            },
+        )
+
+    def import_shipment(self, payload, *, idempotency_key):
+        parcel = payload["parcel"]
+        recipient = payload["recipient"]
+        destination = payload["destination"]
+        remote_payload = {
+            "contrato": self.contract,
+            "idDeProducto": payload["external_id"],
+            "origen": {
+                "postal": {
+                    "codigoPostal": self.origin["postal_code"],
+                    "calle": self.origin["street"],
+                    "numero": self.origin["number"],
+                    "localidad": self.origin["city"],
+                    "provincia": self.origin.get("province", ""),
+                    "pais": "Argentina",
+                }
+            },
+            "destino": {
+                "postal": {
+                    "codigoPostal": destination["postal_code"],
+                    "calle": destination["street"],
+                    "numero": destination["number"],
+                    "localidad": destination["city"],
+                    "provincia": destination.get("province", ""),
+                    "pais": "Argentina",
+                }
+            },
+            "remitente": {
+                "nombreCompleto": self.sender["name"],
+                "eMail": self.sender["email"],
+                "documentoTipo": self.sender["document_type"],
+                "documentoNumero": self.sender["document_number"],
+                "telefonos": [{"tipo": 1, "numero": self.sender["phone"]}],
+            },
+            "destinatario": {
+                "nombreCompleto": recipient["name"],
+                "eMail": recipient["email"],
+                "documentoTipo": recipient["document_type"],
+                "documentoNumero": recipient["document_number"],
+                "telefonos": [{"tipo": 1, "numero": recipient["phone"]}],
+            },
+            "bultos": [
+                {
+                    "kilos": f"{Decimal(str(parcel['weight_grams'])) / Decimal('1000'):.3f}",
+                    "largoCm": str(parcel["length_cm"]),
+                    "anchoCm": str(parcel["width_cm"]),
+                    "altoCm": str(parcel["height_cm"]),
+                    "valorDeclaradoConImpuestos": str(parcel["declared_value"]),
+                }
+            ],
+        }
+        data = self.http.request_json(
+            "POST",
+            f"{self.base_url}/v2/ordenes-de-envio",
+            headers={**self._headers(), "X-Idempotency-Key": idempotency_key},
+            payload=remote_payload,
+            idempotent=True,
+            expected=(200, 201),
+        )
+        entry = data[0] if isinstance(data, list) and data else data
+        if not isinstance(entry, dict):
+            raise ProviderInvalidResponse("Andreani no confirmó la orden de envío")
+        tracking_number = str(
+            entry.get("numeroAndreani")
+            or entry.get("numeroDeEnvio")
+            or entry.get("agrupadorDeBultos")
+            or ""
+        )
+        if not tracking_number:
+            raise ProviderInvalidResponse("Andreani no devolvió el número de envío")
+        return {
+            "createdAt": str(entry.get("fechaCreacion") or "confirmed"),
+            "tracking_number": tracking_number,
+            "label_url": f"{self.base_url}/v2/ordenes-de-envio/{tracking_number}/etiquetas",
+            "status": str(entry.get("estado") or "Creado"),
+        }
+
+    def label(self, shipment_id):
+        return {
+            "url": f"{self.base_url}/v2/ordenes-de-envio/{shipment_id}/etiquetas",
+            "requires_authentication": True,
+        }
+
+    def tracking(self, tracking_number):
+        return self.http.request_json(
+            "GET",
+            f"{self.base_url}/v3/envios/{tracking_number}",
+            headers=self._headers(),
+        )
+
+
+def _packed_quote_context(*, cart, address, checked_at):
     from commerce.checkout import cart_fingerprint
-    from commerce.models import PackageBox, ShippingQuote
+    from commerce.models import PackageBox
     from commerce.packing import Box, PackItem, pack_items
     from commerce.services import calculate_cart_totals
 
-    checked_at = now or timezone.now()
     boxes = [
         Box(
             box.code,
@@ -282,12 +514,29 @@ def create_shipping_quote(*, cart, user, address, adapter, policy, now=None):
     ]
     totals = calculate_cart_totals(cart, at=checked_at)
     fingerprint = cart_fingerprint(cart, address=address, parcels=parcels, at=checked_at)
+    return parcels, totals, fingerprint
+
+
+def create_shipping_quote(
+    *, cart, user, address, adapter, policy, provider=None, label=None, now=None
+):
+    from django.utils import timezone
+
+    from commerce.models import ShippingQuote
+
+    checked_at = now or timezone.now()
+    parcels, totals, fingerprint = _packed_quote_context(
+        cart=cart, address=address, checked_at=checked_at
+    )
+    provider_key = provider or getattr(adapter, "provider", "correo_argentino")
     cached = (
         ShippingQuote.objects.filter(
             user=user,
+            provider=provider_key,
             postal_code=address.postal_code,
             cart_fingerprint=fingerprint,
             expires_at__gt=checked_at,
+            amount_pending=False,
         )
         .order_by("-created_at")
         .first()
@@ -302,6 +551,7 @@ def create_shipping_quote(*, cart, user, address, adapter, policy, now=None):
     )
     return ShippingQuote.objects.create(
         user=user,
+        provider=provider_key,
         service=rate.service,
         postal_code=address.postal_code,
         parcels=parcels,
@@ -309,9 +559,177 @@ def create_shipping_quote(*, cart, user, address, adapter, policy, now=None):
         surcharge_amount=rate.surcharge_amount,
         total_amount=rate.total_amount,
         cart_fingerprint=fingerprint,
-        provider_summary=rate.provider_summary,
+        provider_summary={
+            **rate.provider_summary,
+            "label": label
+            or rate.provider_summary.get("label")
+            or getattr(adapter, "provider_label", provider_key),
+        },
         expires_at=checked_at + timezone.timedelta(minutes=15),
     )
+
+
+def _manual_shipping_quote(*, cart, user, address, checked_at):
+    from django.utils import timezone
+
+    from commerce.models import ShippingQuote
+
+    parcels, _, fingerprint = _packed_quote_context(
+        cart=cart, address=address, checked_at=checked_at
+    )
+    cached = (
+        ShippingQuote.objects.filter(
+            user=user,
+            provider="manual",
+            postal_code=address.postal_code,
+            cart_fingerprint=fingerprint,
+            amount_pending=True,
+            expires_at__gt=checked_at,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if cached:
+        return cached
+    return ShippingQuote.objects.create(
+        user=user,
+        provider="manual",
+        service="a_convenir",
+        postal_code=address.postal_code,
+        parcels=parcels,
+        base_amount=Decimal("0.00"),
+        surcharge_amount=Decimal("0.00"),
+        total_amount=Decimal("0.00"),
+        amount_pending=True,
+        cart_fingerprint=fingerprint,
+        provider_summary={
+            "label": "Envío a acordar",
+            "status": "pending_agreement",
+            "parcel_count": str(len(parcels)),
+        },
+        expires_at=checked_at + timezone.timedelta(days=7),
+    )
+
+
+def create_shipping_quote_options(*, cart, user, address, bindings, now=None):
+    """Quote every configured carrier; manual fallback is allowed only when there are none."""
+    from django.utils import timezone
+
+    checked_at = now or timezone.now()
+    if not bindings:
+        return ShippingQuoteOptions(
+            quotes=[
+                _manual_shipping_quote(
+                    cart=cart,
+                    user=user,
+                    address=address,
+                    checked_at=checked_at,
+                )
+            ],
+            errors=[],
+            manual_fallback=True,
+        )
+    quotes = []
+    errors = []
+    first_error = None
+    for binding in bindings:
+        try:
+            quotes.append(
+                create_shipping_quote(
+                    cart=cart,
+                    user=user,
+                    address=address,
+                    adapter=binding.adapter,
+                    policy=binding.policy,
+                    provider=binding.provider,
+                    label=binding.label,
+                    now=checked_at,
+                )
+            )
+        except ProviderError as exc:
+            first_error = first_error or exc
+            errors.append(
+                {
+                    "provider": binding.provider,
+                    "label": binding.label,
+                    "code": exc.code,
+                }
+            )
+    if not quotes:
+        raise first_error or ProviderUnavailable("No pudimos obtener tarifas de envío")
+    return ShippingQuoteOptions(quotes=quotes, errors=errors)
+
+
+@transaction.atomic
+def resolve_manual_shipping_cost(*, order, amount, actor, reason):
+    """Finalize a manually agreed cost before any payment preference exists."""
+    from django.core.exceptions import ValidationError
+    from django.utils import timezone
+
+    from commerce.models import NotificationAttempt, OrderAuditEvent, ShippingQuote
+
+    normalized_reason = str(reason or "").strip()
+    resolved_amount = _money(amount)
+    if not normalized_reason or len(normalized_reason) > 500:
+        raise ValidationError("Indicá un motivo válido para el costo acordado")
+    if resolved_amount < 0:
+        raise ValidationError("El costo de envío no puede ser negativo")
+    locked = type(order).objects.select_for_update().get(pk=order.pk)
+    if not actor.is_staff or not actor.has_perm("commerce.set_shipping_cost_order"):
+        raise ValidationError("Sólo un operador puede definir el costo de envío")
+    if locked.payment_transactions.exists():
+        raise ValidationError("El pedido ya inició el pago")
+    if not locked.shipping_quote_id:
+        raise ValidationError("Este pedido no espera un costo de envío acordado")
+    quote = ShippingQuote.objects.select_for_update().get(pk=locked.shipping_quote_id)
+    if (
+        quote.provider != "manual"
+        or locked.shipping_cost_status != locked.ShippingCostStatus.PENDING_AGREEMENT
+    ):
+        raise ValidationError("Este pedido no espera un costo de envío acordado")
+    quote.base_amount = resolved_amount
+    quote.surcharge_amount = Decimal("0.00")
+    quote.total_amount = resolved_amount
+    quote.amount_pending = False
+    quote.expires_at = timezone.now() + timezone.timedelta(days=7)
+    quote.provider_summary = {
+        **quote.provider_summary,
+        "status": "ready",
+        "resolved_by": str(actor.pk),
+    }
+    quote.save(
+        update_fields=(
+            "base_amount",
+            "surcharge_amount",
+            "total_amount",
+            "amount_pending",
+            "provider_summary",
+            "expires_at",
+        )
+    )
+    locked.shipping_amount_snapshot = resolved_amount
+    locked.total_snapshot = _money(
+        locked.subtotal_snapshot - locked.discount_snapshot + resolved_amount
+    )
+    locked.shipping_cost_status = locked.ShippingCostStatus.READY
+    locked._save_shipping_cost_resolution()
+    OrderAuditEvent.objects.create(
+        order=locked,
+        kind="shipping_cost_agreed",
+        data={"amount": f"{resolved_amount:.2f}", "reason": normalized_reason},
+        actor=actor,
+    )
+    NotificationAttempt.objects.get_or_create(
+        kind="shipping_cost_ready",
+        reference=str(locked.public_id),
+        defaults={
+            "payload": {
+                "order_id": str(locked.public_id),
+                "account_path": f"/pedidos/{locked.public_id}",
+            }
+        },
+    )
+    return locked
 
 
 class ShipmentError(ValueError):
@@ -327,10 +745,49 @@ def _shipment_eligible(order):
         and order.payment_status == order.PaymentStatus.PAID
         and order.fulfillment_status == order.FulfillmentStatus.UNFULFILLED
         and bool(order.shipping_quote_id)
+        and order.shipping_quote.provider != "manual"
     )
 
 
 def _parcel_payload(*, order, adapter, parcel, external_id):
+    if getattr(adapter, "provider", "") == "andreani":
+        try:
+            document_number = order.user.customer_profile.get_dni()
+        except Exception as exc:
+            raise ShipmentError(
+                "shipment_customer_invalid",
+                "El cliente no tiene un DNI disponible para Andreani",
+            ) from exc
+        if not document_number:
+            raise ShipmentError(
+                "shipment_customer_invalid",
+                "El cliente no tiene un DNI disponible para Andreani",
+            )
+        return {
+            "external_id": external_id,
+            "recipient": {
+                "name": order.customer_snapshot.get("name")
+                or order.customer_snapshot.get("email", "Cliente"),
+                "email": order.customer_snapshot.get("email", ""),
+                "document_type": "DNI",
+                "document_number": document_number,
+                "phone": order.customer_snapshot.get("phone", ""),
+            },
+            "destination": {
+                "postal_code": order.address_snapshot.get("postal_code", ""),
+                "street": order.address_snapshot.get("street", ""),
+                "number": order.address_snapshot.get("number", ""),
+                "city": order.address_snapshot.get("locality", ""),
+                "province": order.address_snapshot.get("province", ""),
+            },
+            "parcel": {
+                "weight_grams": parcel["weight_grams"],
+                "length_cm": parcel["length_cm"],
+                "width_cm": parcel["width_cm"],
+                "height_cm": parcel["height_cm"],
+                "declared_value": f"{order.subtotal_snapshot - order.discount_snapshot:.2f}",
+            },
+        }
     province_code = _province_code(
         order.address_snapshot.get("province_code") or order.address_snapshot.get("province")
     )
@@ -389,6 +846,7 @@ def _prepare_shipment(*, order):
     idempotency_key = uuid.uuid5(uuid.NAMESPACE_URL, f"shipment:{locked.public_id}")
     shipment = existing or Shipment.objects.create(
         order=locked,
+        provider=locked.shipping_quote.provider,
         provider_id=f"{locked.public_id}-1",
         idempotency_key=idempotency_key,
         tracking_number=f"{locked.public_id}-1",
@@ -429,7 +887,12 @@ def _import_parcel(*, parcel_import, order, adapter):
         if not isinstance(response, dict) or not response.get("createdAt"):
             raise ProviderInvalidResponse("Correo Argentino no confirmó la importación del envío")
         locked.status = ShipmentParcelImport.Status.IMPORTED
-        locked.provider_summary = {"created_at": str(response["createdAt"])}
+        locked.provider_summary = {
+            "created_at": str(response["createdAt"]),
+            "tracking_number": str(response.get("tracking_number") or ""),
+            "label_url": str(response.get("label_url") or ""),
+            "status": str(response.get("status") or ""),
+        }
         locked.save(update_fields=("status", "provider_summary", "updated_at"))
         return locked
 
@@ -454,8 +917,23 @@ def create_order_shipment(*, order, adapter):
             parcel.status != ShipmentParcelImport.Status.IMPORTED for parcel in imports
         ):
             return locked
-        shipping_ids = [parcel.external_id for parcel in imports]
+        shipping_ids = [
+            parcel.provider_summary.get("tracking_number") or parcel.external_id
+            for parcel in imports
+        ]
         locked.status = "imported"
+        locked.provider_id = shipping_ids[0]
+        locked.tracking_number = shipping_ids[0]
+        locked.label_url = str(imports[0].provider_summary.get("label_url") or "")
         locked.provider_summary = {"shipping_ids": shipping_ids}
-        locked.save(update_fields=("status", "provider_summary", "updated_at"))
+        locked.save(
+            update_fields=(
+                "status",
+                "provider_id",
+                "tracking_number",
+                "label_url",
+                "provider_summary",
+                "updated_at",
+            )
+        )
         return locked

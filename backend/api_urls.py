@@ -25,6 +25,7 @@ from api_views import (
     RegisterView,
     ReverseGeocodeView,
     SearchView,
+    ShippingQuoteOptionsView,
     ShippingQuoteView,
     StorefrontHomeView,
     VerifyEmailView,
@@ -61,6 +62,7 @@ urlpatterns = [
     path("locations/geocode/", GeocodeView.as_view(), name="geocode"),
     path("locations/reverse-geocode/", ReverseGeocodeView.as_view(), name="reverse-geocode"),
     path("shipping/quote/", ShippingQuoteView.as_view(), name="shipping-quote"),
+    path("shipping/quotes/", ShippingQuoteOptionsView.as_view(), name="shipping-quotes"),
     path("checkout/", CheckoutView.as_view(), name="checkout"),
     path(
         "checkout/<uuid:public_id>/resume/",

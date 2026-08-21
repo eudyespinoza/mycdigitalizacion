@@ -204,6 +204,45 @@ class IntegrationTestView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if provider in {"correo_argentino", "andreani"}:
+            from commerce.provider_config import get_carrier_adapter
+            from providers import ProviderError
+
+            try:
+                get_carrier_adapter(provider).test_connection()
+            except ProviderError as exc:
+                configuration.last_test_status = "error"
+                configuration.last_tested_at = timezone.now()
+                configuration.last_test_message = (
+                    "No pudimos conectar con el transportista. Revisá las credenciales."
+                )
+                configuration.save(
+                    update_fields=(
+                        "last_test_status",
+                        "last_tested_at",
+                        "last_test_message",
+                        "updated_at",
+                    )
+                )
+                return Response(
+                    {
+                        "code": exc.code,
+                        "detail": configuration.last_test_message,
+                    },
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            configuration.last_test_status = "success"
+            configuration.last_tested_at = timezone.now()
+            configuration.last_test_message = "Conexión verificada correctamente."
+            configuration.save(
+                update_fields=(
+                    "last_test_status",
+                    "last_tested_at",
+                    "last_test_message",
+                    "updated_at",
+                )
+            )
+            return Response(serialize_configuration(provider, configuration))
         configuration.last_test_status = "pending"
         configuration.last_tested_at = timezone.now()
         configuration.last_test_message = (

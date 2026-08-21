@@ -27,6 +27,7 @@ from commerce.admin_services import perform_order_admin_action
 from commerce.models import Order, PackageBox, Shipment
 from commerce.provider_config import get_carrier_adapter, get_payment_adapter
 from commerce.services import transition_order_status
+from commerce.shipping import resolve_manual_shipping_cost
 
 
 def _order_summary_queryset():
@@ -34,7 +35,9 @@ def _order_summary_queryset():
 
 
 def _order_detail_queryset():
-    return Order.objects.select_related("user", "user__profile").prefetch_related(
+    return Order.objects.select_related(
+        "user", "user__profile", "shipping_quote"
+    ).prefetch_related(
         "items", "audit_events__actor", "payment_transactions"
     )
 
@@ -132,12 +135,22 @@ class ManagementOrderActionView(generics.GenericAPIView):
                     object_reference=str(order.public_id),
                     metadata={"reason": reason},
                 )
+            elif action == "set_shipping_cost":
+                order = resolve_manual_shipping_cost(
+                    order=order,
+                    amount=serializer.validated_data["shipping_amount"],
+                    actor=request.user,
+                    reason=reason,
+                )
             else:
                 adapters = {}
                 if action == "refund":
                     adapters["payment"] = get_payment_adapter()
                 elif action in {"create_shipment", "refresh_tracking"}:
-                    adapters["carrier"] = get_carrier_adapter()
+                    provider = (
+                        order.shipping_quote.provider if order.shipping_quote_id else None
+                    )
+                    adapters["carrier"] = get_carrier_adapter(provider)
                 order = perform_order_admin_action(
                     action=action,
                     order=order,

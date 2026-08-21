@@ -299,6 +299,11 @@ class Order(models.Model):
         SHIPPING = "shipping", "Shipping"
         PICKUP = "pickup", "Pickup"
 
+    class ShippingCostStatus(models.TextChoices):
+        NOT_REQUIRED = "not_required", "Not required"
+        PENDING_AGREEMENT = "pending_agreement", "Pending agreement"
+        READY = "ready", "Ready"
+
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     checkout_idempotency_key = models.UUIDField(null=True, blank=True, editable=False)
     user = models.ForeignKey(
@@ -314,6 +319,11 @@ class Order(models.Model):
         max_length=24, choices=FulfillmentStatus.choices, default=FulfillmentStatus.UNFULFILLED
     )
     fulfillment_method = models.CharField(max_length=16, choices=FulfillmentMethod.choices)
+    shipping_cost_status = models.CharField(
+        max_length=24,
+        choices=ShippingCostStatus.choices,
+        default=ShippingCostStatus.NOT_REQUIRED,
+    )
     customer_snapshot = models.JSONField()
     address_snapshot = models.JSONField()
     fiscal_snapshot = models.JSONField()
@@ -337,6 +347,7 @@ class Order(models.Model):
             ("refund_order", "Can refund an order through the guarded service"),
             ("create_shipment_order", "Can create an order shipment"),
             ("refresh_tracking_order", "Can refresh order tracking"),
+            ("set_shipping_cost_order", "Can set an agreed shipping cost"),
             ("export_order", "Can export masked order data"),
             ("view_sensitive_order_data", "Can export unmasked order data"),
         )
@@ -363,12 +374,21 @@ class Order(models.Model):
             original = (
                 type(self)._base_manager.filter(pk=self.pk).values(*self.IMMUTABLE_FIELDS).get()
             )
-            if any(getattr(self, field) != original[field] for field in self.IMMUTABLE_FIELDS):
+            if any(
+                getattr(self, field) != original[field] for field in self.IMMUTABLE_FIELDS
+            ) and not getattr(self, "_allow_shipping_cost_resolution", False):
                 raise ValidationError("Order snapshots are immutable")
             if not getattr(self, "_allow_status_transition", False):
-                statuses = ("identity_status", "payment_status", "fulfillment_status")
+                statuses = (
+                    "identity_status",
+                    "payment_status",
+                    "fulfillment_status",
+                    "shipping_cost_status",
+                )
                 current = type(self)._base_manager.filter(pk=self.pk).values(*statuses).get()
-                if any(getattr(self, field) != current[field] for field in statuses):
+                if any(
+                    getattr(self, field) != current[field] for field in statuses
+                ) and not getattr(self, "_allow_shipping_cost_resolution", False):
                     raise ValidationError("Order statuses require a transition service")
         return super().save(*args, **kwargs)
 
@@ -381,6 +401,20 @@ class Order(models.Model):
             self.save(update_fields=[field])
         finally:
             del self._allow_status_transition
+
+    def _save_shipping_cost_resolution(self):
+        """Persist the one permitted pre-payment mutation of shipping totals."""
+        self._allow_shipping_cost_resolution = True
+        try:
+            self.save(
+                update_fields=(
+                    "shipping_cost_status",
+                    "shipping_amount_snapshot",
+                    "total_snapshot",
+                )
+            )
+        finally:
+            del self._allow_shipping_cost_resolution
 
 
 class CouponRedemption(models.Model):
@@ -497,6 +531,7 @@ class ShippingQuote(models.Model):
     base_amount = models.DecimalField(max_digits=12, decimal_places=2)
     surcharge_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    amount_pending = models.BooleanField(default=False)
     currency = models.CharField(max_length=3, default="ARS")
     cart_fingerprint = models.CharField(max_length=64)
     provider_summary = models.JSONField(default=dict)

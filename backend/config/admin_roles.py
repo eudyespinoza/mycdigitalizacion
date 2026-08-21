@@ -36,6 +36,7 @@ LOGISTICS_ACTIONS = {
     "refund_order",
     "create_shipment_order",
     "refresh_tracking_order",
+    "set_shipping_cost_order",
     "export_order",
 }
 

@@ -32,6 +32,7 @@ def test_integration_list_exposes_all_business_providers_without_secrets(django_
     assert [row["provider"] for row in response.json()["results"]] == [
         "mercadopago",
         "correo_argentino",
+        "andreani",
         "sid_renaper",
         "smtp",
         "geolocation",

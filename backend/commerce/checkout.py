@@ -20,6 +20,7 @@ from commerce.services import (
     calculate_cart_totals,
     create_pending_identity_order,
     create_reservation,
+    reserve_coupon_redemption,
     transition_order_status,
     validate_purchase_quantity,
 )
@@ -113,6 +114,7 @@ def _validate_shipping(
     shipping_quote,
     now,
     pickup_enabled=None,
+    allow_pending_agreement=False,
 ):
     if fulfillment_method == "pickup":
         if pickup_enabled is None:
@@ -139,6 +141,11 @@ def _validate_shipping(
         raise CheckoutError("shipping_quote_changed", "El carrito cambió desde la cotización")
     if shipping_quote.postal_code != address.postal_code:
         raise CheckoutError("shipping_quote_changed", "La dirección cambió desde la cotización")
+    if shipping_quote.amount_pending and not allow_pending_agreement:
+        raise CheckoutError(
+            "shipping_cost_pending",
+            "Estamos esperando confirmar el costo de envío.",
+        )
     return shipping_quote
 
 
@@ -251,6 +258,7 @@ def confirm_checkout(
                 shipping_quote=locked_quote,
                 now=now,
                 pickup_enabled=pickup_enabled,
+                allow_pending_agreement=True,
             )
             order = create_pending_identity_order(
                 cart=locked_cart,
@@ -292,6 +300,9 @@ def confirm_checkout(
             transition_order_status(
                 order=order, field="identity_status", value=order.IdentityStatus.VERIFIED
             )
+            if effective_quote is not None and effective_quote.amount_pending:
+                order.refresh_from_db()
+                return CheckoutResult(order, None, "")
             expiry = now + timezone.timedelta(minutes=20)
             for line in lines:
                 reservation = create_reservation(
@@ -366,6 +377,14 @@ def resume_checkout(*, order, cart, user, payment_adapter):
     )
     with transaction.atomic():
         locked_order = type(order).objects.select_for_update().get(pk=order.pk)
+        if (
+            locked_order.shipping_cost_status
+            == locked_order.ShippingCostStatus.PENDING_AGREEMENT
+        ):
+            raise CheckoutError(
+                "shipping_cost_pending",
+                "Estamos esperando confirmar el costo de envío.",
+            )
         existing = locked_order.payment_transactions.order_by("created_at").first()
         if existing:
             return CheckoutResult(locked_order, existing, existing.checkout_url)
@@ -413,6 +432,16 @@ def resume_checkout(*, order, cart, user, payment_adapter):
             value=locked_order.IdentityStatus.VERIFIED,
         )
         expiry = now + timezone.timedelta(minutes=20)
+        if cart.coupon_id:
+            try:
+                reserve_coupon_redemption(
+                    coupon=cart.coupon,
+                    order=locked_order,
+                    expires_at=expiry,
+                    at=now,
+                )
+            except ValidationError as exc:
+                raise CheckoutError("coupon_limit_reached", exc.messages[0]) from exc
         for line in cart.lines.select_related("variant"):
             try:
                 reservation = create_reservation(

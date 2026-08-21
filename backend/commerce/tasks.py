@@ -116,12 +116,12 @@ def reconcile_pending_payments():
 
 @shared_task
 def reconcile_tracking():
-    adapter = get_carrier_adapter()
     reconciled = 0
     for shipment in Shipment.objects.exclude(status__in=("delivered", "returned")):
         if not shipment.tracking_number:
             continue
         try:
+            adapter = get_carrier_adapter(shipment.provider)
             result = adapter.tracking(shipment.tracking_number)
         except ProviderError as exc:
             logger.warning(
@@ -132,7 +132,11 @@ def reconcile_tracking():
         tracking = result[0] if isinstance(result, list) and result else result
         events = tracking.get("events", []) if isinstance(tracking, dict) else []
         last_event = events[0] if events else {}
-        shipment.status = str(last_event.get("event") or shipment.status).lower()
+        shipment.status = str(
+            last_event.get("event")
+            or (tracking.get("estado") if isinstance(tracking, dict) else "")
+            or shipment.status
+        ).lower()
         shipment.provider_summary = {"last_event": str(last_event.get("event") or "")}
         shipment.save(update_fields=("status", "provider_summary", "updated_at"))
         reconciled += 1
@@ -141,13 +145,13 @@ def reconcile_tracking():
 
 @shared_task
 def resume_pending_shipments():
-    adapter = get_carrier_adapter()
     recovered = 0
     shipment_ids = list(
         Shipment.objects.filter(status="importing").order_by("pk").values_list("pk", flat=True)
     )
     for shipment in Shipment.objects.select_related("order").filter(pk__in=shipment_ids):
         try:
+            adapter = get_carrier_adapter(shipment.provider)
             completed = create_order_shipment(order=shipment.order, adapter=adapter)
         except (ProviderError, ShipmentError) as exc:
             logger.warning(

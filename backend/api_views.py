@@ -60,6 +60,7 @@ from commerce.models import (
 from commerce.payments import RefundError, WebhookRejected, ingest_webhook, refund_order
 from commerce.provider_config import (
     get_carrier_adapter,
+    get_carrier_bindings,
     get_payment_adapter,
     get_shipping_policy,
     get_sid_adapter,
@@ -80,6 +81,7 @@ from commerce.serializers import (
     RefundRequestSerializer,
     RefundResponseSerializer,
     ShipmentResponseSerializer,
+    ShippingQuoteOptionsSerializer,
     ShippingQuoteRequestSerializer,
     ShippingQuoteSerializer,
 )
@@ -91,7 +93,12 @@ from commerce.services import (
     merge_carts,
     set_cart_line_quantity,
 )
-from commerce.shipping import ShipmentError, create_order_shipment, create_shipping_quote
+from commerce.shipping import (
+    ShipmentError,
+    create_order_shipment,
+    create_shipping_quote,
+    create_shipping_quote_options,
+)
 from landing.models import (
     HeroSlide,
     LandingCollection,
@@ -951,9 +958,13 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=("post",), url_path="shipment")
     def create_shipment(self, request, public_id=None):
         del public_id
+        order = self._staff_order()
         try:
             shipment = create_order_shipment(
-                order=self._staff_order(), adapter=get_carrier_adapter()
+                order=order,
+                adapter=get_carrier_adapter(
+                    order.shipping_quote.provider if order.shipping_quote_id else None
+                ),
             )
         except ProviderError as exc:
             raise provider_domain_error(exc) from exc
@@ -995,7 +1006,7 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
         try:
-            result = get_carrier_adapter().label(shipment.provider_id)
+            result = get_carrier_adapter(shipment.provider).label(shipment.provider_id)
         except ProviderError as exc:
             raise provider_domain_error(exc) from exc
         shipment.label_url = str(result.get("url") or "")
@@ -1024,13 +1035,19 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
         try:
-            result = get_carrier_adapter().tracking(shipment.tracking_number)
+            result = get_carrier_adapter(shipment.provider).tracking(
+                shipment.tracking_number
+            )
         except ProviderError as exc:
             raise provider_domain_error(exc) from exc
         tracking = result[0] if isinstance(result, list) and result else result
         events = tracking.get("events", []) if isinstance(tracking, dict) else []
         last_event = events[0] if events else {}
-        shipment.status = str(last_event.get("event") or shipment.status).lower()
+        shipment.status = str(
+            last_event.get("event")
+            or (tracking.get("estado") if isinstance(tracking, dict) else "")
+            or shipment.status
+        ).lower()
         shipment.provider_summary = {"last_event": str(last_event.get("event") or "")}
         shipment.save(update_fields=("status", "provider_summary", "updated_at"))
         return Response({"status": shipment.status})
@@ -1321,6 +1338,56 @@ class ShippingQuoteView(generics.GenericAPIView):
         return Response(ShippingQuoteSerializer(quote).data)
 
 
+class ShippingQuoteOptionsView(generics.GenericAPIView):
+    permission_classes = (permissions.IsAuthenticated, IsVerifiedEmail)
+    serializer_class = ShippingQuoteRequestSerializer
+
+    @extend_schema(
+        responses={
+            200: ShippingQuoteOptionsSerializer,
+            400: VALIDATION_ERROR_SCHEMA,
+            403: ErrorSerializer,
+            404: ErrorSerializer,
+            422: ErrorSerializer,
+            502: ErrorSerializer,
+            503: ErrorSerializer,
+        }
+    )
+    def post(self, request):
+        request_serializer = self.get_serializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        address = Address.objects.filter(
+            pk=request_serializer.validated_data["address_id"], user=request.user
+        ).first()
+        if not address:
+            raise DomainError(
+                code="address_not_found",
+                detail="No encontramos esa dirección.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        try:
+            options = create_shipping_quote_options(
+                cart=get_or_create_user_cart(user=request.user),
+                user=request.user,
+                address=address,
+                bindings=get_carrier_bindings(),
+            )
+        except ProviderError as exc:
+            raise provider_domain_error(exc) from exc
+        except ValueError as exc:
+            raise DomainError(
+                code="cannot_pack",
+                detail="No pudimos preparar este carrito para envío.",
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            ) from exc
+        payload = {
+            "results": options.quotes,
+            "errors": options.errors,
+            "manual_fallback": options.manual_fallback,
+        }
+        return Response(ShippingQuoteOptionsSerializer(payload).data)
+
+
 class CheckoutView(generics.GenericAPIView):
     permission_classes = (permissions.IsAuthenticated, IsVerifiedEmail)
     serializer_class = CheckoutRequestSerializer
@@ -1387,6 +1454,7 @@ class CheckoutView(generics.GenericAPIView):
             "identity_status": result.order.identity_status,
             "payment_status": result.order.payment_status,
             "checkout_url": result.checkout_url,
+            "shipping_cost_status": result.order.shipping_cost_status,
         }
         return Response(
             payload,
@@ -1435,6 +1503,7 @@ class CheckoutResumeView(generics.GenericAPIView):
                 "identity_status": result.order.identity_status,
                 "payment_status": result.order.payment_status,
                 "checkout_url": result.checkout_url,
+                "shipping_cost_status": result.order.shipping_cost_status,
             },
             status=status.HTTP_201_CREATED,
         )

@@ -638,6 +638,15 @@ def create_pending_identity_order(
         fiscal_snapshot=fiscal_snapshot,
         coupon_code_snapshot=locked_cart.coupon.code if locked_cart.coupon_id else "",
         fulfillment_method=fulfillment_method,
+        shipping_cost_status=(
+            Order.ShippingCostStatus.PENDING_AGREEMENT
+            if shipping_quote is not None and shipping_quote.amount_pending
+            else (
+                Order.ShippingCostStatus.READY
+                if shipping_quote is not None
+                else Order.ShippingCostStatus.NOT_REQUIRED
+            )
+        ),
         shipping_quote=shipping_quote,
         subtotal_snapshot=subtotal,
         discount_snapshot=discount,
