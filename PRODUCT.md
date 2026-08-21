@@ -36,7 +36,8 @@ The store joins a visually rich multi-category catalog with identity-aware check
 
 - Landing, catalog, dynamic facets, cart, customer account, fiscal profile, identity review, address map, shipping quotes, checkout, orders and post-sale administration.
 - Product category trees allow up to five levels; every sellable unit is a variant with a unique SKU.
-- Stock is reserved for 20 minutes while the customer pays.
+- Each variant can use finite stock or infinite stock. Finite stock is reserved for 20 minutes while the customer pays and is consumed only after payment approval; infinite stock is never decremented or restored.
+- Each variant can define an optional maximum quantity per cart. A blank maximum means no commercial limit; finite variants remain bounded by their available stock and all variants retain a high technical safety ceiling.
 - SID RENAPER, GeoRef, Andreani locality data, Correo Argentino and Mercado Pago are isolated behind provider adapters.
 - If SID is unavailable, checkout enters manual identity review without payment or stock reservation.
 - V1 stores and exports fiscal data but does not issue ARCA electronic invoices.
@@ -67,4 +68,3 @@ The store joins a visually rich multi-category catalog with identity-aware check
 ## Accessibility & Inclusion
 
 Target WCAG 2.2 AA, complete keyboard operation, visible focus, reduced-motion support, sufficient contrast and a non-map textual path for address confirmation.
-

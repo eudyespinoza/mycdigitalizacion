@@ -91,6 +91,35 @@ def test_infinite_stock_without_purchase_limit_accepts_any_cart_quantity():
     assert line.quantity == 250
 
 
+def test_cart_rejects_an_operationally_unsafe_quantity(client):
+    variant = make_variant(sku="INFINITE-SAFE-BOUND", on_hand=0)
+    variant.stock_is_infinite = True
+    variant.save(update_fields=("stock_is_infinite",))
+
+    response = client.post(
+        "/api/v1/cart/",
+        {"variant_id": variant.pk, "quantity": 1001},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert not variant.cart_lines.exists()
+
+
+def test_packing_fails_before_expanding_an_unsafe_quantity():
+    from decimal import Decimal
+
+    from commerce.packing import Box, PackItem, pack_items
+
+    result = pack_items(
+        [PackItem("UNBOUNDED", Decimal("1"), Decimal("1"), Decimal("1"), 1, 1001)],
+        [Box("SMALL", Decimal("1"), Decimal("1"), Decimal("1"), 0, 1)],
+    )
+
+    assert result.success is False
+    assert result.reason == "quantity_limit_exceeded"
+
+
 def test_cart_quantity_update_rejects_value_above_effective_limit(client):
     variant = make_variant(sku="PATCH-CAPPED", on_hand=10)
     variant.max_purchase_quantity = 3
@@ -151,6 +180,28 @@ def test_cart_merge_never_exceeds_the_per_cart_purchase_limit(django_user_model)
     merged = merge_carts(anonymous_cart=anonymous, user=user)
 
     assert merged.lines.get().quantity == 3
+
+
+def test_cart_merge_clamps_an_uncapped_variant_to_the_operational_limit(
+    django_user_model,
+):
+    from django.conf import settings
+
+    from commerce.models import Cart, CartLine
+    from commerce.services import merge_carts
+
+    user = django_user_model.objects.create_user(email="safe-merge@example.test")
+    variant = make_variant(sku="MERGE-INFINITE-SAFE", on_hand=0)
+    variant.stock_is_infinite = True
+    variant.save(update_fields=("stock_is_infinite",))
+    destination = Cart.objects.create(user=user)
+    CartLine.objects.create(cart=destination, variant=variant, quantity=600)
+    anonymous = Cart.objects.create()
+    CartLine.objects.create(cart=anonymous, variant=variant, quantity=600)
+
+    merged = merge_carts(anonymous_cart=anonymous, user=user)
+
+    assert merged.lines.get().quantity == settings.MAX_CART_LINE_QUANTITY
 
 
 def test_infinite_stock_reservation_is_consumed_without_changing_on_hand():
@@ -228,6 +279,91 @@ def test_checkout_reports_purchase_limit_changed_after_cart_was_created(
         )
 
     assert error.value.code == "purchase_limit_exceeded"
+
+
+def test_pending_identity_checkout_rejects_stale_stock_before_creating_order(
+    django_user_model,
+):
+    from commerce.checkout import CheckoutError, confirm_checkout
+    from commerce.models import Cart, CartLine, Order
+    from tests.test_checkout_domain import (
+        MustNotBeCalled,
+        UnavailableSID,
+        make_billing_profile,
+        make_customer,
+    )
+
+    user = django_user_model.objects.create_user(
+        email="pending-stale-stock@example.test",
+        email_verified_at=timezone.now(),
+    )
+    make_customer(user)
+    billing_profile = make_billing_profile(user)
+    variant = make_variant(sku="PENDING-STALE-STOCK", on_hand=1)
+    cart = Cart.objects.create(user=user)
+    CartLine.objects.create(cart=cart, variant=variant, quantity=2)
+
+    with pytest.raises(CheckoutError) as error:
+        confirm_checkout(
+            cart=cart,
+            user=user,
+            fulfillment_method="pickup",
+            sid_adapter=UnavailableSID(),
+            payment_adapter=MustNotBeCalled(),
+            billing_profile=billing_profile,
+            consent=True,
+            idempotency_key="a697a6f9-02b2-40eb-bcd1-51fb8f82bc5c",
+        )
+
+    assert error.value.code == "insufficient_stock"
+    assert not Order.objects.exists()
+
+
+def test_product_edit_does_not_restore_stock_from_a_stale_form(django_user_model):
+    from catalog.models import Category
+    from tests.test_backoffice_catalog import management_client
+
+    category = Category.objects.create(name="Seguridad de stock", slug="seguridad-stock")
+    client = management_client(django_user_model)
+    created = client.post(
+        "/api/v1/management/products/",
+        {
+            "name": "Producto concurrente",
+            "slug": "producto-concurrente",
+            "category_id": category.pk,
+            "variants": [{
+                "sku": "STALE-MANAGEMENT-STOCK",
+                "name": "Unidad",
+                "price": "100.00",
+                "cost": "50.00",
+                "on_hand": 5,
+                "packaged_weight_grams": 100,
+                "length_cm": "10.00",
+                "width_cm": "10.00",
+                "height_cm": "2.00",
+            }],
+        },
+        format="json",
+    )
+    variant_id = created.json()["variants"][0]["id"]
+    ProductVariant.objects.filter(pk=variant_id).update(on_hand=4)
+
+    response = client.patch(
+        f"/api/v1/management/products/{created.json()['id']}/",
+        {
+            "variants": [{
+                **created.json()["variants"][0],
+                "on_hand": 5,
+                "stock_is_infinite": True,
+            }],
+        },
+        format="json",
+    )
+
+    assert response.status_code == 200
+    variant = ProductVariant.objects.get(pk=variant_id)
+    assert variant.on_hand == 4
+    assert variant.stock_is_infinite is True
 
 
 def test_refund_does_not_create_stock_for_an_infinite_variant(django_user_model):

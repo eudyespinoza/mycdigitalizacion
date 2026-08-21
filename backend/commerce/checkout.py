@@ -21,6 +21,7 @@ from commerce.services import (
     create_pending_identity_order,
     create_reservation,
     transition_order_status,
+    validate_purchase_quantity,
 )
 from commerce.shipping import quote_is_valid
 from landing.models import SiteSettings
@@ -235,6 +236,13 @@ def confirm_checkout(
             lines = list(locked_cart.lines.select_for_update().select_related("variant__product"))
             if not lines:
                 raise CheckoutError("empty_cart", "El carrito está vacío")
+            for line in lines:
+                if (
+                    not line.variant.stock_is_infinite
+                    and line.quantity > line.variant.available_stock
+                ):
+                    raise InsufficientStock("Insufficient available stock")
+                validate_purchase_quantity(variant=line.variant, quantity=line.quantity)
             effective_quote = _validate_shipping(
                 user=user,
                 cart=locked_cart,

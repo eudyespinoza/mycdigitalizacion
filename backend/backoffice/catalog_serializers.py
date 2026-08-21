@@ -392,19 +392,26 @@ class ManagementProductSerializer(serializers.ModelSerializer):
 
     def _save_variant(self, *, product, values, actor):
         attribute_values = values.pop("attribute_values", None)
-        initial_stock = values.pop("on_hand", 0)
+        initial_stock = values.pop("on_hand", None)
         variant_id = values.pop("id", None)
         if variant_id:
-            variant = product.variants.get(pk=variant_id)
+            variant = ProductVariant.objects.select_for_update().get(
+                product=product,
+                pk=variant_id,
+            )
             active = values.pop("is_active", variant.is_active)
+            changed_fields = []
             for field, value in values.items():
-                setattr(variant, field, value)
-            variant.save()
+                if getattr(variant, field) != value:
+                    setattr(variant, field, value)
+                    changed_fields.append(field)
+            if changed_fields:
+                variant.save(update_fields=changed_fields)
             if active != variant.is_active:
                 variant = set_variant_active(variant=variant, active=active)
         else:
             variant = ProductVariant.objects.create(product=product, on_hand=0, **values)
-        if initial_stock != variant.on_hand:
+        if variant_id is None and initial_stock is not None and initial_stock != variant.on_hand:
             variant = adjust_inventory(
                 variant=variant,
                 new_on_hand=initial_stock,

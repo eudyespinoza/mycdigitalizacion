@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from itertools import permutations
 
+from django.conf import settings
+
 
 @dataclass(frozen=True)
 class Box:
@@ -94,6 +96,8 @@ def _place(state, item):
 def pack_items(items: list[PackItem], boxes: list[Box]) -> PackingResult:
     if not boxes or any(item.quantity < 1 for item in items):
         return PackingResult(False, reason="cannot_pack")
+    if any(item.quantity > settings.MAX_CART_LINE_QUANTITY for item in items):
+        return PackingResult(False, reason="quantity_limit_exceeded")
     units = [
         PackItem(item.sku, item.length_cm, item.width_cm, item.height_cm, item.weight_grams, 1)
         for item in items

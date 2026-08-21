@@ -2,6 +2,7 @@ import uuid
 from dataclasses import dataclass
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Q, Sum
@@ -196,6 +197,10 @@ def purchase_quantity_limit(variant):
 def validate_purchase_quantity(*, variant, quantity):
     if quantity < 1:
         raise ValidationError("Quantity must be positive")
+    if quantity > settings.MAX_CART_LINE_QUANTITY:
+        raise PurchaseLimitExceeded(
+            "La cantidad solicitada supera el límite seguro por variante."
+        )
     limit = purchase_quantity_limit(variant)
     if limit is not None and quantity > limit:
         raise PurchaseLimitExceeded(
@@ -287,9 +292,12 @@ def merge_carts(*, anonymous_cart, user):
                 target_line.quantity if target_line else 0
             )
             limit = purchase_quantity_limit(variant)
-            accepted_quantity = (
-                min(combined_quantity, limit) if limit is not None else combined_quantity
+            accepted_quantity = min(
+                combined_quantity,
+                settings.MAX_CART_LINE_QUANTITY,
             )
+            if limit is not None:
+                accepted_quantity = min(accepted_quantity, limit)
             if target_line and accepted_quantity > 0:
                 target_line.quantity = accepted_quantity
                 target_line.available_stock_snapshot = limit
@@ -319,6 +327,10 @@ class InsufficientStock(ValidationError):
 def create_reservation(*, variant, quantity, reference, expires_at=None):
     if quantity < 1:
         raise ValidationError("Reservation quantity must be positive")
+    if quantity > settings.MAX_CART_LINE_QUANTITY:
+        raise PurchaseLimitExceeded(
+            "La cantidad solicitada supera el límite seguro por variante."
+        )
     locked_variant = ProductVariant.objects.select_for_update().get(pk=variant.pk)
     now = timezone.now()
     effective_expiry = expires_at or now + timezone.timedelta(minutes=20)

@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -17,7 +18,12 @@ from landing.models import SiteSettings
 
 class CartPostRequestSerializer(serializers.Serializer):
     variant_id = serializers.IntegerField(required=False)
-    quantity = serializers.IntegerField(min_value=1, required=False, default=1)
+    quantity = serializers.IntegerField(
+        min_value=1,
+        max_value=settings.MAX_CART_LINE_QUANTITY,
+        required=False,
+        default=1,
+    )
     coupon = serializers.CharField(required=False)
 
     def validate(self, attrs):
@@ -28,7 +34,10 @@ class CartPostRequestSerializer(serializers.Serializer):
 
 class CartPatchRequestSerializer(serializers.Serializer):
     variant_id = serializers.IntegerField()
-    quantity = serializers.IntegerField(min_value=0)
+    quantity = serializers.IntegerField(
+        min_value=0,
+        max_value=settings.MAX_CART_LINE_QUANTITY,
+    )
 
 
 class CartDeleteRequestSerializer(serializers.Serializer):
