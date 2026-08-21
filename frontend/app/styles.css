@@ -661,6 +661,7 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .management-sku-field label { min-width: 0; }
 .management-sku-field .button { min-height: 44px; padding-inline: 14px; white-space: nowrap; }
 .management-check { min-height: 44px; display: flex; align-items: center; gap: 10px; font-weight: 850; }
+.management-field-grid label.management-check { display: flex; align-items: center; gap: 10px; }
 .management-variant-options { display: flex; flex-wrap: wrap; gap: 6px 24px; padding-top: 2px; }
 .management-check input { width: 21px; min-height: 21px; accent-color: var(--blue); }
 .integration-enable-row { display: grid; grid-template-columns: 1fr 240px; align-items: end; gap: 24px; }
