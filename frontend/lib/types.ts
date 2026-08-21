@@ -85,6 +85,11 @@ export type Address = {
   geocode_source: string; geocode_confidence: string | null; geocode_summary: Record<string, unknown>;
   needs_review: boolean; reviewed_at: string | null; created_at: string; updated_at: string;
 };
+export type MapConfiguration = {
+  provider: "openstreetmap" | "google_maps";
+  google_maps_browser_key: string;
+  google_maps_map_id: string;
+};
 export type ShippingQuote = {
   public_id: string; provider: string; provider_label: string; service: string; parcels: unknown[];
   base_amount: string; surcharge_amount: string; total_amount: string; amount_pending: boolean;

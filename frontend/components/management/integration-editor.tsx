@@ -23,6 +23,19 @@ function Field({
       </label>
     );
   }
+  if (field.type === "select") {
+    return (
+      <label>
+        <span>{field.label}</span>
+        <select aria-label={field.label} defaultValue={String(value ?? "")} name={field.key}>
+          {field.options?.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        {field.hint && <small>{field.hint}</small>}
+      </label>
+    );
+  }
   return (
     <label>
       <span>{field.label}</span>
@@ -35,6 +48,7 @@ function Field({
         placeholder={configured ? "Dejá vacío para conservarla" : ""}
         type={field.type ?? "text"}
       />
+      {field.hint && <small>{field.hint}</small>}
     </label>
   );
 }

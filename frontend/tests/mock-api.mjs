@@ -82,6 +82,7 @@ http.createServer(async (request, response) => {
   if (path === "/api/v1/cart") { if (request.method !== "GET" && !validateCsrf(request, response)) return; if (request.method === "POST" && body.variant_id) setCart(body.quantity); if (request.method === "PATCH") setCart(body.quantity); if (request.method === "DELETE") setCart(0); return json(response, request.method === "POST" ? 201 : 200, state.cart); }
   if (path === "/api/v1/identity/status") return json(response, 200, { status: "approved", can_validate: false });
   if (path === "/api/v1/identity/validate") { if (!validateCsrf(request, response)) return; return json(response, 200, { status: "approved", can_validate: false }); }
+  if (path === "/api/v1/locations/map-config") return json(response, 200, { provider: "openstreetmap", google_maps_browser_key: "", google_maps_map_id: "" });
   if (path === "/api/v1/locations/postal-lookup") return json(response, 200, [{ postal_code: "1043", cpa: "C1043", locality: "CABA", province: "CABA" }]);
   if (path === "/api/v1/addresses" && request.method === "GET") return json(response, 200, [state.address]);
   if (path === "/api/v1/addresses" && request.method === "POST") { if (!validateCsrf(request, response)) return; state.address = { ...addressBase, ...body, needs_review: true, reviewed_at: null }; return json(response, 201, state.address); }

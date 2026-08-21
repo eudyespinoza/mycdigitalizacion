@@ -85,10 +85,10 @@ INTEGRATION_DEFINITIONS = {
         ("username", "password"),
     ),
     "geolocation": IntegrationDefinition(
-        "Geolocalización",
-        ("provider", "tile_url", "attribution"),
-        (),
-        ("provider", "tile_url", "attribution"),
+        "Mapas",
+        ("provider", "google_maps_map_id"),
+        ("google_maps_browser_key",),
+        ("provider",),
         (),
     ),
     "backups": IntegrationDefinition(
@@ -118,6 +118,11 @@ def get_configuration_status(configuration, definition, secrets=None):
         for field in definition.required_public
     )
     complete = complete and all(secret_values.get(field) for field in definition.required_secrets)
+    if (
+        definition is INTEGRATION_DEFINITIONS["geolocation"]
+        and configuration.public_config.get("provider") == "google_maps"
+    ):
+        complete = complete and bool(secret_values.get("google_maps_browser_key"))
     if not complete:
         return "incomplete"
     if configuration.last_test_status == "error":

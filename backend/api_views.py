@@ -114,12 +114,14 @@ from landing.serializers import (
     SiteSettingsSerializer,
     StorefrontHomeSerializer,
 )
+from locations.map_config import resolve_map_configuration
 from locations.models import Address
 from locations.providers import GeoRefAdapter
 from locations.serializers import (
     AddressConfirmRequestSerializer,
     AddressSerializer,
     GeocodeRequestSerializer,
+    MapConfigurationSerializer,
     PostalLocalitySerializer,
     PostalLookupQuerySerializer,
     ReverseGeocodeRequestSerializer,
@@ -1117,6 +1119,16 @@ def provider_domain_error(exc):
         detail=messages.get(exc.code, "No pudimos completar la operación."),
         status_code=status_code,
     )
+
+
+class MapConfigurationView(generics.GenericAPIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    serializer_class = MapConfigurationSerializer
+
+    @extend_schema(responses={200: MapConfigurationSerializer, 403: ErrorSerializer})
+    def get(self, request):
+        del request
+        return Response(self.get_serializer(resolve_map_configuration()).data)
 
 
 class PostalLookupView(generics.GenericAPIView):

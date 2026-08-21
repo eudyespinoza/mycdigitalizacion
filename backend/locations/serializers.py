@@ -47,3 +47,9 @@ class AddressConfirmRequestSerializer(serializers.Serializer):
     latitude = serializers.DecimalField(max_digits=10, decimal_places=7)
     longitude = serializers.DecimalField(max_digits=10, decimal_places=7)
     address_choice = serializers.ChoiceField(choices=("written", "reverse"))
+
+
+class MapConfigurationSerializer(serializers.Serializer):
+    provider = serializers.ChoiceField(choices=("openstreetmap", "google_maps"))
+    google_maps_browser_key = serializers.CharField(allow_blank=True)
+    google_maps_map_id = serializers.CharField(allow_blank=True)

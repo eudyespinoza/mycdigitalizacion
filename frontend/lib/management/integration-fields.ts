@@ -4,8 +4,9 @@ import type { IntegrationProvider } from "@/lib/management/types";
 export type IntegrationField = {
   key: string;
   label: string;
-  type?: "text" | "url" | "email" | "number" | "boolean" | "password";
+  type?: "text" | "url" | "email" | "number" | "boolean" | "password" | "select";
   hint?: string;
+  options?: Array<{ value: string; label: string }>;
 };
 
 
@@ -81,13 +82,31 @@ export const integrationFields: Record<
     ],
   },
   geolocation: {
-    description: "Mapa, teselas y normalización de direcciones.",
+    description: "OpenStreetMap funciona por defecto; Google Maps es una alternativa opcional.",
     public: [
-      { key: "provider", label: "Proveedor" },
-      { key: "tile_url", label: "URL de teselas", type: "url" },
-      { key: "attribution", label: "Atribución visible" },
+      {
+        key: "provider",
+        label: "Proveedor del mapa",
+        type: "select",
+        options: [
+          { value: "openstreetmap", label: "OpenStreetMap (recomendado)" },
+          { value: "google_maps", label: "Google Maps" },
+        ],
+      },
+      {
+        key: "google_maps_map_id",
+        label: "ID de mapa de Google (opcional)",
+        hint: "Si lo dejás vacío se usa el mapa estándar de Google.",
+      },
     ],
-    secrets: [],
+    secrets: [
+      {
+        key: "google_maps_browser_key",
+        label: "Clave de navegador de Google Maps",
+        type: "password",
+        hint: "Usá una clave exclusiva para Maps JavaScript API y restringila por dominio.",
+      },
+    ],
   },
   backups: {
     description: "Copias externas cifradas y política de retención.",
