@@ -55,6 +55,8 @@ export type ManagementVariant = {
   cost: string;
   on_hand: number;
   available_stock: number;
+  stock_is_infinite: boolean;
+  max_purchase_quantity: number | null;
   is_active: boolean;
   packaged_weight_grams: number;
   length_cm: string;
@@ -92,6 +94,8 @@ export type ProductEditorPayload = {
     price: string;
     cost: string;
     on_hand: number;
+    stock_is_infinite: boolean;
+    max_purchase_quantity: number | null;
     is_active: boolean;
     packaged_weight_grams: number;
     length_cm: string;

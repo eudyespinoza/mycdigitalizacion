@@ -16,6 +16,7 @@ from commerce.identity_service import validate_identity
 from commerce.models import Cart, PaymentTransaction, ShippingQuote
 from commerce.services import (
     InsufficientStock,
+    PurchaseLimitExceeded,
     calculate_cart_totals,
     create_pending_identity_order,
     create_reservation,
@@ -331,6 +332,9 @@ def confirm_checkout(
                 existing_transaction.checkout_url if existing_transaction else "",
             )
         raise
+    except PurchaseLimitExceeded as exc:
+        type(identity).objects.filter(pk=identity.pk, order__isnull=True).delete()
+        raise CheckoutError("purchase_limit_exceeded", exc.messages[0]) from exc
     except InsufficientStock as exc:
         type(identity).objects.filter(pk=identity.pk, order__isnull=True).delete()
         raise CheckoutError("insufficient_stock", "No hay stock suficiente") from exc
@@ -409,6 +413,8 @@ def resume_checkout(*, order, cart, user, payment_adapter):
                     reference=str(locked_order.public_id),
                     expires_at=expiry,
                 )
+            except PurchaseLimitExceeded as exc:
+                raise CheckoutError("purchase_limit_exceeded", exc.messages[0]) from exc
             except InsufficientStock as exc:
                 raise CheckoutError("insufficient_stock", "No hay stock suficiente") from exc
             locked_order.reservations.add(reservation)

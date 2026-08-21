@@ -19,6 +19,7 @@ const recoveries: Record<string, CheckoutRecovery> = {
   invalid_email: { step: 0, state: "idle", message: "Corregí el email de tu cuenta antes de continuar." },
   cart_owner_mismatch: { step: 0, state: "idle", message: "Volvé a iniciar sesión para asociar el carrito a tu cuenta." },
   insufficient_stock: { step: 3, state: "idle", message: "Cambió el stock del carrito. Revisá las cantidades antes de confirmar." },
+  purchase_limit_exceeded: { step: 3, state: "idle", message: "Una cantidad supera el máximo permitido. Revisá el carrito antes de confirmar." },
   checkout_changed: { step: 3, state: "idle", message: "La compra cambió. Revisá nuevamente los productos, la entrega y el total." },
 };
 const unavailableProviderCodes = new Set(["not_configured", "unavailable", "timeout"]);

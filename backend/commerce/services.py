@@ -4,7 +4,7 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import F, Q, Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 from catalog.models import ProductVariant
@@ -178,12 +178,38 @@ def get_or_create_user_cart(*, user):
         return Cart.objects.get(user=user)
 
 
+class PurchaseLimitExceeded(ValidationError):
+    pass
+
+
+def purchase_quantity_limit(variant):
+    limits = []
+    if not variant.stock_is_infinite:
+        annotated = getattr(variant, "available_stock_value", None)
+        available = variant.available_stock if annotated is None else annotated
+        limits.append(max(available, 0))
+    if variant.max_purchase_quantity is not None:
+        limits.append(variant.max_purchase_quantity)
+    return min(limits) if limits else None
+
+
+def validate_purchase_quantity(*, variant, quantity):
+    if quantity < 1:
+        raise ValidationError("Quantity must be positive")
+    limit = purchase_quantity_limit(variant)
+    if limit is not None and quantity > limit:
+        raise PurchaseLimitExceeded(
+            f"La cantidad máxima disponible para esta variante es {limit}."
+        )
+    return limit
+
+
 @transaction.atomic
 def add_cart_line(*, cart, variant, quantity):
     if quantity < 1:
         raise ValidationError("Quantity must be positive")
     locked_cart = Cart.objects.select_for_update().get(pk=cart.pk)
-    available_variant = ProductVariant.objects.filter(
+    available_variant = ProductVariant.objects.select_for_update().filter(
         pk=variant.pk,
         is_active=True,
         product__is_active=True,
@@ -191,18 +217,49 @@ def add_cart_line(*, cart, variant, quantity):
     ).first()
     if not available_variant:
         raise ValidationError("Variant is unavailable")
-    updated = CartLine.objects.filter(cart=locked_cart, variant=available_variant).update(
-        quantity=F("quantity") + quantity
+    line = CartLine.objects.select_for_update().filter(
+        cart=locked_cart,
+        variant=available_variant,
+    ).first()
+    requested_quantity = quantity + (line.quantity if line else 0)
+    limit = validate_purchase_quantity(
+        variant=available_variant,
+        quantity=requested_quantity,
     )
-    if not updated:
-        CartLine.objects.create(
+    if line:
+        line.quantity = requested_quantity
+        line.available_stock_snapshot = limit
+        line.save(update_fields=("quantity", "available_stock_snapshot"))
+    else:
+        line = CartLine.objects.create(
             cart=locked_cart,
             variant=available_variant,
             quantity=quantity,
             unit_price_snapshot=available_variant.price,
-            available_stock_snapshot=available_variant.available_stock,
+            available_stock_snapshot=limit,
         )
-    return locked_cart.lines.get(variant=available_variant)
+    return line
+
+
+@transaction.atomic
+def set_cart_line_quantity(*, cart, variant_id, quantity):
+    locked_cart = Cart.objects.select_for_update().get(pk=cart.pk)
+    line = (
+        CartLine.objects.select_for_update()
+        .select_related("variant")
+        .filter(cart=locked_cart, variant_id=variant_id)
+        .first()
+    )
+    if not line:
+        raise CartLine.DoesNotExist
+    if quantity < 1:
+        line.delete()
+        return None
+    limit = validate_purchase_quantity(variant=line.variant, quantity=quantity)
+    line.quantity = quantity
+    line.available_stock_snapshot = limit
+    line.save(update_fields=("quantity", "available_stock_snapshot"))
+    return line
 
 
 def merge_carts(*, anonymous_cart, user):
@@ -219,16 +276,33 @@ def merge_carts(*, anonymous_cart, user):
         if not source:
             return target
         for source_line in source.lines.order_by("pk"):
-            updated = CartLine.objects.filter(
-                cart=target, variant_id=source_line.variant_id
-            ).update(quantity=F("quantity") + source_line.quantity)
-            if not updated:
+            variant = ProductVariant.objects.select_for_update().get(
+                pk=source_line.variant_id
+            )
+            target_line = CartLine.objects.select_for_update().filter(
+                cart=target,
+                variant_id=source_line.variant_id,
+            ).first()
+            combined_quantity = source_line.quantity + (
+                target_line.quantity if target_line else 0
+            )
+            limit = purchase_quantity_limit(variant)
+            accepted_quantity = (
+                min(combined_quantity, limit) if limit is not None else combined_quantity
+            )
+            if target_line and accepted_quantity > 0:
+                target_line.quantity = accepted_quantity
+                target_line.available_stock_snapshot = limit
+                target_line.save(update_fields=("quantity", "available_stock_snapshot"))
+            elif target_line:
+                target_line.delete()
+            elif accepted_quantity > 0:
                 CartLine.objects.create(
                     cart=target,
                     variant_id=source_line.variant_id,
-                    quantity=source_line.quantity,
+                    quantity=accepted_quantity,
                     unit_price_snapshot=source_line.unit_price_snapshot,
-                    available_stock_snapshot=source_line.available_stock_snapshot,
+                    available_stock_snapshot=limit,
                 )
         if not target.coupon_id and source.coupon_id:
             target.coupon_id = source.coupon_id
@@ -261,36 +335,48 @@ def create_reservation(*, variant, quantity, reference, expires_at=None):
         reservation.status = StockReservation.Status.RELEASED
         reservation.released_at = now
         reservation._save_lifecycle_transition(update_fields=["status", "released_at"])
-        InventoryMovement.objects.create(
-            variant=locked_variant,
-            reservation=reservation,
-            kind=InventoryMovement.Kind.RELEASE,
-            quantity_delta=0,
-            reference=reservation.reference,
+        if reservation.tracks_inventory:
+            InventoryMovement.objects.create(
+                variant=locked_variant,
+                reservation=reservation,
+                kind=InventoryMovement.Kind.RELEASE,
+                quantity_delta=0,
+                reference=reservation.reference,
+            )
+    if (
+        locked_variant.max_purchase_quantity is not None
+        and quantity > locked_variant.max_purchase_quantity
+    ):
+        raise PurchaseLimitExceeded(
+            f"La cantidad máxima permitida por compra es "
+            f"{locked_variant.max_purchase_quantity}."
         )
     reserved = (
         StockReservation.objects.filter(
             variant=locked_variant,
             status=StockReservation.Status.ACTIVE,
+            tracks_inventory=True,
             expires_at__gt=now,
         ).aggregate(total=Sum("quantity"))["total"]
         or 0
     )
-    if locked_variant.on_hand - reserved < quantity:
+    if not locked_variant.stock_is_infinite and locked_variant.on_hand - reserved < quantity:
         raise InsufficientStock("Insufficient available stock")
     reservation = StockReservation.objects.create(
         variant=locked_variant,
         quantity=quantity,
         reference=reference,
         expires_at=effective_expiry,
+        tracks_inventory=not locked_variant.stock_is_infinite,
     )
-    InventoryMovement.objects.create(
-        variant=locked_variant,
-        reservation=reservation,
-        kind=InventoryMovement.Kind.RESERVATION,
-        quantity_delta=0,
-        reference=reference,
-    )
+    if reservation.tracks_inventory:
+        InventoryMovement.objects.create(
+            variant=locked_variant,
+            reservation=reservation,
+            kind=InventoryMovement.Kind.RESERVATION,
+            quantity_delta=0,
+            reference=reference,
+        )
     return reservation
 
 
@@ -309,26 +395,29 @@ def consume_reservation(reservation):
         locked.status = StockReservation.Status.RELEASED
         locked.released_at = timezone.now()
         locked._save_lifecycle_transition(update_fields=["status", "released_at"])
-        InventoryMovement.objects.create(
-            variant=variant,
-            reservation=locked,
-            kind=InventoryMovement.Kind.RELEASE,
-            quantity_delta=0,
-            reference=locked.reference,
-        )
+        if locked.tracks_inventory:
+            InventoryMovement.objects.create(
+                variant=variant,
+                reservation=locked,
+                kind=InventoryMovement.Kind.RELEASE,
+                quantity_delta=0,
+                reference=locked.reference,
+            )
         return locked
-    variant.on_hand -= locked.quantity
-    variant.save(update_fields=["on_hand"])
+    if locked.tracks_inventory:
+        variant.on_hand -= locked.quantity
+        variant.save(update_fields=["on_hand"])
     locked.status = StockReservation.Status.CONSUMED
     locked.consumed_at = timezone.now()
     locked._save_lifecycle_transition(update_fields=["status", "consumed_at"])
-    InventoryMovement.objects.create(
-        variant=variant,
-        reservation=locked,
-        kind=InventoryMovement.Kind.SALE,
-        quantity_delta=-locked.quantity,
-        reference=locked.reference,
-    )
+    if locked.tracks_inventory:
+        InventoryMovement.objects.create(
+            variant=variant,
+            reservation=locked,
+            kind=InventoryMovement.Kind.SALE,
+            quantity_delta=-locked.quantity,
+            reference=locked.reference,
+        )
     return locked
 
 
@@ -344,13 +433,14 @@ def release_reservation(reservation):
     locked.status = StockReservation.Status.RELEASED
     locked.released_at = timezone.now()
     locked._save_lifecycle_transition(update_fields=["status", "released_at"])
-    InventoryMovement.objects.create(
-        variant=variant,
-        reservation=locked,
-        kind=InventoryMovement.Kind.RELEASE,
-        quantity_delta=0,
-        reference=locked.reference,
-    )
+    if locked.tracks_inventory:
+        InventoryMovement.objects.create(
+            variant=variant,
+            reservation=locked,
+            kind=InventoryMovement.Kind.RELEASE,
+            quantity_delta=0,
+            reference=locked.reference,
+        )
     return locked
 
 

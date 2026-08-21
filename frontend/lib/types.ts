@@ -33,12 +33,13 @@ export type ProductMedia = {
 export type VariantAttribute = { name: string; slug: string; type: "text" | "integer" | "decimal" | "boolean" | "option"; value: string | number | boolean };
 export type ProductVariant = {
   id: number; sku: string; name: string; price: string; available_stock: number;
+  is_available: boolean; stock_is_infinite: boolean; purchase_limit: number | null;
   attributes: VariantAttribute[]; pricing: { list_price: string; effective_price: string; discount_amount: string; discount_percentage: string; on_offer: boolean };
   packaged_weight_grams: number; length_cm: string; width_cm: string; height_cm: string; volume_cm3: string;
 };
 export type Product = {
   id: number; name: string; slug: string; description: string; category: Category;
-  brand: { name: string; slug: string } | null; available_stock: number; effective_price: string | null; on_offer: boolean;
+  brand: { name: string; slug: string } | null; available_stock: number; is_available: boolean; effective_price: string | null; on_offer: boolean;
   variants: ProductVariant[]; media: ProductMedia[];
 };
 export type FacetCategory = { name: string; slug: string; count: number; children: FacetCategory[] };
@@ -56,8 +57,9 @@ export type CatalogResponse = {
 };
 
 export type CartLine = {
-  id: number; variant_id: number; sku: string; name?: string; quantity: number; unit_price: string;
+  id: number; variant_id: number; sku: string; product_name: string; variant_name: string; quantity: number; unit_price: string;
   line_subtotal: string; line_discount: string; line_total: string; availability: "available" | "insufficient_stock" | "unavailable"; available_stock: number;
+  stock_is_infinite: boolean; purchase_limit: number | null;
   notices: Array<{ code: "price_changed" | "stock_changed"; previous: string | number; current: string | number }>;
 };
 export type Cart = {

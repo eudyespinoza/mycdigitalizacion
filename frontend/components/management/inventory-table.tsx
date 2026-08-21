@@ -36,10 +36,10 @@ export function InventoryTable({
               <tr key={variant.id}>
                 <td><strong>{variant.sku}</strong></td>
                 <td>{variant.name || "Predeterminada"}</td>
-                <td>{variant.on_hand}</td>
-                <td>{Math.max(variant.on_hand - variant.available_stock, 0)}</td>
-                <td>{variant.available_stock}</td>
-                <td><button className="text-button" onClick={() => setSelected(variant)} type="button" aria-label={`Ajustar stock de ${variant.sku}`}>Ajustar</button></td>
+                <td>{variant.stock_is_infinite ? "—" : variant.on_hand}</td>
+                <td>{variant.stock_is_infinite ? "—" : Math.max(variant.on_hand - variant.available_stock, 0)}</td>
+                <td>{variant.stock_is_infinite ? "Ilimitado" : variant.available_stock}</td>
+                <td>{!variant.stock_is_infinite && <button className="text-button" onClick={() => setSelected(variant)} type="button" aria-label={`Ajustar stock de ${variant.sku}`}>Ajustar</button>}</td>
               </tr>
             ))}
           </tbody>

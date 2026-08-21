@@ -27,7 +27,7 @@ export function ProductPurchase({
   const [busy, setBusy] = useState(false);
   const variantId = selectedVariantId ?? internalVariantId;
   const variant = variants.find((item) => item.id === variantId);
-  const available = (variant?.available_stock ?? 0) > 0;
+  const available = variant?.is_available ?? false;
 
   const add = async () => {
     if (!variant || !available) return;
@@ -57,12 +57,16 @@ export function ProductPurchase({
         const nextId = Number(event.target.value);
         setInternalVariantId(nextId);
         onVariantChange?.(nextId);
+        setQuantity(1);
         setError("");
       }}>
-        {variants.map((item) => <option value={item.id} key={item.id} disabled={item.available_stock <= 0}>{item.name || "Única opción"}{item.available_stock <= 0 ? " · sin stock" : ""}</option>)}
+        {variants.map((item) => <option value={item.id} key={item.id} disabled={!item.is_available}>{item.name || "Única opción"}{!item.is_available ? " · sin stock" : ""}</option>)}
       </select>
       <label htmlFor="quantity">Cantidad</label>
-      <input id="quantity" type="number" min={1} max={variant.available_stock} value={quantity} onChange={(event) => setQuantity(Math.max(1, Number(event.target.value)))} />
+      <input id="quantity" type="number" min={1} max={variant.purchase_limit ?? undefined} value={quantity} onChange={(event) => {
+        const requested = Math.max(1, Number(event.target.value));
+        setQuantity(variant.purchase_limit === null ? requested : Math.min(requested, variant.purchase_limit));
+      }} />
       <button className="button primary wide" type="button" disabled={busy || !available} onClick={() => void add()}>{busy ? "Agregando…" : available ? "Agregar al carrito" : "Sin stock"}</button>
       {error && <p className="inline-error" role="alert">{error}</p>}
       {message && <p className="success-message" role="status">{message}</p>}

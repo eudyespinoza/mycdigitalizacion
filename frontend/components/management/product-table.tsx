@@ -33,6 +33,7 @@ export function ManagementProductTable({ products }: { products: ManagementProdu
               (sum, row) => sum + row.available_stock,
               0,
             );
+            const hasInfiniteStock = product.variants.some((row) => row.stock_is_infinite);
             return (
               <tr key={product.id}>
                 <td>
@@ -42,7 +43,7 @@ export function ManagementProductTable({ products }: { products: ManagementProdu
                 <td>{variant?.sku ?? "Sin variante"}</td>
                 <td>{variant ? formatMoney(variant.price) : "—"}</td>
                 <td>{variant ? formatMoney(variant.cost) : "—"}</td>
-                <td>{available} disponibles</td>
+                <td>{hasInfiniteStock ? "Stock ilimitado" : `${available} disponibles`}</td>
                 <td>
                   <span className={`management-pill ${product.is_sellable ? "is-live" : "is-draft"}`}>
                     {product.is_sellable ? "Publicado" : "Borrador"}

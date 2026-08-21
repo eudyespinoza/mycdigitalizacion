@@ -297,6 +297,12 @@ class ProductVariant(models.Model):
     )
     is_active = models.BooleanField(default=True)
     on_hand = models.PositiveIntegerField(default=0)
+    stock_is_infinite = models.BooleanField(default=False, db_default=False)
+    max_purchase_quantity = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1)],
+    )
     objects = ProductVariantQuerySet.as_manager()
 
     class Meta:
@@ -309,6 +315,11 @@ class ProductVariant(models.Model):
             models.CheckConstraint(condition=Q(length_cm__gt=0), name="variant_length_positive"),
             models.CheckConstraint(condition=Q(width_cm__gt=0), name="variant_width_positive"),
             models.CheckConstraint(condition=Q(height_cm__gt=0), name="variant_height_positive"),
+            models.CheckConstraint(
+                condition=Q(max_purchase_quantity__isnull=True)
+                | Q(max_purchase_quantity__gt=0),
+                name="cat_variant_purchase_cap_pos",
+            ),
         ]
         indexes = [
             models.Index(
@@ -353,7 +364,9 @@ class ProductVariant(models.Model):
     def available_stock(self):
         reserved = (
             self.stock_reservations.filter(
-                status="active", expires_at__gt=timezone.now()
+                status="active",
+                tracks_inventory=True,
+                expires_at__gt=timezone.now(),
             ).aggregate(total=Sum("quantity"))["total"]
             or 0
         )

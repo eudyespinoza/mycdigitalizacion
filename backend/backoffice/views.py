@@ -59,7 +59,9 @@ class ManagementDashboardView(APIView):
                 "metrics": {
                     "active_products": Product.objects.filter(is_active=True).count(),
                     "low_stock_variants": ProductVariant.objects.filter(
-                        is_active=True, on_hand__lte=5
+                        is_active=True,
+                        stock_is_infinite=False,
+                        on_hand__lte=5,
                     ).count(),
                     "orders_requiring_attention": Order.objects.filter(
                         attention_filter

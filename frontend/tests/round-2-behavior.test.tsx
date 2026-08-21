@@ -8,7 +8,7 @@ import type { CatalogResponse, Product, ScheduledContent } from "@/lib/types";
 const product = (id: number): Product => ({
   id, name: `Producto ${id}`, slug: `producto-${id}`, description: "",
   category: { id: 1, name: "Papelería", slug: "papeleria", parent_id: null },
-  brand: null, available_stock: 1, effective_price: "100.00", on_offer: false,
+  brand: null, available_stock: 1, is_available: true, effective_price: "100.00", on_offer: false,
   variants: [], media: [],
 });
 const facets: CatalogResponse["facets"] = { categories: [], brands: [], price: { min: null, max: null }, availability: { in_stock: 0, out_of_stock: 0 }, offer: { on_offer: 0, regular: 0 }, attributes: [] };

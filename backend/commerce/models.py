@@ -173,6 +173,7 @@ class StockReservation(models.Model):
     )
     quantity = models.PositiveIntegerField()
     reference = models.CharField(max_length=160)
+    tracks_inventory = models.BooleanField(default=True, db_default=True, editable=False)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE)
     expires_at = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)

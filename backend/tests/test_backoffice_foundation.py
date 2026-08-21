@@ -66,6 +66,19 @@ def test_management_dashboard_reports_real_operational_counts(django_user_model)
         width_cm="15.00",
         height_cm="1.00",
     )
+    ProductVariant.objects.create(
+        product=product,
+        sku="CUA-INFINITO",
+        name="A pedido",
+        price="1200.00",
+        cost="700.00",
+        on_hand=0,
+        stock_is_infinite=True,
+        packaged_weight_grams=200,
+        length_cm="21.00",
+        width_cm="15.00",
+        height_cm="1.00",
+    )
     Order.objects.create(
         user=staff,
         identity_status="manual_review",

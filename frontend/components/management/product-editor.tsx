@@ -42,6 +42,8 @@ type VariantDraft = {
   price: string;
   cost: string;
   on_hand: string;
+  stock_is_infinite: boolean;
+  max_purchase_quantity: string;
   is_active: boolean;
   packaged_weight_grams: string;
   length_cm: string;
@@ -59,6 +61,8 @@ function draftFromVariant(variant?: ManagementVariant, key = "new-1"): VariantDr
     price: variant?.price ?? "",
     cost: variant?.cost ?? "",
     on_hand: String(variant?.on_hand ?? 0),
+    stock_is_infinite: variant?.stock_is_infinite ?? false,
+    max_purchase_quantity: variant?.max_purchase_quantity === null || variant?.max_purchase_quantity === undefined ? "" : String(variant.max_purchase_quantity),
     is_active: variant?.is_active ?? true,
     packaged_weight_grams: String(variant?.packaged_weight_grams ?? 1),
     length_cm: variant?.length_cm ?? "1",
@@ -83,6 +87,7 @@ const VARIANT_FIELD_LABELS: Record<string, string> = {
   price: "Precio",
   cost: "Costo",
   on_hand: "Stock físico",
+  max_purchase_quantity: "Cantidad máxima por compra",
   packaged_weight_grams: "Peso embalado",
   length_cm: "Largo",
   width_cm: "Ancho",
@@ -187,6 +192,8 @@ export function ManagementProductEditor({
         price: variant.price,
         cost: variant.cost,
         on_hand: Number(variant.on_hand),
+        stock_is_infinite: variant.stock_is_infinite,
+        max_purchase_quantity: variant.max_purchase_quantity === "" ? null : Number(variant.max_purchase_quantity),
         is_active: variant.is_active,
         packaged_weight_grams: Number(variant.packaged_weight_grams),
         length_cm: variant.length_cm,
@@ -258,7 +265,8 @@ export function ManagementProductEditor({
                 <label><span>Nombre de la variante</span><input aria-label={accessibleLabel("Nombre de la variante", index)} name={`variants.${index}.name`} onChange={(event) => updateVariant(index, "name", event.target.value)} placeholder="Ej.: Azul, A4 o Pack x6" value={variant.name} /></label>
                 <label><span>Precio</span><input aria-label={accessibleLabel("Precio", index)} min="0" name={`variants.${index}.price`} onChange={(event) => updateVariant(index, "price", event.target.value)} required step="0.01" type="number" value={variant.price} /></label>
                 <label><span>Costo</span><input aria-label={accessibleLabel("Costo", index)} min="0" name={`variants.${index}.cost`} onChange={(event) => updateVariant(index, "cost", event.target.value)} required step="0.01" type="number" value={variant.cost} /></label>
-                <label><span>Stock físico</span><input aria-label={accessibleLabel("Stock físico", index)} min="0" name={`variants.${index}.on_hand`} onChange={(event) => updateVariant(index, "on_hand", event.target.value)} type="number" value={variant.on_hand} /></label>
+                <label><span>Stock físico</span><input aria-label={accessibleLabel("Stock físico", index)} disabled={variant.stock_is_infinite} min="0" name={`variants.${index}.on_hand`} onChange={(event) => updateVariant(index, "on_hand", event.target.value)} type="number" value={variant.on_hand} /></label>
+                <label><span>Cantidad máxima por compra</span><input aria-label={accessibleLabel("Cantidad máxima por compra", index)} min="1" name={`variants.${index}.max_purchase_quantity`} onChange={(event) => updateVariant(index, "max_purchase_quantity", event.target.value)} placeholder="Sin límite" type="number" value={variant.max_purchase_quantity} /></label>
                 <label><span>Peso embalado (gramos)</span><input aria-label={accessibleLabel("Peso embalado (gramos)", index)} min="1" name={`variants.${index}.packaged_weight_grams`} onChange={(event) => updateVariant(index, "packaged_weight_grams", event.target.value)} type="number" value={variant.packaged_weight_grams} /></label>
                 <label><span>Largo (cm)</span><input aria-label={accessibleLabel("Largo (cm)", index)} min="0.01" name={`variants.${index}.length_cm`} onChange={(event) => updateVariant(index, "length_cm", event.target.value)} step="0.01" type="number" value={variant.length_cm} /></label>
                 <label><span>Ancho (cm)</span><input aria-label={accessibleLabel("Ancho (cm)", index)} min="0.01" name={`variants.${index}.width_cm`} onChange={(event) => updateVariant(index, "width_cm", event.target.value)} step="0.01" type="number" value={variant.width_cm} /></label>
@@ -280,6 +288,8 @@ export function ManagementProductEditor({
                     )}
                   </label>
                 ))}
+                <label className="management-check field-wide"><input checked={variant.stock_is_infinite} onChange={(event) => updateVariant(index, "stock_is_infinite", event.target.checked)} type="checkbox" /><span>Stock infinito</span></label>
+                {variant.stock_is_infinite && <p className="field-wide management-field-help">Esta variante no descuenta unidades al concretar una venta.</p>}
                 <label className="management-check field-wide"><input checked={variant.is_active} onChange={(event) => updateVariant(index, "is_active", event.target.checked)} type="checkbox" /><span>Variante activa</span></label>
               </div>
               {!variant.id && variants.length > 1 && <button className="button text" onClick={() => setVariants((rows) => rows.filter((_, rowIndex) => rowIndex !== index))} type="button">Quitar variante</button>}

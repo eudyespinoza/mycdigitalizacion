@@ -19,11 +19,12 @@ const product: Product = {
   category: { id: 1, name: "Mochilas", slug: "mochilas", parent_id: null },
   brand: null,
   available_stock: 4,
+  is_available: true,
   effective_price: "35000.00",
   on_offer: false,
   variants: [
-    { id: 11, sku: "MOC-AZ", name: "Azul", price: "35000.00", available_stock: 2, attributes: [], pricing: { list_price: "35000.00", effective_price: "35000.00", discount_amount: "0.00", discount_percentage: "0.00", on_offer: false }, packaged_weight_grams: 800, length_cm: "45.00", width_cm: "30.00", height_cm: "18.00", volume_cm3: "24300.000000" },
-    { id: 12, sku: "MOC-RO", name: "Rosa", price: "35000.00", available_stock: 2, attributes: [], pricing: { list_price: "35000.00", effective_price: "35000.00", discount_amount: "0.00", discount_percentage: "0.00", on_offer: false }, packaged_weight_grams: 800, length_cm: "45.00", width_cm: "30.00", height_cm: "18.00", volume_cm3: "24300.000000" },
+    { id: 11, sku: "MOC-AZ", name: "Azul", price: "35000.00", available_stock: 2, is_available: true, stock_is_infinite: false, purchase_limit: 2, attributes: [], pricing: { list_price: "35000.00", effective_price: "35000.00", discount_amount: "0.00", discount_percentage: "0.00", on_offer: false }, packaged_weight_grams: 800, length_cm: "45.00", width_cm: "30.00", height_cm: "18.00", volume_cm3: "24300.000000" },
+    { id: 12, sku: "MOC-RO", name: "Rosa", price: "35000.00", available_stock: 2, is_available: true, stock_is_infinite: false, purchase_limit: 2, attributes: [], pricing: { list_price: "35000.00", effective_price: "35000.00", discount_amount: "0.00", discount_percentage: "0.00", on_offer: false }, packaged_weight_grams: 800, length_cm: "45.00", width_cm: "30.00", height_cm: "18.00", volume_cm3: "24300.000000" },
   ],
   media: [
     { file: "/media/catalog/general.png", alt_text: "Vista general", order: 0, variant_id: null, variant_name: "" },

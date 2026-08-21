@@ -28,6 +28,8 @@ const product: ManagementProduct = {
     cost: "2600.00",
     on_hand: 12,
     available_stock: 10,
+    stock_is_infinite: false,
+    max_purchase_quantity: null,
     is_active: true,
     packaged_weight_grams: 330,
     length_cm: "21.00",
@@ -66,6 +68,33 @@ describe("gestión de catálogo e inventario", () => {
       expect.objectContaining({
         name: "Cuaderno A5",
         variants: [expect.objectContaining({ sku: "CUA-A5", cost: "2600" })],
+      }),
+    ));
+  });
+
+  test("configura stock infinito y un máximo opcional por carrito", async () => {
+    const onSave = vi.fn().mockResolvedValue(product);
+    render(
+      <ManagementProductEditor
+        brands={[product.brand!]}
+        categories={[product.category]}
+        initial={product}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Stock infinito"));
+    fireEvent.change(screen.getByLabelText("Cantidad máxima por compra"), {
+      target: { value: "12" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar producto" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variants: [expect.objectContaining({
+          stock_is_infinite: true,
+          max_purchase_quantity: 12,
+        })],
       }),
     ));
   });
@@ -235,6 +264,26 @@ describe("gestión de catálogo e inventario", () => {
     fireEvent.change(screen.getByLabelText("Motivo"), { target: { value: "Ingreso de mercadería" } });
     fireEvent.click(screen.getByRole("button", { name: "Confirmar ajuste" }));
     await waitFor(() => expect(onAdjust).toHaveBeenCalledWith(21, 18, "Ingreso de mercadería"));
+  });
+
+  test("identifica el stock infinito sin ofrecer un ajuste físico", () => {
+    render(<InventoryTable
+      onAdjust={vi.fn()}
+      variants={[{ ...product.variants[0], stock_is_infinite: true, available_stock: 0 }]}
+    />);
+
+    expect(screen.getByText("Ilimitado")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Ajustar stock de CUA-A5" })).not.toBeInTheDocument();
+  });
+
+  test("resume un producto con stock infinito sin mostrar cero disponibles", () => {
+    render(<ManagementProductTable products={[{
+      ...product,
+      variants: [{ ...product.variants[0], stock_is_infinite: true, available_stock: 0 }],
+    }]} />);
+
+    expect(screen.getByText("Stock ilimitado")).toBeVisible();
+    expect(screen.queryByText("0 disponibles")).not.toBeInTheDocument();
   });
 
   test("sube y elimina imágenes del producto desde la misma edición", async () => {

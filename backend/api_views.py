@@ -83,7 +83,14 @@ from commerce.serializers import (
     ShippingQuoteRequestSerializer,
     ShippingQuoteSerializer,
 )
-from commerce.services import add_cart_line, apply_coupon, get_or_create_user_cart, merge_carts
+from commerce.services import (
+    PurchaseLimitExceeded,
+    add_cart_line,
+    apply_coupon,
+    get_or_create_user_cart,
+    merge_carts,
+    set_cart_line_quantity,
+)
 from commerce.shipping import ShipmentError, create_order_shipment, create_shipping_quote
 from landing.models import (
     HeroSlide,
@@ -721,6 +728,12 @@ class CartView(generics.GenericAPIView):
                 ) from exc
             try:
                 add_cart_line(cart=cart, variant=variant, quantity=data["quantity"])
+            except PurchaseLimitExceeded as exc:
+                raise DomainError(
+                    code="purchase_limit_exceeded",
+                    detail=exc.messages[0],
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                ) from exc
             except DjangoValidationError as exc:
                 raise DomainError(
                     code="cart_update_rejected",
@@ -743,19 +756,23 @@ class CartView(generics.GenericAPIView):
         data = request_serializer.validated_data
         cart = self._cart(request)
         try:
-            line = cart.lines.get(variant_id=data["variant_id"])
+            set_cart_line_quantity(
+                cart=cart,
+                variant_id=data["variant_id"],
+                quantity=data["quantity"],
+            )
         except CartLine.DoesNotExist as exc:
             raise DomainError(
                 code="cart_line_not_found",
                 detail="Cart line not found",
                 status_code=status.HTTP_404_NOT_FOUND,
             ) from exc
-        quantity = data["quantity"]
-        if quantity < 1:
-            line.delete()
-        else:
-            line.quantity = quantity
-            line.save(update_fields=["quantity"])
+        except PurchaseLimitExceeded as exc:
+            raise DomainError(
+                code="purchase_limit_exceeded",
+                detail=exc.messages[0],
+                status_code=status.HTTP_400_BAD_REQUEST,
+            ) from exc
         return Response(CartSerializer(cart).data)
 
     @extend_schema(

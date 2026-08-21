@@ -196,6 +196,11 @@ describe("Fix Round 1 contracts", () => {
     expect(checkoutRecoveryFor("invalid_email")).toMatchObject({ step: 0, state: "idle" });
     expect(checkoutRecoveryFor("cart_owner_mismatch")).toMatchObject({ step: 0, state: "idle" });
     expect(checkoutRecoveryFor("insufficient_stock")).toMatchObject({ step: 3, state: "idle" });
+    expect(checkoutRecoveryFor("purchase_limit_exceeded")).toMatchObject({
+      step: 3,
+      state: "idle",
+      message: expect.stringMatching(/cantidad/i),
+    });
     expect(checkoutRecoveryFor("checkout_changed")).toMatchObject({ step: 3, state: "idle" });
     for (const code of ["not_configured", "unavailable", "timeout"]) {
       expect(checkoutRecoveryFor(code, 2)).toMatchObject({ step: 2, state: "provider_down" });

@@ -376,7 +376,10 @@ def refund_order(*, order, adapter, idempotency_key):
             for reservation in order.reservations.select_related("variant"):
                 if reservation.status == StockReservation.Status.ACTIVE:
                     release_reservation(reservation)
-                elif reservation.status == StockReservation.Status.CONSUMED:
+                elif (
+                    reservation.status == StockReservation.Status.CONSUMED
+                    and reservation.tracks_inventory
+                ):
                     variant = ProductVariant.objects.select_for_update().get(
                         pk=reservation.variant_id
                     )

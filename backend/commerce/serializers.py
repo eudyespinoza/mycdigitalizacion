@@ -11,7 +11,7 @@ from commerce.models import (
     PaymentTransaction,
     ShippingQuote,
 )
-from commerce.services import money, price_cart_lines
+from commerce.services import money, price_cart_lines, purchase_quantity_limit
 from landing.models import SiteSettings
 
 
@@ -45,6 +45,8 @@ class CartLineSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     variant_id = serializers.IntegerField()
     sku = serializers.CharField()
+    product_name = serializers.CharField()
+    variant_name = serializers.CharField(allow_blank=True)
     quantity = serializers.IntegerField()
     unit_price = serializers.DecimalField(max_digits=12, decimal_places=2)
     line_subtotal = serializers.DecimalField(max_digits=12, decimal_places=2)
@@ -54,6 +56,8 @@ class CartLineSerializer(serializers.Serializer):
         choices=("available", "insufficient_stock", "unavailable")
     )
     available_stock = serializers.IntegerField()
+    stock_is_infinite = serializers.BooleanField()
+    purchase_limit = serializers.IntegerField(allow_null=True)
     notices = CartLineNoticeSerializer(many=True)
 
 
@@ -80,6 +84,7 @@ class CartSerializer(serializers.Serializer):
             line = priced.cart_line
             variant = line.variant
             stock = variant.available_stock
+            purchase_limit = purchase_quantity_limit(variant)
             available = (
                 variant.is_active
                 and variant.product.is_active
@@ -89,7 +94,7 @@ class CartSerializer(serializers.Serializer):
                 "unavailable"
                 if not available
                 else "insufficient_stock"
-                if stock < line.quantity
+                if purchase_limit is not None and purchase_limit < line.quantity
                 else "available"
             )
             notices = []
@@ -106,13 +111,13 @@ class CartSerializer(serializers.Serializer):
                 )
             if (
                 line.available_stock_snapshot is not None
-                and line.available_stock_snapshot != stock
+                and line.available_stock_snapshot != purchase_limit
             ):
                 notices.append(
                     {
                         "code": "stock_changed",
                         "previous": line.available_stock_snapshot,
-                        "current": stock,
+                        "current": purchase_limit,
                     }
                 )
             payload.append(
@@ -120,6 +125,8 @@ class CartSerializer(serializers.Serializer):
                     "id": line.pk,
                     "variant_id": line.variant_id,
                     "sku": variant.sku,
+                    "product_name": variant.product.name,
+                    "variant_name": variant.name,
                     "quantity": line.quantity,
                     "unit_price": f"{variant.price:.2f}",
                     "line_subtotal": f"{priced.subtotal:.2f}",
@@ -127,6 +134,8 @@ class CartSerializer(serializers.Serializer):
                     "line_total": f"{priced.total:.2f}",
                     "availability": availability,
                     "available_stock": stock,
+                    "stock_is_infinite": variant.stock_is_infinite,
+                    "purchase_limit": purchase_limit,
                     "notices": notices,
                 }
             )

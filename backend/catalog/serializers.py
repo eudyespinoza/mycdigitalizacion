@@ -4,7 +4,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from catalog.models import Brand, Category, Product, ProductMedia, ProductVariant
-from commerce.services import best_automatic_discount, money
+from commerce.services import best_automatic_discount, money, purchase_quantity_limit
 from config.api_serializers import ResponsiveMediaSourceSerializer
 from config.media import public_derivative_sources
 
@@ -96,8 +96,10 @@ def variant_available_stock(variant):
 class PublicVariantSerializer(serializers.ModelSerializer):
     volume_cm3 = serializers.DecimalField(max_digits=27, decimal_places=6, read_only=True)
     available_stock = serializers.SerializerMethodField()
+    is_available = serializers.SerializerMethodField()
     attributes = serializers.SerializerMethodField()
     pricing = serializers.SerializerMethodField()
+    purchase_limit = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductVariant
@@ -107,6 +109,9 @@ class PublicVariantSerializer(serializers.ModelSerializer):
             "name",
             "price",
             "available_stock",
+            "is_available",
+            "stock_is_infinite",
+            "purchase_limit",
             "packaged_weight_grams",
             "length_cm",
             "width_cm",
@@ -136,6 +141,14 @@ class PublicVariantSerializer(serializers.ModelSerializer):
     def get_available_stock(self, variant):
         return variant_available_stock(variant)
 
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_available(self, variant):
+        return variant.stock_is_infinite or variant_available_stock(variant) > 0
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_purchase_limit(self, variant):
+        return purchase_quantity_limit(variant)
+
     @extend_schema_field(PublicPricingSerializer)
     def get_pricing(self, variant):
         pricing = variant_pricing(variant)
@@ -154,6 +167,7 @@ class ProductSerializer(serializers.ModelSerializer):
     variants = serializers.SerializerMethodField()
     media = ProductMediaSerializer(many=True, read_only=True)
     available_stock = serializers.SerializerMethodField()
+    is_available = serializers.SerializerMethodField()
     effective_price = serializers.SerializerMethodField()
     on_offer = serializers.SerializerMethodField()
 
@@ -167,6 +181,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "category",
             "brand",
             "available_stock",
+            "is_available",
             "effective_price",
             "on_offer",
             "variants",
@@ -185,6 +200,13 @@ class ProductSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.IntegerField())
     def get_available_stock(self, product):
         return sum(max(variant_available_stock(variant), 0) for variant in self._variants(product))
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_available(self, product):
+        return any(
+            variant.stock_is_infinite or variant_available_stock(variant) > 0
+            for variant in self._variants(product)
+        )
 
     @extend_schema_field(serializers.DecimalField(max_digits=12, decimal_places=2, allow_null=True))
     def get_effective_price(self, product):

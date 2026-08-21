@@ -70,6 +70,7 @@ def _reserved_quantity_subquery(*, checked_at):
         StockReservation.objects.filter(
             variant_id=OuterRef("pk"),
             status=StockReservation.Status.ACTIVE,
+            tracks_inventory=True,
             expires_at__gt=checked_at,
         )
         .values("variant_id")
@@ -177,7 +178,9 @@ def catalog_candidate_queryset(*, params, attribute_filters):
         queryset = queryset.filter(brand__slug__in=slugs)
 
     availability = params.get("availability")
-    available_variants = active_variants.filter(available_stock_value__gt=0)
+    available_variants = active_variants.filter(
+        Q(stock_is_infinite=True) | Q(available_stock_value__gt=0)
+    )
     if availability == "in_stock":
         queryset = queryset.filter(Exists(available_variants))
     elif availability == "out_of_stock":
@@ -254,15 +257,16 @@ def _variant_snapshot(variant):
     return {
         "variant": variant,
         "available_stock": variant_available_stock(variant),
+        "is_available": variant.stock_is_infinite or variant_available_stock(variant) > 0,
         "pricing": pricing,
         "attributes": attributes,
     }
 
 
 def _variant_matches(snapshot, params, attribute_filters):
-    if params.get("availability") == "in_stock" and snapshot["available_stock"] <= 0:
+    if params.get("availability") == "in_stock" and not snapshot["is_available"]:
         return False
-    if params.get("availability") == "out_of_stock" and snapshot["available_stock"] > 0:
+    if params.get("availability") == "out_of_stock" and snapshot["is_available"]:
         return False
     if (
         params.get("offer") is not None
@@ -461,7 +465,7 @@ def build_facets(products, snapshots):
             }
         )
     in_stock = sum(
-        any(item["available_stock"] > 0 for item in snapshots[product.pk])
+        any(item["is_available"] for item in snapshots[product.pk])
         for product in products
     )
     on_offer = sum(
