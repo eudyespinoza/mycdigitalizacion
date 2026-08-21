@@ -111,6 +111,33 @@ test("mobile catalog sheet traps focus and server URL state produces removable c
   await expect(page.getByRole("button", { name: /Marca: sur/ })).toBeVisible();
 });
 
+test("desktop catalog filters update in place and keep keyboard context", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "1024", "A desktop interaction probe is sufficient for this navigation boundary.");
+  await page.goto("/catalogo");
+  await page.locator(".site-header").evaluate((node) => {
+    (window as Window & { catalogHeader?: Element }).catalogHeader = node;
+  });
+  const brand = page.getByLabel(/Sur \(1\)/);
+
+  await brand.click();
+
+  await expect(page).toHaveURL(/brand=sur/);
+  await expect(page.getByRole("button", { name: /Marca: sur/ })).toBeVisible();
+  await expect(brand).toBeFocused();
+  expect(await page.evaluate(() => (
+    (window as Window & { catalogHeader?: Element }).catalogHeader
+    === document.querySelector(".site-header")
+  ))).toBe(true);
+
+  await page.evaluate(() => window.history.back());
+  await expect(page).toHaveURL(/\/catalogo$/);
+  await expect(page.getByRole("button", { name: /Marca: sur/ })).toHaveCount(0);
+  expect(await page.evaluate(() => (
+    (window as Window & { catalogHeader?: Element }).catalogHeader
+    === document.querySelector(".site-header")
+  ))).toBe(true);
+});
+
 test("CMS failure is distinct from empty content and leaves catalog recovery available", async ({ page, request }) => {
   await control(request, { cmsError: true });
   await page.goto("/");

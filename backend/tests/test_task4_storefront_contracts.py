@@ -529,6 +529,45 @@ def test_catalog_contract_filters_descendants_offers_stock_brand_and_typed_attri
 
 
 @pytest.mark.django_db
+def test_catalog_without_offer_filter_keeps_promoted_and_regular_products(client):
+    from commerce.models import PromotionRule
+
+    promoted = make_variant(sku="OFFER-VISIBLE", price="100.00", on_hand=4)
+    regular = make_variant(sku="REGULAR-VISIBLE", price="80.00", on_hand=4)
+    now = timezone.now()
+    promotion = PromotionRule.objects.create(
+        name="Oferta visible",
+        discount_type="percentage",
+        value=Decimal("20"),
+        starts_at=now - timezone.timedelta(hours=1),
+        ends_at=now + timezone.timedelta(hours=1),
+    )
+    promotion.products.add(promoted.product)
+
+    unfiltered = client.get("/api/v1/products/?page_size=100")
+    only_promoted = client.get("/api/v1/products/?offer=true&page_size=100")
+    only_regular = client.get("/api/v1/products/?offer=false&page_size=100")
+
+    assert unfiltered.status_code == 200
+    assert {item["slug"] for item in unfiltered.json()["results"]} == {
+        promoted.product.slug,
+        regular.product.slug,
+    }
+    promoted_result = next(
+        item
+        for item in unfiltered.json()["results"]
+        if item["slug"] == promoted.product.slug
+    )
+    assert promoted_result["variants"][0]["pricing"]["on_offer"] is True
+    assert [item["slug"] for item in only_promoted.json()["results"]] == [
+        promoted.product.slug
+    ]
+    assert [item["slug"] for item in only_regular.json()["results"]] == [
+        regular.product.slug
+    ]
+
+
+@pytest.mark.django_db
 def test_search_uses_same_documented_envelope_and_search_alias(client):
     make_variant(sku="SEARCH-ALIAS")
 

@@ -30,3 +30,32 @@ export function buildCatalogQuery(state: CatalogState) {
   rows.forEach(([key, value]) => params.set(key, value));
   return params.toString();
 }
+
+export function parseCatalogQuery(params: URLSearchParams): CatalogState {
+  const numberValue = (name: string) => {
+    const raw = params.get(name);
+    if (!raw) return undefined;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : undefined;
+  };
+  const attributes = Object.fromEntries(
+    [...params.entries()]
+      .filter(([key]) => key.startsWith("attribute_"))
+      .map(([key, value]) => [key.slice(10), value.split(",").filter(Boolean)]),
+  );
+  const brand = params.get("brand");
+  const ordering = params.get("ordering") as CatalogState["sort"] | null;
+
+  return {
+    q: params.get("q") || undefined,
+    category: params.get("category") || undefined,
+    brands: brand ? brand.split(",").filter(Boolean) : undefined,
+    minPrice: numberValue("min_price"),
+    maxPrice: numberValue("max_price"),
+    inStock: params.get("availability") === "in_stock" || undefined,
+    onOffer: params.get("offer") === "true" || undefined,
+    attributes,
+    sort: ordering || "relevance",
+    page: numberValue("page") || 1,
+  };
+}

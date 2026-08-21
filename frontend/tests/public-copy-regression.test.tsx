@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { CatalogBrowser } from "@/components/catalog/catalog-browser";
@@ -52,6 +52,31 @@ describe("public storefront copy regression", () => {
 
     rerender(<CatalogBrowser response={response(2)} categories={[]} initial={{}} />);
     expect(screen.getByText("productos encontrados").closest("p")).toHaveTextContent("2 productos encontrados");
+  });
+
+  test("catalog filters refresh results without navigating or remounting the page", async () => {
+    window.history.replaceState({}, "", "/catalogo");
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({
+      count: 2,
+      next: null,
+      previous: null,
+      results: [],
+      facets,
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    render(<CatalogBrowser response={{ count: 1, next: null, previous: null, results: [], facets }} categories={[]} initial={{}} />);
+
+    const ordering = screen.getByLabelText("Ordenar");
+    ordering.focus();
+    fireEvent.change(ordering, { target: { value: "price_asc" } });
+
+    await waitFor(() => expect(screen.getByText("productos encontrados").closest("p")).toHaveTextContent("2 productos encontrados"));
+    expect(push).not.toHaveBeenCalled();
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/v1/products/?ordering=price_asc",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(ordering).toHaveFocus();
+    expect(window.location.pathname + window.location.search).toBe("/catalogo?ordering=price_asc");
   });
 
   test("checkout, header and footer explain benefits without implementation jargon", () => {

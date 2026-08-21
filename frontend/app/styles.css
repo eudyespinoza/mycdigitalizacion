@@ -210,6 +210,9 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .catalog-toolbar p { margin-right: auto; }
 .catalog-toolbar label { margin: 0; }
 .catalog-toolbar select { width: 180px; }
+.catalog-results { position: relative; transition: opacity 160ms var(--ease-out); }
+.catalog-results.is-updating { opacity: .62; }
+.catalog-update-status { position: absolute; z-index: 2; top: 62px; right: 0; margin: 0; border-radius: 999px; padding: 8px 12px; background: var(--ink); color: white; font-size: .86rem; font-weight: 800; box-shadow: var(--shadow-card); }
 .pagination { display: flex; align-items: center; justify-content: center; gap: 18px; margin-top: 38px; }
 .pagination button { min-height: 44px; border: 1px solid var(--blue); border-radius: 999px; padding: 8px 18px; background: white; color: var(--blue); }
 .empty-state { padding: 44px; border-radius: 16px; background: var(--surface-cold); text-align: center; }

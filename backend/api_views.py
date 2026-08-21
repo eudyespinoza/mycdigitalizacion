@@ -184,7 +184,10 @@ class ProductListView(generics.GenericAPIView):
         responses={200: CatalogResponseSerializer},
     )
     def get(self, request):
-        query_serializer = CatalogQuerySerializer(data=request.query_params)
+        # A QueryDict makes DRF's BooleanField treat an omitted value like an
+        # unchecked HTML checkbox. Catalog filters are query parameters, so an
+        # omitted `offer` must remain absent instead of silently becoming false.
+        query_serializer = CatalogQuerySerializer(data=request.query_params.dict())
         query_serializer.is_valid(raise_exception=True)
         attribute_filters = {
             key.removeprefix("attribute_"): value
