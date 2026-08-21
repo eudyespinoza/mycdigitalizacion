@@ -1,7 +1,8 @@
 from django.conf import settings
 from django.db import DatabaseError, connection
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.views.csrf import csrf_failure as django_csrf_failure
+from django.views.static import serve as serve_static
 from redis import Redis
 from redis.exceptions import RedisError
 
@@ -9,6 +10,13 @@ from redis.exceptions import RedisError
 def healthz(_: object) -> JsonResponse:
     """Expose process availability without disclosing operational details."""
     return JsonResponse({"status": "ok"})
+
+
+def development_media(request, path: str):
+    """Serve uploaded files only for the local Django development server."""
+    if not settings.DEBUG:
+        raise Http404
+    return serve_static(request, path, document_root=settings.MEDIA_ROOT)
 
 
 def database_is_ready():

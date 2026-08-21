@@ -1,7 +1,7 @@
-from django.urls import include, path
+from django.urls import include, path, re_path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
-from config.views import healthz, readyz
+from config.views import development_media, healthz, readyz
 
 urlpatterns = [
     path("healthz", healthz, name="healthz"),
@@ -13,4 +13,5 @@ urlpatterns = [
         SpectacularSwaggerView.as_view(url_name="schema"),
         name="schema-docs",
     ),
+    re_path(r"^media/(?P<path>.*)$", development_media, name="development-media"),
 ]
