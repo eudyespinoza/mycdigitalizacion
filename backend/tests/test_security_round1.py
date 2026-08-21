@@ -67,6 +67,39 @@ def test_local_apps_using_default_cookie_names_cannot_replace_the_store_session(
 
 
 @pytest.mark.django_db
+def test_management_write_returns_a_named_csrf_failure_after_login_rotation(
+    django_user_model,
+):
+    user = django_user_model.objects.create_user(
+        email="rotated-management-csrf@example.test",
+        password="Correct-Horse-Battery-Staple-42",
+        email_verified_at=timezone.now(),
+        is_staff=True,
+    )
+    browser = Client(enforce_csrf_checks=True)
+    pre_login_token = browser.get("/api/v1/auth/csrf/").json()["csrf_token"]
+    login_response = browser.post(
+        "/api/v1/auth/login/",
+        {"email": user.email, "password": "Correct-Horse-Battery-Staple-42"},
+        HTTP_X_CSRFTOKEN=pre_login_token,
+    )
+
+    assert login_response.status_code == 200
+    rejected = browser.patch(
+        "/api/v1/management/products/999999/",
+        data="{}",
+        content_type="application/json",
+        HTTP_X_CSRFTOKEN=pre_login_token,
+    )
+
+    assert rejected.status_code == 403
+    assert rejected.json() == {
+        "code": "csrf_failed",
+        "detail": "La sesión de seguridad venció. Actualizá la página e intentá nuevamente.",
+    }
+
+
+@pytest.mark.django_db
 def test_valid_login_ignores_a_stale_anonymous_cart_token():
     user = get_user_model().objects.create_user(
         email="stale-cart-login@example.test",
