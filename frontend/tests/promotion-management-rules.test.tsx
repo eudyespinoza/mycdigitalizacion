@@ -68,13 +68,12 @@ describe("reglas de promociones en gestión", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Editar Oferta cuadernos" }));
-    const editForm = screen.getByRole("heading", { name: "Editar oferta automática" }).closest("form");
-    expect(editForm).not.toBeNull();
-    expect(within(editForm!).getByLabelText("Nombre interno")).toHaveValue("Oferta cuadernos");
-    expect(within(editForm!).getByRole("checkbox", { name: /Cuaderno A5/ })).toBeChecked();
-    expect(within(editForm!).getByRole("checkbox", { name: "Cuadernos" })).toBeChecked();
-    fireEvent.change(within(editForm!).getByLabelText("Valor"), { target: { value: "18" } });
-    fireEvent.click(within(editForm!).getByRole("button", { name: "Guardar cambios de oferta" }));
+    const editDialog = screen.getByRole("dialog", { name: "Editar oferta automática" });
+    expect(within(editDialog).getByLabelText("Nombre interno")).toHaveValue("Oferta cuadernos");
+    expect(within(editDialog).getByRole("checkbox", { name: /Cuaderno A5/ })).toBeChecked();
+    expect(within(editDialog).getByRole("checkbox", { name: "Cuadernos" })).toBeChecked();
+    fireEvent.change(within(editDialog).getByLabelText("Valor"), { target: { value: "18" } });
+    fireEvent.click(within(editDialog).getByRole("button", { name: "Guardar cambios de oferta" }));
 
     await waitFor(() => expect(screen.getByText(/18\.00%/)).toBeVisible());
     expect(screen.queryByRole("heading", { name: "Editar oferta automática" })).not.toBeInTheDocument();
@@ -104,7 +103,6 @@ describe("reglas de promociones en gestión", () => {
 
   test("elimina ofertas y cupones después de confirmar", async () => {
     managementRequest.mockResolvedValue(undefined);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     render(
       <PromotionManagementPanel
         coupons={[coupon]}
@@ -113,8 +111,10 @@ describe("reglas de promociones en gestión", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Eliminar Oferta cuadernos" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Eliminar oferta" })).getByRole("button", { name: "Eliminar" }));
     await waitFor(() => expect(screen.queryByText("Oferta cuadernos")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Eliminar UNO10" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Eliminar cupón" })).getByRole("button", { name: "Eliminar" }));
 
     await waitFor(() => expect(screen.queryByText("UNO10")).not.toBeInTheDocument());
     expect(screen.getByText("No hay ofertas automáticas.")).toBeVisible();

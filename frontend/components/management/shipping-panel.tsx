@@ -6,5 +6,5 @@ import { ShippingBoxPanel } from "@/components/management/shipping-box-panel";
 
 
 export function ManagementShippingPanel({ boxes }: { boxes: ShippingBox[] }) {
-  return <ShippingBoxPanel boxes={boxes} onCreate={async (payload) => { await managementRequest("/shipping/boxes/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); }} />;
+  return <ShippingBoxPanel boxes={boxes} onCreate={(payload) => managementRequest<ShippingBox>("/shipping/boxes/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })} />;
 }

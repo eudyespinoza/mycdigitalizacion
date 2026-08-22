@@ -73,7 +73,11 @@ test("operational layouts reflow before the sidebar squeezes their fields", asyn
   await page.goto("/gestion/promociones");
   const columns = await page.locator(".promotion-management-grid").evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(" ").length);
   if (["768", "1024"].includes(testInfo.project.name)) expect(columns).toBe(1);
-  const checkboxAlignment = await page.locator(".promotion-management-grid .management-check").evaluateAll((labels) => labels.map((label) => {
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("button", { name: "Nueva oferta" }).click();
+  const offerDialog = page.getByRole("dialog", { name: "Nueva oferta automática" });
+  await expect(offerDialog).toBeVisible();
+  const checkboxAlignment = await offerDialog.locator(".management-check").evaluateAll((labels) => labels.map((label) => {
     const input = label.querySelector("input")?.getBoundingClientRect();
     const copy = label.querySelector("span")?.getBoundingClientRect();
     return input && copy ? {

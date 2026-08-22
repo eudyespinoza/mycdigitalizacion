@@ -18,6 +18,7 @@ type PromotionEditorProps = {
   onCancel?: () => void;
   productOptions?: PromotionScopeOption[];
   categoryOptions?: PromotionScopeOption[];
+  showHeading?: boolean;
 };
 
 function localDateTime(value: Date | string) {
@@ -89,6 +90,7 @@ export function PromotionEditor({
   onCancel,
   productOptions = [],
   categoryOptions = [],
+  showHeading = true,
 }: PromotionEditorProps) {
   const [feedback, setFeedback] = useState("");
   const [saving, setSaving] = useState(false);
@@ -142,11 +144,11 @@ export function PromotionEditor({
   return (
     <form className="management-form" onSubmit={(event) => void submit(event)}>
       <section className="management-form-section">
-        <h2>
+        {showHeading ? <h2>
           {editing
             ? kind === "coupon" ? "Editar cupón" : "Editar oferta automática"
             : kind === "coupon" ? "Nuevo cupón" : "Nueva oferta automática"}
-        </h2>
+        </h2> : null}
         <div className="management-field-grid">
           {kind === "coupon" ? (
             <label><span>Código</span><input defaultValue={initialValue && "code" in initialValue ? initialValue.code : ""} name="code" required /></label>
@@ -189,7 +191,7 @@ export function PromotionEditor({
               ? `Guardar cambios ${kind === "coupon" ? "del cupón" : "de oferta"}`
               : `Guardar ${kind === "coupon" ? "cupón" : "oferta"}`}
         </button>
-        {editing && onCancel ? <button className="button secondary" onClick={onCancel} type="button">Cancelar</button> : null}
+        {onCancel ? <button className="button secondary" onClick={onCancel} type="button">Cancelar</button> : null}
       </div>
     </form>
   );

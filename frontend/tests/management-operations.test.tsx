@@ -59,6 +59,8 @@ describe("gestión operativa", () => {
   test("carga embalajes con todas sus medidas", async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined);
     render(<ShippingBoxPanel boxes={[]} onCreate={onCreate} />);
+    expect(screen.queryByLabelText("Código")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Agregar embalaje" }));
     fireEvent.change(screen.getByLabelText("Código"), { target: { value: "CAJA-M" } });
     fireEvent.change(screen.getByLabelText("Largo interior (cm)"), { target: { value: "30" } });
     fireEvent.change(screen.getByLabelText("Ancho interior (cm)"), { target: { value: "20" } });
