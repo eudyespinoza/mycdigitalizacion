@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  devIndicators: false,
   output: "standalone",
   skipTrailingSlashRedirect: true,
   allowedDevOrigins: ["127.0.0.1"],
