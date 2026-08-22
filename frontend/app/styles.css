@@ -50,6 +50,8 @@ p { line-height: 1.6; }
 .button.primary:hover { background: var(--magenta-dark); }
 .button.secondary { border-color: var(--blue); background: var(--surface-elevated); color: var(--blue); }
 .button.secondary:hover { background: var(--surface-cyan); }
+.button.destructive { background: var(--danger); color: white; box-shadow: 0 9px 22px color-mix(in srgb, var(--danger) 24%, transparent); }
+.button.destructive:hover { background: color-mix(in srgb, var(--danger) 86%, var(--ink)); }
 .button.wide { width: 100%; }
 .button:disabled, button:disabled { cursor: not-allowed; opacity: 0.48; }
 .icon-button { min-width: 44px; min-height: 44px; display: inline-grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; background: var(--surface-elevated); cursor: pointer; transition: transform 160ms var(--ease-out), background-color 180ms var(--ease-out); }
@@ -264,6 +266,16 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .drawer-total { display: flex; justify-content: space-between; margin: 28px 0 18px; font-size: 1.3rem; }
 .drawer-total strong { font-variant-numeric: tabular-nums; }
 .cart-drawer-actions { display: grid; gap: 10px; }
+.confirmation-layer { position: fixed; z-index: 160; inset: 0; display: grid; place-items: center; padding: 20px; background: color-mix(in srgb, var(--ink) 62%, transparent); backdrop-filter: blur(3px); animation: confirmation-backdrop-in 160ms var(--ease-out) both; }
+.confirmation-dialog { width: min(100%, 440px); padding: 28px; border-radius: 16px; background: var(--surface-elevated); box-shadow: 0 24px 70px color-mix(in srgb, var(--ink) 35%, transparent); animation: confirmation-dialog-in 200ms var(--ease-out) both; }
+.confirmation-symbol { width: 48px; height: 48px; display: grid; place-items: center; margin-bottom: 18px; border-radius: 50%; background: color-mix(in srgb, var(--danger) 11%, var(--surface-elevated)); color: var(--danger); }
+.confirmation-dialog h2 { font-size: 1.65rem; line-height: 1.15; }
+.confirmation-dialog > p:not(.inline-error) { margin: 10px 0 0; color: var(--muted); }
+.confirmation-dialog .inline-error { margin: 16px 0 0; }
+.confirmation-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 24px; }
+.confirmation-actions .button { width: 100%; }
+@keyframes confirmation-backdrop-in { from { opacity: 0; } }
+@keyframes confirmation-dialog-in { from { opacity: 0; transform: translateY(10px) scale(.98); } }
 .loading-note { color: var(--muted); }
 .cart-page-grid { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 52px; }
 .cart-page-grid h1 { font-size: clamp(2.6rem, 5vw, 4.6rem); }

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
 import { CartDrawer } from "@/components/cart/cart-drawer";
@@ -85,11 +85,11 @@ describe("reglas públicas de stock y cantidad", () => {
   });
 
   test.each([
-    ["carrito lateral", <CartDrawer />],
-    ["página del carrito", <CartPage />],
-  ])("permite vaciar todo el %s después de confirmarlo", async (_surface, component) => {
+    ["el carrito lateral", <CartDrawer />],
+    ["la página del carrito", <CartPage />],
+  ])("confirma el vaciado en %s con un diálogo propio", async (_surface, component) => {
     const clear = vi.fn().mockResolvedValue(undefined);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const nativeConfirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     cartState.current = {
       open: true,
       loading: false,
@@ -130,8 +130,19 @@ describe("reglas públicas de stock y cantidad", () => {
     render(component);
     fireEvent.click(screen.getByRole("button", { name: "Vaciar carrito" }));
 
-    expect(confirm).toHaveBeenCalledWith("¿Querés vaciar todo el carrito?");
+    const dialog = screen.getByRole("dialog", { name: "¿Vaciar todo el carrito?" });
+    expect(dialog).toBeVisible();
+    expect(within(dialog).getByText(/Se quitarán todos los productos y el cupón aplicado/)).toBeVisible();
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    expect(clear).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "¿Vaciar todo el carrito?" })).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Vaciar carrito" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "¿Vaciar todo el carrito?" })).getByRole("button", { name: "Vaciar carrito" }));
     await waitFor(() => expect(clear).toHaveBeenCalledOnce());
-    confirm.mockRestore();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "¿Vaciar todo el carrito?" })).not.toBeInTheDocument());
+    nativeConfirm.mockRestore();
   });
 });
