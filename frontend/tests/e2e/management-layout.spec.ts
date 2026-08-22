@@ -107,6 +107,37 @@ test("operational layouts reflow before the sidebar squeezes their fields", asyn
 });
 
 
+test("the management menu scrolls independently on short laptop screens", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1366, height: 600 });
+  await page.goto("/gestion", { waitUntil: "domcontentloaded" });
+
+  const metrics = await page.evaluate(() => {
+    const sidebar = document.querySelector<HTMLElement>(".management-sidebar");
+    const nav = document.querySelector<HTMLElement>(".management-nav");
+    const user = document.querySelector<HTMLElement>(".management-user");
+    const navStyle = nav ? getComputedStyle(nav) : null;
+    return {
+      navClientHeight: nav?.clientHeight ?? 0,
+      navScrollHeight: nav?.scrollHeight ?? 0,
+      navOverflow: navStyle?.overflowY ?? "",
+      sidebarBottom: sidebar?.getBoundingClientRect().bottom ?? 0,
+      userBottom: user?.getBoundingClientRect().bottom ?? 0,
+    };
+  });
+
+  expect(["auto", "scroll"]).toContain(metrics.navOverflow);
+  expect(metrics.navScrollHeight).toBeGreaterThan(metrics.navClientHeight);
+  expect(metrics.sidebarBottom).toBeLessThanOrEqual(600);
+  expect(metrics.userBottom).toBeLessThanOrEqual(600);
+
+  const settings = page.getByRole("link", { name: "Configuración" });
+  await settings.scrollIntoViewIfNeeded();
+  await expect(settings).toBeVisible();
+  await expect(page.getByText("visual-admin@example.test")).toBeVisible();
+});
+
+
 test("Mercado Pago se conecta desde un único botón", async ({ page }) => {
   await page.route("https://auth.mercadopago.com/**", async (route) => {
     await route.fulfill({
