@@ -54,6 +54,10 @@ http://:9080 {
 	}
 }
 
+{$SITE_WWW_ADDRESS} {
+	redir https://{$SITE_ADDRESS}{uri} permanent
+}
+
 {$SITE_ADDRESS} {
 	encode zstd gzip
 	request_body {

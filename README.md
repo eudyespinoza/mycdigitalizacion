@@ -16,7 +16,7 @@ Monorepo for the Argentine B2C physical-goods storefront and operations API. The
 3. In another terminal, prepare the local database: `docker compose exec backend python manage.py migrate`.
 4. Open `http://localhost`; API process health is available at `http://localhost/healthz`, and storefront health at `http://localhost/health`.
 
-The Docker topology includes Next.js, Django, a Celery worker, PostgreSQL, Redis and Caddy. Development Caddy is deliberately HTTP-only at `http://localhost`; production Caddy is HTTPS-enabled and requires a non-local `SITE_ADDRESS`. Set `CADDY_HTTP_PORT` if port 80 is occupied. The browser API base is same-origin `/api`.
+The Docker topology includes Next.js, Django, a Celery worker, PostgreSQL, Redis and Caddy. Development Caddy is deliberately HTTP-only at `http://localhost`; production Caddy is HTTPS-enabled and requires a canonical `SITE_ADDRESS` plus a `SITE_WWW_ADDRESS` that redirects to it. Set `CADDY_HTTP_PORT` if port 80 is occupied. The browser API base is same-origin `/api`.
 
 For production-like containers, set `APP_ENV=production`, a non-placeholder Django secret/database password, a public `SITE_ADDRESS`, and matching `DJANGO_ALLOWED_HOSTS`; then use `docker compose -f compose.prod.yaml run --rm backend python manage.py migrate`, followed by `docker compose -f compose.prod.yaml up --build -d`. Production startup rejects missing or known development placeholders.
 

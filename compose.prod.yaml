@@ -11,6 +11,7 @@ x-app-environment: &app-environment
   RELEASE_ID: ${RELEASE_ID:-REPLACE_ME_RELEASE_ID}
   DJANGO_DEBUG: "false"
   SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env.production}
+  SITE_WWW_ADDRESS: ${SITE_WWW_ADDRESS:?set SITE_WWW_ADDRESS in .env.production}
   DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?set DJANGO_ALLOWED_HOSTS in .env.production}
   DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in .env.production}
   PERSONAL_DATA_ENCRYPTION_KEY: ${PERSONAL_DATA_ENCRYPTION_KEY:?set PERSONAL_DATA_ENCRYPTION_KEY in .env.production}
@@ -329,6 +330,7 @@ services:
     ports: ["${CADDY_HTTP_PORT:-80}:8080", "${CADDY_HTTPS_PORT:-443}:8443"]
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env.production}
+      SITE_WWW_ADDRESS: ${SITE_WWW_ADDRESS:?set SITE_WWW_ADDRESS in .env.production}
       ACME_EMAIL: ${ACME_EMAIL:-REPLACE_ME_ACME_EMAIL}
       ADMIN_ALLOWED_CIDRS: ${ADMIN_ALLOWED_CIDRS:-REPLACE_ME_ADMIN_CIDRS}
     volumes: [caddy_data:/data, caddy_config:/config, media_data:/srv/media:ro, static_data:/srv/static:ro]

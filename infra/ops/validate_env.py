@@ -13,6 +13,7 @@ PLACEHOLDER = re.compile(r"change.?me|replace.?me|placeholder|unsafe|development
 CORE_REQUIRED = {
     "APP_ENV": 10,
     "SITE_ADDRESS": 4,
+    "SITE_WWW_ADDRESS": 4,
     "ACME_EMAIL": 6,
     "ADMIN_ALLOWED_CIDRS": 3,
     "DJANGO_ALLOWED_HOSTS": 4,
@@ -59,10 +60,17 @@ def validate() -> list[str]:
     if values["RELEASE_ID"].lower().startswith("replace_me") or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{6,79}", values["RELEASE_ID"]):
         errors.append("RELEASE_ID must be an immutable deploy identifier")
     site = values["SITE_ADDRESS"]
-    if "://" in site or site.startswith("localhost") or "." not in site:
-        errors.append("SITE_ADDRESS must be a real hostname without scheme")
-    if site and site not in {host.strip() for host in values["DJANGO_ALLOWED_HOSTS"].split(",")}:
+    www_site = values["SITE_WWW_ADDRESS"]
+    for name, hostname in (("SITE_ADDRESS", site), ("SITE_WWW_ADDRESS", www_site)):
+        if "://" in hostname or hostname.startswith("localhost") or "." not in hostname:
+            errors.append(f"{name} must be a real hostname without scheme")
+    allowed_hosts = {host.strip() for host in values["DJANGO_ALLOWED_HOSTS"].split(",")}
+    if site and site not in allowed_hosts:
         errors.append("DJANGO_ALLOWED_HOSTS must include SITE_ADDRESS")
+    if www_site and www_site not in allowed_hosts:
+        errors.append("DJANGO_ALLOWED_HOSTS must include SITE_WWW_ADDRESS")
+    if site and www_site and site == www_site:
+        errors.append("SITE_WWW_ADDRESS must differ from SITE_ADDRESS")
     if "@" not in values["ACME_EMAIL"] or values["ACME_EMAIL"].endswith("@"):
         errors.append("ACME_EMAIL must be a valid operational email")
     try:

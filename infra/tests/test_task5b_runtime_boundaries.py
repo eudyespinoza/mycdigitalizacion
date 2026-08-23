@@ -94,7 +94,9 @@ class RuntimeBoundaryTests(unittest.TestCase):
             "run", "-d", "--name", self.names["caddy"],
             "--network", self.names["network"], "--read-only",
             "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m", "-p", "127.0.0.1::8080",
-            "-e", "SITE_ADDRESS=http://:8080", "-e", "ACME_EMAIL=ops@mycdigitalizacion.com.ar",
+            "-e", "SITE_ADDRESS=http://:8080",
+            "-e", "SITE_WWW_ADDRESS=http://www.localhost:8080",
+            "-e", "ACME_EMAIL=ops@mycdigitalizacion.com.ar",
             "-e", "ADMIN_ALLOWED_CIDRS=203.0.113.10/32",
             "-e", "BACKEND_UPSTREAM=backend:8000", "-e", "FRONTEND_UPSTREAM=frontend:3000",
             "-v", f"{self.names['media']}:/srv/media:ro",
@@ -188,9 +190,12 @@ class RuntimeBoundaryTests(unittest.TestCase):
             environment = {
                 "APP_ENV": "production",
                 "SITE_ADDRESS": "tienda.mycdigitalizacion.com.ar",
+                "SITE_WWW_ADDRESS": "www.tienda.mycdigitalizacion.com.ar",
                 "ACME_EMAIL": "ops@mycdigitalizacion.com.ar",
                 "ADMIN_ALLOWED_CIDRS": "203.0.113.10/32",
-                "DJANGO_ALLOWED_HOSTS": "tienda.mycdigitalizacion.com.ar",
+                "DJANGO_ALLOWED_HOSTS": (
+                    "tienda.mycdigitalizacion.com.ar,www.tienda.mycdigitalizacion.com.ar"
+                ),
                 "DJANGO_SECRET_KEY": "prod-signing-key-8f3db7c4f19a4e58a051",
                 "PERSONAL_DATA_ENCRYPTION_KEY": "prod-personal-data-key-32-bytes-minimum",
                 "POSTGRES_DB": "storefront",

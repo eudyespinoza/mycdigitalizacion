@@ -37,9 +37,12 @@ def valid_environment() -> dict[str, str]:
     return {
         "APP_ENV": "production",
         "SITE_ADDRESS": "tienda.mycdigitalizacion.com.ar",
+        "SITE_WWW_ADDRESS": "www.tienda.mycdigitalizacion.com.ar",
         "ACME_EMAIL": "ops@mycdigitalizacion.com.ar",
         "ADMIN_ALLOWED_CIDRS": "203.0.113.10/32",
-        "DJANGO_ALLOWED_HOSTS": "tienda.mycdigitalizacion.com.ar",
+        "DJANGO_ALLOWED_HOSTS": (
+            "tienda.mycdigitalizacion.com.ar,www.tienda.mycdigitalizacion.com.ar"
+        ),
         "DJANGO_SECRET_KEY": "prod-signing-key-8f3db7c4f19a4e58a051",
         "PERSONAL_DATA_ENCRYPTION_KEY": "prod-personal-data-key-32-bytes-minimum",
         "POSTGRES_DB": "storefront",
@@ -89,6 +92,32 @@ class ProductionContractTests(unittest.TestCase):
         self.assertIn("DJANGO_SECRET_KEY", rejected.stderr)
         accepted = run_script("validate_env.py", env=valid_environment())
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+    def test_production_requires_a_distinct_www_host_allowed_by_django_and_caddy(self) -> None:
+        missing = run_script(
+            "validate_env.py",
+            env={**valid_environment(), "SITE_WWW_ADDRESS": ""},
+        )
+        not_allowed = run_script(
+            "validate_env.py",
+            env={**valid_environment(), "DJANGO_ALLOWED_HOSTS": "tienda.mycdigitalizacion.com.ar"},
+        )
+        duplicate = run_script(
+            "validate_env.py",
+            env={
+                **valid_environment(),
+                "SITE_WWW_ADDRESS": "tienda.mycdigitalizacion.com.ar",
+            },
+        )
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("SITE_WWW_ADDRESS", missing.stderr)
+        self.assertNotEqual(not_allowed.returncode, 0)
+        self.assertIn("DJANGO_ALLOWED_HOSTS", not_allowed.stderr)
+        self.assertNotEqual(duplicate.returncode, 0)
+        self.assertIn("SITE_WWW_ADDRESS", duplicate.stderr)
+
+        compose = rendered_production_compose()
+        self.assertIn("SITE_WWW_ADDRESS", compose["services"]["caddy"]["environment"])
 
     def test_production_environment_rejects_a_public_admin_allow_all(self) -> None:
         result = run_script("validate_env.py", env={**valid_environment(), "ADMIN_ALLOWED_CIDRS": "0.0.0.0/0"})

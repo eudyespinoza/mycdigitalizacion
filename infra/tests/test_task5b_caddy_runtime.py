@@ -77,6 +77,7 @@ HTTPServer(('0.0.0.0', 8000), Handler).serve_forever()
                 "docker", "run", "-d", "--name", self.caddy, "--network", self.network,
                 "-p", "127.0.0.1::8080",
                 "-e", "SITE_ADDRESS=http://:8080",
+                "-e", "SITE_WWW_ADDRESS=http://www.localhost:8080",
                 "-e", "ACME_EMAIL=ops@mycdigitalizacion.com.ar",
                 "-e", f"ADMIN_ALLOWED_CIDRS={allowed_cidrs}",
                 "-e", f"BACKEND_UPSTREAM={backend_upstream}",
@@ -102,6 +103,50 @@ HTTPServer(('0.0.0.0', 8000), Handler).serve_forever()
                     return f"http://127.0.0.1:{port}"
             time.sleep(0.2)
         raise AssertionError(subprocess.run(["docker", "logs", self.caddy], text=True, capture_output=True).stderr)
+
+    def start_tls_redirect_caddy(self) -> int:
+        caddyfile = str(ROOT / "infra" / "caddy" / "Caddyfile")
+        subprocess.run(
+            [
+                "docker", "run", "-d", "--name", self.caddy, "--network", self.network,
+                "-p", "127.0.0.1::8443",
+                "-e", "SITE_ADDRESS=shop.localhost",
+                "-e", "SITE_WWW_ADDRESS=www.shop.localhost",
+                "-e", "ACME_EMAIL=ops@mycdigitalizacion.com.ar",
+                "-e", "ADMIN_ALLOWED_CIDRS=203.0.113.10/32",
+                "-e", "BACKEND_UPSTREAM=backend:8000",
+                "-e", "FRONTEND_UPSTREAM=frontend:3000",
+                "--mount", f"type=bind,src={caddyfile},dst=/etc/caddy/Caddyfile,readonly",
+                "caddy:2.10-alpine", "caddy", "run", "--config", "/etc/caddy/Caddyfile",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        for _ in range(30):
+            port_result = subprocess.run(
+                ["docker", "port", self.caddy, "8443/tcp"],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            if port_result.stdout.strip():
+                port = int(port_result.stdout.strip().rsplit(":", 1)[1])
+                probe = subprocess.run(
+                    [
+                        "curl", "--silent", "--show-error", "--insecure", "--head",
+                        "--resolve", f"www.shop.localhost:{port}:127.0.0.1",
+                        f"https://www.shop.localhost:{port}/catalogo?categoria=libros",
+                    ],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                if probe.returncode == 0:
+                    return port
+            time.sleep(0.2)
+        raise AssertionError(
+            subprocess.run(["docker", "logs", self.caddy], text=True, capture_output=True).stderr
+        )
 
     @staticmethod
     def status(url: str, path: str, headers: dict[str, str] | None = None) -> int:
@@ -160,6 +205,24 @@ HTTPServer(('0.0.0.0', 8000), Handler).serve_forever()
         self.assertEqual(payload["request_id"], response_request_id)
         self.assertEqual(payload["forwarded_proto"], "http")
         self.assertNotEqual(payload["forwarded_for"], "127.0.0.1")
+
+    def test_www_host_redirects_to_canonical_https_and_preserves_request_target(self) -> None:
+        port = self.start_tls_redirect_caddy()
+        response = subprocess.run(
+            [
+                "curl", "--silent", "--show-error", "--insecure", "--head",
+                "--resolve", f"www.shop.localhost:{port}:127.0.0.1",
+                f"https://www.shop.localhost:{port}/catalogo?categoria=libros",
+            ],
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout
+        self.assertIn(" 301 ", response.splitlines()[0])
+        self.assertIn(
+            "location: https://shop.localhost/catalogo?categoria=libros",
+            response.lower(),
+        )
 
 
 if __name__ == "__main__":

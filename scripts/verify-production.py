@@ -38,6 +38,7 @@ def main() -> int:
     run([
         "docker", "run", "--rm",
         "-e", "SITE_ADDRESS=tienda.mycdigitalizacion.com.ar",
+        "-e", "SITE_WWW_ADDRESS=www.tienda.mycdigitalizacion.com.ar",
         "-e", "ACME_EMAIL=ops@mycdigitalizacion.com.ar",
         "-e", "ADMIN_ALLOWED_CIDRS=203.0.113.10/32",
         "mycdigitalizaciones-caddy-prod", "caddy", "validate", "--config", "/etc/caddy/Caddyfile",

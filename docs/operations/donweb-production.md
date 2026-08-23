@@ -37,7 +37,9 @@ chmod 600 .env.production
 
 Generá valores independientes con un gestor de secretos; por ejemplo `openssl rand -base64 48`. `DJANGO_SECRET_KEY`, `PERSONAL_DATA_ENCRYPTION_KEY`, contraseñas PostgreSQL/Redis y Restic no se reutilizan. Configurá:
 
-- `SITE_ADDRESS`, `ACME_EMAIL` y `DJANGO_ALLOWED_HOSTS` con el dominio real, sin esquema.
+- `SITE_ADDRESS` con el dominio canónico sin esquema, `SITE_WWW_ADDRESS` con su variante `www`,
+  `ACME_EMAIL` y `DJANGO_ALLOWED_HOSTS` incluyendo ambos hostnames. Caddy redirige `www` al
+  dominio canónico y conserva la ruta solicitada.
 - `RELEASE_ID` con el commit/digest inmutable que se despliega; cambialo en cada release.
 - `ADMIN_ALLOWED_CIDRS` con CIDR de oficina o VPN separados únicamente por espacios. El validador rechaza comas, `0.0.0.0/0`, `::/0` y uniones que equivalgan a acceso público.
 - Credenciales SID, Mercado Pago y Correo Argentino sólo para los modos realmente habilitados. Un campo vacío no demuestra que el proveedor funciona.
