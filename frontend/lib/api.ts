@@ -103,7 +103,10 @@ export function normalizeMediaUrl(value: string | null | undefined) {
 }
 
 export async function serverGet<T>(path: string): Promise<T> {
-  const response = await fetch(`${SERVER_API_ROOT}${path}`, { cache: "no-store" });
+  const response = await fetch(`${SERVER_API_ROOT}${path}`, {
+    cache: "no-store",
+    headers: { "X-Forwarded-Proto": "https" },
+  });
   return parse<T>(response);
 }
 
