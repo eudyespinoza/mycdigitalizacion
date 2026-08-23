@@ -72,6 +72,25 @@ test("responsive landing, optimized media, product and keyboard-safe cart drawer
   await expect(page.getByRole("button", { name: "Agregar al carrito" })).toBeFocused();
 });
 
+test("desktop promotions and collection products occupy the public content width", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name !== "1440", "The wide-shell proportion is a desktop layout contract.");
+  await control(request, { collectionProductIds: [7, 8] });
+  await page.goto("/");
+
+  const proportions = await page.evaluate(() => {
+    const width = (selector: string) => document.querySelector<HTMLElement>(selector)?.getBoundingClientRect().width ?? 0;
+    const cards = [...document.querySelectorAll<HTMLElement>(".collection-products .product-card")].map((card) => card.getBoundingClientRect());
+    const occupiedCollectionWidth = cards.length ? cards.at(-1)!.right - cards[0].left : 0;
+    return {
+      collectionProducts: occupiedCollectionWidth / width(".collection-products"),
+      promotion: width(".promo-slide") / width(".promo-track"),
+    };
+  });
+
+  expect(proportions.promotion).toBeGreaterThanOrEqual(0.98);
+  expect(proportions.collectionProducts).toBeGreaterThanOrEqual(0.98);
+});
+
 test("registration sends the complete storefront profile and focuses the first invalid field", async ({ page, request }) => {
   await page.goto("/cuenta/registro");
   await page.getByRole("button", { name: "Crear cuenta" }).click();
