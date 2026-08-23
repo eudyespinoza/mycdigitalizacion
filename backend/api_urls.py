@@ -43,6 +43,7 @@ router.register("orders", OrderViewSet, basename="order")
 
 urlpatterns = [
     path("management/", include("backoffice.urls")),
+    path("support/", include("support.urls")),
     path("storefront/home/", StorefrontHomeView.as_view(), name="storefront-home"),
     path(
         "storefront/catalog-content/",

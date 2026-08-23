@@ -172,6 +172,15 @@ SESSION_COOKIE_NAME = environ.get("DJANGO_SESSION_COOKIE_NAME", "myc_sessionid")
 CSRF_COOKIE_NAME = environ.get("DJANGO_CSRF_COOKIE_NAME", "myc_csrftoken")
 SESSION_COOKIE_SECURE = APP_ENV == "production"
 CSRF_COOKIE_SECURE = APP_ENV == "production"
+SUPPORT_GUEST_SESSION_COOKIE_NAME = "myc_support_session"
+SUPPORT_GUEST_SESSION_COOKIE_SECURE = (
+    environ.get("SUPPORT_GUEST_SESSION_COOKIE_SECURE", str(APP_ENV == "production")).lower()
+    == "true"
+)
+SUPPORT_GUEST_SESSION_COOKIE_AGE = int(
+    environ.get("SUPPORT_GUEST_SESSION_COOKIE_AGE", str(180 * 24 * 60 * 60))
+)
+SUPPORT_EMAIL_AVAILABLE = environ.get("SUPPORT_EMAIL_AVAILABLE", "false").lower() == "true"
 CSRF_FAILURE_VIEW = "config.views.csrf_failure"
 SECURE_SSL_REDIRECT = APP_ENV == "production"
 SECURE_HSTS_SECONDS = 31_536_000 if APP_ENV == "production" else 0
@@ -324,6 +333,9 @@ REST_FRAMEWORK = {
         "verify_email": "10/hour",
         "verify_ip": "20/hour",
         "google_auth": "30/hour",
+        "support_guest_create": "30/hour",
+        "support_guest_access": "20/hour",
+        "support_guest_message": "60/hour",
     },
 }
 AUTH_PASSWORD_VALIDATORS = [
