@@ -194,6 +194,7 @@ INSTALLED_APPS = [
     "commerce",
     "locations",
     "landing",
+    "support",
 ]
 
 MIDDLEWARE = [
