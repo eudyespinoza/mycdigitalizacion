@@ -57,7 +57,9 @@ p { line-height: 1.6; }
 .icon-button { min-width: 44px; min-height: 44px; display: inline-grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; background: var(--surface-elevated); cursor: pointer; transition: transform 160ms var(--ease-out), background-color 180ms var(--ease-out); }
 .icon-button:hover { background: var(--surface-cyan); }
 .text-button { min-height: 44px; padding: 8px 4px; border: 0; background: transparent; color: var(--blue); cursor: pointer; text-decoration: underline; text-underline-offset: 4px; }
-.trust-rail { min-height: 38px; display: flex; align-items: center; justify-content: space-around; gap: 24px; padding: 7px 32px; background: linear-gradient(90deg, var(--surface-cold), var(--surface-elevated), var(--surface-cold)); color: var(--ink); font-size: 0.84rem; font-weight: 700; }
+.trust-rail { background: linear-gradient(90deg, var(--surface-cold), var(--surface-elevated), var(--surface-cold)); color: var(--ink); font-size: 0.84rem; font-weight: 700; }
+.trust-rail-inner { min-height: 38px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 24px; padding-block: 7px; }
+.trust-rail-inner span:last-child { justify-self: end; }
 .site-header { position: relative; z-index: 30; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--surface-elevated) 98%, transparent); }
 .header-main { min-height: 94px; display: grid; grid-template-columns: 280px minmax(260px, 1fr) auto; align-items: center; gap: 34px; }
 .brand { width: 270px; height: 70px; display: flex; align-items: center; overflow: hidden; }
@@ -416,8 +418,8 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 }
 @media (max-width: 768px) {
   .shell { width: min(100% - 28px, 100%); }
-  .trust-rail { min-height: 34px; justify-content: center; padding: 7px 14px; }
-  .trust-rail span:not(:first-child) { display: none; }
+  .trust-rail-inner { min-height: 34px; display: flex; justify-content: center; padding-block: 7px; }
+  .trust-rail-inner span:not(:first-child) { display: none; }
   .header-main { min-height: 78px; grid-template-columns: 1fr auto auto; gap: 6px; }
   .brand { width: 210px; height: 64px; }
   .brand-lockup-fallback .brand-logo { width: 116px; top: -10px; }

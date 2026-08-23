@@ -35,7 +35,9 @@ export function SiteHeader({ categories, branding: brandingOverride }: { categor
     <>
       <a className="skip-link" href="#contenido">Saltar al contenido</a>
       <div className="trust-rail" aria-label="Beneficios de compra">
-        <span>Envíos a todo el país</span><span>Pagos por Mercado Pago</span><span>Envío o retiro</span>
+        <div className="trust-rail-inner shell">
+          <span>Envíos a todo el país</span><span>Pagos por Mercado Pago</span><span>Envío o retiro</span>
+        </div>
       </div>
       <header className="site-header">
         <div className="header-main shell">
