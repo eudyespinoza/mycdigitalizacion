@@ -62,6 +62,21 @@ def test_rejects_script_launchers_disguised_as_text(content):
         validate_support_files([upload])
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"\xef\xbb\xbfpowershell -NoProfile -Command Write-Output bad\n",
+        b"  cmd.exe /c whoami\n",
+        b"\tcmd /k whoami\n",
+    ],
+)
+def test_rejects_bom_or_whitespace_prefixed_command_launchers(content):
+    upload = SimpleUploadedFile("notas.txt", content, content_type="text/plain")
+
+    with pytest.raises(AttachmentValidationError):
+        validate_support_files([upload])
+
+
 def test_accepts_ordinary_text_and_csv():
     text = SimpleUploadedFile("notas.txt", b"Gracias por la ayuda.", content_type="text/plain")
     csv = SimpleUploadedFile("pedido.csv", b"sku,cantidad\nABC,2\n", content_type="text/csv")

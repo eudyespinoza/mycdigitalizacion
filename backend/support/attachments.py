@@ -34,6 +34,7 @@ ALLOWED_TYPES = {
 TEXT_SCRIPT_PREFIX = re.compile(
     r"^\s*(?:"
     r"@echo(?:\s+off)?\b|"
+    r"cmd(?:\.exe)?\s+/[ck]\b|"
     r"(?:powershell|pwsh)(?:\.exe)?\b|"
     r"(?:wscript|cscript)(?:\.exe)?\b|"
     r"dim\s+\w+\s*:.*\b(?:createobject|wscript\.shell)\b|"
@@ -128,7 +129,7 @@ def _validate_pdf(content):
 
 def _validate_text(content, extension):
     try:
-        decoded = content.decode("utf-8")
+        decoded = content.decode("utf-8-sig")
     except UnicodeDecodeError as error:
         raise AttachmentValidationError(
             "El archivo de texto debe estar codificado en UTF-8"
