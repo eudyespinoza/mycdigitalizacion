@@ -87,6 +87,7 @@ class ProductionContractTests(unittest.TestCase):
         self.assertEqual(compose["services"]["frontend"]["environment"]["HOSTNAME"], "0.0.0.0")
         self.assertEqual(compose["services"]["caddy"]["environment"]["BACKEND_UPSTREAM"], "backend:8000")
         self.assertEqual(compose["services"]["caddy"]["environment"]["FRONTEND_UPSTREAM"], "frontend:3000")
+        self.assertIn("SITE_WWW_ADDRESS", compose["services"]["backup"]["environment"])
         self.assertTrue({"postgres_data", "media_data", "static_data", "backup_data", "caddy_data", "caddy_config"}.issubset(compose["volumes"]))
 
     def test_production_environment_rejects_placeholders_and_accepts_real_secrets(self) -> None:
