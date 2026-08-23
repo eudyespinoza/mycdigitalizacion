@@ -7,8 +7,15 @@ from django.utils import timezone
 
 
 def generate_case_number(kind):
-    prefix = "CON" if kind == SupportCase.Kind.CONSULTATION else "PRO"
-    return f"{prefix}-{timezone.localdate().year}-{secrets.token_hex(5).upper()}"
+    prefixes = {
+        SupportCase.Kind.CONSULTATION: "CON",
+        SupportCase.Kind.PROBLEM: "PRO",
+    }
+    try:
+        prefix = prefixes[kind]
+    except KeyError as error:
+        raise ValueError("Unsupported support case kind") from error
+    return f"{prefix}-{timezone.localdate().year}-{secrets.token_hex(7).upper()}"
 
 
 class SupportCase(models.Model):
@@ -78,6 +85,12 @@ class SupportCase(models.Model):
     staff_last_read_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(kind__in=("consultation", "problem")),
+                name="sup_case_kind_valid",
+            )
+        ]
         indexes = [
             models.Index(
                 fields=("kind", "status", "priority", "-updated_at", "-id"),
@@ -93,8 +106,7 @@ class SupportCase(models.Model):
     def save(self, *args, **kwargs):
         if not self.case_number:
             self.case_number = generate_case_number(self.kind)
-        if self.contact_email:
-            self.contact_email_normalized = self.contact_email.strip().lower()
+        self.contact_email_normalized = self.contact_email.strip().lower()
         return super().save(*args, **kwargs)
 
 
