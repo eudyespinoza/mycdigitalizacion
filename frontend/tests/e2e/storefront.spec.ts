@@ -91,6 +91,26 @@ test("desktop promotions and collection products occupy the public content width
   expect(proportions.collectionProducts).toBeGreaterThanOrEqual(0.98);
 });
 
+test("desktop collections alternate image and copy while mobile keeps media first", async ({ page, request }, testInfo) => {
+  test.skip(!["360", "1440"].includes(testInfo.project.name), "The alternation contract only needs one desktop and one mobile viewport.");
+  await control(request, { multipleCollections: true });
+  await page.goto("/");
+
+  const layouts = await page.locator(".cms-collection").evaluateAll((collections) => collections.map((collection) => {
+    const image = collection.querySelector<HTMLElement>(".collection-image")!.getBoundingClientRect();
+    const copy = collection.querySelector<HTMLElement>(".collection-copy")!.getBoundingClientRect();
+    return { imageX: image.x, imageY: image.y, copyX: copy.x, copyY: copy.y };
+  }));
+
+  expect(layouts).toHaveLength(2);
+  if (testInfo.project.name === "1440") {
+    expect(layouts[0].imageX).toBeLessThan(layouts[0].copyX);
+    expect(layouts[1].imageX).toBeGreaterThan(layouts[1].copyX);
+  } else {
+    expect(layouts.every((layout) => layout.imageY < layout.copyY)).toBe(true);
+  }
+});
+
 test("registration sends the complete storefront profile and focuses the first invalid field", async ({ page, request }) => {
   await page.goto("/cuenta/registro");
   await page.getByRole("button", { name: "Crear cuenta" }).click();

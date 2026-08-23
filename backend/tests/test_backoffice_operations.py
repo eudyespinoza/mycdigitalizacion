@@ -5,6 +5,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounts.models import CustomerProfile, Profile
+from backoffice.models import ManagementAuditEvent
 from commerce.models import Order, OrderAuditEvent, PackageBox
 from locations.models import Address
 
@@ -118,6 +119,81 @@ def test_management_customer_list_masks_identity_and_includes_addresses(django_u
     assert detail.status_code == 200
     assert detail.json()["addresses"][0]["label"] == "Casa"
     assert detail.json()["orders"][0]["total"] == "12500.00"
+
+
+def test_management_customer_contact_can_be_updated_and_is_audited(django_user_model):
+    customer = create_customer(django_user_model)
+    client, owner = management_client(django_user_model)
+
+    updated = client.patch(
+        f"/api/v1/management/customers/{customer.pk}/",
+        {
+            "first_name": "Eudys",
+            "last_name": "Espinoza",
+            "email": "eudys@example.test",
+            "phone": "1134567890",
+        },
+        format="json",
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Eudys Espinoza"
+    assert updated.json()["first_name"] == "Eudys"
+    assert updated.json()["last_name"] == "Espinoza"
+    assert updated.json()["email"] == "eudys@example.test"
+    assert updated.json()["phone"] == "1134567890"
+    customer.refresh_from_db()
+    assert customer.email == "eudys@example.test"
+    assert customer.profile.first_name == "Eudys"
+    assert ManagementAuditEvent.objects.filter(
+        actor=owner,
+        action="customer.updated",
+        resource="customer",
+        object_reference=str(customer.pk),
+    ).exists()
+
+
+def test_management_customer_address_can_be_updated_and_is_audited(django_user_model):
+    customer = create_customer(django_user_model)
+    address = customer.addresses.get()
+    client, owner = management_client(django_user_model)
+
+    updated = client.patch(
+        f"/api/v1/management/customers/{customer.pk}/addresses/{address.pk}/",
+        {
+            "label": "Depósito",
+            "raw_address": "Avenida Corrientes 1550",
+            "normalized_address": "Avenida Corrientes 1550",
+            "street": "Avenida Corrientes",
+            "number": "1550",
+            "postal_code": "1042",
+            "cpa": "C1042ABC",
+            "locality": "Ciudad Autónoma de Buenos Aires",
+            "province": "Ciudad Autónoma de Buenos Aires",
+            "floor": "4",
+            "apartment": "B",
+            "reference": "Portón azul",
+            "notes": "Llamar al llegar",
+            "needs_review": False,
+        },
+        format="json",
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["label"] == "Depósito"
+    assert updated.json()["number"] == "1550"
+    assert updated.json()["floor"] == "4"
+    assert updated.json()["cpa"] == "C1042ABC"
+    assert updated.json()["notes"] == "Llamar al llegar"
+    address.refresh_from_db()
+    assert address.raw_address == "Avenida Corrientes 1550"
+    assert ManagementAuditEvent.objects.filter(
+        actor=owner,
+        action="customer.address.updated",
+        resource="customer",
+        object_reference=str(customer.pk),
+        metadata__address_id=address.pk,
+    ).exists()
 
 
 def test_management_shipping_boxes_are_configurable_and_audited(django_user_model):

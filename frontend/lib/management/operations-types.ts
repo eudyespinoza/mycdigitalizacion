@@ -63,6 +63,8 @@ export type ManagementCustomer = {
 };
 
 export type ManagementCustomerDetail = ManagementCustomer & {
+  first_name: string;
+  last_name: string;
   addresses: Array<{
     id: number;
     label: string;
@@ -71,11 +73,13 @@ export type ManagementCustomerDetail = ManagementCustomer & {
     street: string;
     number: string;
     postal_code: string;
+    cpa: string;
     locality: string;
     province: string;
     floor: string;
     apartment: string;
     reference: string;
+    notes: string;
     needs_review: boolean;
   }>;
   billing_profiles: Array<{

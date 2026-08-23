@@ -12,11 +12,15 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
 from rest_framework.response import Response
 
+from accounts.email_policy import ensure_email_verified_when_delivery_is_unavailable
+from accounts.models import Profile
 from backoffice.catalog_views import ManagementPagination
 from backoffice.models import ManagementAuditEvent
 from backoffice.operations_serializers import (
+    ManagementAddressSerializer,
     ManagementCustomerDetailSerializer,
     ManagementCustomerSummarySerializer,
+    ManagementCustomerUpdateSerializer,
     ManagementOrderActionSerializer,
     ManagementOrderDetailSerializer,
     ManagementOrderSummarySerializer,
@@ -28,6 +32,7 @@ from commerce.models import Order, PackageBox, Shipment
 from commerce.provider_config import get_carrier_adapter, get_payment_adapter
 from commerce.services import transition_order_status
 from commerce.shipping import resolve_manual_shipping_cost
+from locations.models import Address
 
 
 def _order_summary_queryset():
@@ -235,6 +240,83 @@ class ManagementCustomerDetailView(generics.GenericAPIView):
 
     def get(self, request, pk):
         return Response(self.get_serializer(self.get_object()).data)
+
+    @transaction.atomic
+    def patch(self, request, pk):
+        customer = self.get_object()
+        serializer = ManagementCustomerUpdateSerializer(
+            data=request.data,
+            partial=True,
+            context={"customer": customer},
+        )
+        serializer.is_valid(raise_exception=True)
+        changed_fields = []
+        profile, _ = Profile.objects.get_or_create(user=customer)
+        profile_fields = []
+        for field in ("first_name", "last_name", "phone"):
+            if field not in serializer.validated_data:
+                continue
+            value = serializer.validated_data[field]
+            if getattr(profile, field) != value:
+                setattr(profile, field, value)
+                changed_fields.append(field)
+                profile_fields.append(field)
+        if profile_fields:
+            profile.save(update_fields=profile_fields)
+        if "email" in serializer.validated_data:
+            email = serializer.validated_data["email"]
+            if customer.email != email:
+                customer.email = email
+                customer.email_verified_at = None
+                customer.save(update_fields=["email", "email_verified_at"])
+                ensure_email_verified_when_delivery_is_unavailable(customer)
+                changed_fields.append("email")
+        if changed_fields:
+            ManagementAuditEvent.objects.create(
+                actor=request.user,
+                action="customer.updated",
+                resource="customer",
+                object_reference=str(customer.pk),
+                metadata={"changed_fields": sorted(changed_fields)},
+            )
+        refreshed = self.get_queryset().annotate(
+            order_count=Count("orders", distinct=True),
+            total_spent=Coalesce(
+                Sum("orders__total_snapshot"),
+                Value(0),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ),
+        ).get(pk=customer.pk)
+        return Response(ManagementCustomerDetailSerializer(refreshed).data)
+
+
+class ManagementCustomerAddressDetailView(generics.GenericAPIView):
+    permission_classes = (IsManagementUser,)
+    serializer_class = ManagementAddressSerializer
+
+    def get_object(self):
+        return generics.get_object_or_404(
+            Address.objects.filter(user_id=self.kwargs["pk"], user__is_staff=False),
+            pk=self.kwargs["address_pk"],
+        )
+
+    @transaction.atomic
+    def patch(self, request, pk, address_pk):
+        address = self.get_object()
+        serializer = self.get_serializer(address, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        ManagementAuditEvent.objects.create(
+            actor=request.user,
+            action="customer.address.updated",
+            resource="customer",
+            object_reference=str(pk),
+            metadata={
+                "address_id": address.pk,
+                "changed_fields": sorted(serializer.validated_data),
+            },
+        )
+        return Response(serializer.data)
 
 
 class PackageBoxListCreateView(generics.ListCreateAPIView):

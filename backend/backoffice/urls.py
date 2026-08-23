@@ -32,6 +32,7 @@ from backoffice.oauth_views import (
     MercadoPagoOAuthStartView,
 )
 from backoffice.operations_views import (
+    ManagementCustomerAddressDetailView,
     ManagementCustomerDetailView,
     ManagementCustomerListView,
     ManagementOrderActionView,
@@ -130,6 +131,11 @@ urlpatterns = [
         "customers/<int:pk>/",
         ManagementCustomerDetailView.as_view(),
         name="management-customer-detail",
+    ),
+    path(
+        "customers/<int:pk>/addresses/<int:address_pk>/",
+        ManagementCustomerAddressDetailView.as_view(),
+        name="management-customer-address-detail",
     ),
     path(
         "shipping/boxes/",

@@ -218,11 +218,13 @@ class ManagementAddressSerializer(serializers.ModelSerializer):
             "street",
             "number",
             "postal_code",
+            "cpa",
             "locality",
             "province",
             "floor",
             "apartment",
             "reference",
+            "notes",
             "needs_review",
         )
 
@@ -236,12 +238,16 @@ class ManagementBillingProfileSerializer(serializers.ModelSerializer):
 
 
 class ManagementCustomerDetailSerializer(ManagementCustomerSummarySerializer):
+    first_name = serializers.CharField(source="profile.first_name", default="", read_only=True)
+    last_name = serializers.CharField(source="profile.last_name", default="", read_only=True)
     addresses = ManagementAddressSerializer(many=True, read_only=True)
     billing_profiles = serializers.SerializerMethodField()
     orders = serializers.SerializerMethodField()
 
     class Meta(ManagementCustomerSummarySerializer.Meta):
         fields = ManagementCustomerSummarySerializer.Meta.fields + (
+            "first_name",
+            "last_name",
             "addresses",
             "billing_profiles",
             "orders",
@@ -256,6 +262,25 @@ class ManagementCustomerDetailSerializer(ManagementCustomerSummarySerializer):
     @extend_schema_field(ManagementOrderSummarySerializer(many=True))
     def get_orders(self, user):
         return ManagementOrderSummarySerializer(user.orders.order_by("-created_at"), many=True).data
+
+
+class ManagementCustomerUpdateSerializer(serializers.Serializer):
+    first_name = serializers.CharField(max_length=120, trim_whitespace=True)
+    last_name = serializers.CharField(max_length=120, trim_whitespace=True)
+    email = serializers.EmailField(max_length=254)
+    phone = serializers.CharField(max_length=32, allow_blank=True, trim_whitespace=True)
+
+    def validate_email(self, value):
+        normalized = value.casefold()
+        customer = self.context["customer"]
+        if (
+            get_user_model()
+            .objects.filter(email__iexact=normalized)
+            .exclude(pk=customer.pk)
+            .exists()
+        ):
+            raise serializers.ValidationError("Ya existe una cuenta con este email.")
+        return normalized
 
 
 class PackageBoxSerializer(serializers.ModelSerializer):

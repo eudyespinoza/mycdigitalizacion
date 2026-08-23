@@ -52,6 +52,10 @@ describe("gestión operativa", () => {
       total_spent: "12500.00",
       email_verified: true,
     }]} />);
+    expect(screen.getByRole("link", { name: "Abrir ficha completa de Ana Pérez" })).toHaveAttribute(
+      "href",
+      "/gestion/clientes/7",
+    );
     expect(screen.getByText("••••3456")).toBeVisible();
     expect(screen.queryByText("30123456")).not.toBeInTheDocument();
   });
