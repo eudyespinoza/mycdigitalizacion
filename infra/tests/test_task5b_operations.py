@@ -85,6 +85,7 @@ class ProductionContractTests(unittest.TestCase):
         for name in {"frontend", "backend", "worker", "beat", "backup"}:
             self.assertNotEqual(str(compose["services"][name].get("user", "0")).split(":", 1)[0], "0", name)
         self.assertEqual(compose["services"]["frontend"]["environment"]["HOSTNAME"], "0.0.0.0")
+        self.assertTrue(compose["services"]["backend"]["environment"]["DJANGO_ALLOWED_HOSTS"].endswith(",backend"))
         self.assertEqual(compose["services"]["caddy"]["environment"]["BACKEND_UPSTREAM"], "backend:8000")
         self.assertEqual(compose["services"]["caddy"]["environment"]["FRONTEND_UPSTREAM"], "frontend:3000")
         self.assertIn("SITE_WWW_ADDRESS", compose["services"]["backup"]["environment"])
