@@ -264,6 +264,11 @@ USE_TZ = True
 STATIC_URL = "/static/"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = Path(environ.get("MEDIA_ROOT", BASE_DIR / "media"))
+SUPPORT_PRIVATE_MEDIA_ROOT = Path(
+    environ.get("SUPPORT_PRIVATE_MEDIA_ROOT", BASE_DIR / "private-support-media")
+)
+if SUPPORT_PRIVATE_MEDIA_ROOT.resolve().is_relative_to(MEDIA_ROOT.resolve()):
+    raise ImproperlyConfigured("SUPPORT_PRIVATE_MEDIA_ROOT must be outside MEDIA_ROOT")
 MAX_IMAGE_UPLOAD_BYTES = int(environ.get("MAX_IMAGE_UPLOAD_BYTES", str(12 * 1024 * 1024)))
 MAX_IMAGE_WIDTH = int(environ.get("MAX_IMAGE_WIDTH", "6000"))
 MAX_IMAGE_HEIGHT = int(environ.get("MAX_IMAGE_HEIGHT", "6000"))
