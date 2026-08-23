@@ -383,6 +383,23 @@ class PromotionSlide(ScheduledContent):
         ]
 
 
+class CatalogSlide(ScheduledContent):
+    title = models.CharField(max_length=160)
+    body = models.TextField(blank=True)
+    interval_ms = models.PositiveIntegerField(
+        default=6000, validators=[MinValueValidator(1000), MaxValueValidator(30000)]
+    )
+    pause_on_reduced_motion = models.BooleanField(default=True)
+
+    class Meta(ScheduledContent.Meta):
+        indexes = [
+            models.Index(
+                fields=("enabled", "order", "starts_at", "ends_at"),
+                name="land_catalog_sched_idx",
+            )
+        ]
+
+
 class LandingCollection(ScheduledContent):
     title = models.CharField(max_length=160)
     product_ids = models.JSONField(default=list, blank=True)

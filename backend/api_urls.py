@@ -6,6 +6,7 @@ from api_views import (
     AuthConfigurationView,
     BillingProfileViewSet,
     CartView,
+    CatalogContentView,
     CategoryListView,
     CheckoutResumeView,
     CheckoutView,
@@ -43,6 +44,11 @@ router.register("orders", OrderViewSet, basename="order")
 urlpatterns = [
     path("management/", include("backoffice.urls")),
     path("storefront/home/", StorefrontHomeView.as_view(), name="storefront-home"),
+    path(
+        "storefront/catalog-content/",
+        CatalogContentView.as_view(),
+        name="storefront-catalog-content",
+    ),
     path("categories/", CategoryListView.as_view(), name="category-list"),
     path("products/", ProductListView.as_view(), name="product-list"),
     path("products/<slug:slug>/", ProductDetailView.as_view(), name="product-detail"),

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
 import { ContentEditor } from "@/components/management/content-editor";
@@ -39,6 +39,7 @@ describe("contenido y promociones del panel propio", () => {
     vi.spyOn(window, "confirm").mockReturnValueOnce(true);
     const content = {
       hero: [managedHero],
+      catalog: [],
       promotions: [],
       collections: [],
       popups: [],
@@ -48,8 +49,34 @@ describe("contenido y promociones del panel propio", () => {
     fireEvent.click(screen.getByRole("button", { name: "Eliminar Vuelta al cole" }));
 
     await waitFor(() => expect(screen.queryByText("Vuelta al cole")).not.toBeInTheDocument());
-    expect(screen.getAllByText("Todavía no hay contenido en este bloque.")).toHaveLength(4);
+    expect(screen.getAllByText("Todavía no hay contenido en este bloque.")).toHaveLength(5);
     expect(managementRequest).toHaveBeenCalledWith("/content/hero/7/", { method: "DELETE" });
+  });
+
+  test("muestra el carrusel del catálogo como bloque administrable", () => {
+    const content = {
+      hero: [],
+      promotions: [],
+      collections: [],
+      popups: [],
+      catalog: [],
+    } as unknown as Record<ContentKind, ManagedContent[]>;
+
+    render(<ContentOverview content={content} />);
+
+    const heading = screen.getByRole("heading", { name: "Carrusel del catálogo" });
+    expect(heading).toBeVisible();
+    expect(within(heading.closest("section")!).getByRole("link", { name: "Agregar" })).toHaveAttribute(
+      "href",
+      "/gestion/contenido/catalog/nuevo",
+    );
+  });
+
+  test("configura la duración del carrusel del catálogo", () => {
+    render(<ContentEditor kind={"catalog" as ContentKind} onSave={vi.fn()} />);
+
+    expect(screen.getByLabelText("Duración de la diapositiva (ms)")).toBeVisible();
+    expect(screen.getByLabelText("Detener movimiento reducido")).toBeChecked();
   });
 
   test("edita un hero con alturas, foco, programación e imágenes", async () => {

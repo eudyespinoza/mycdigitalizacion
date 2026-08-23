@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from backoffice.content_serializers import (
+    ManagementCatalogSlideSerializer,
     ManagementCollectionSerializer,
     ManagementCouponSerializer,
     ManagementHeroSerializer,
@@ -21,9 +22,16 @@ from backoffice.models import ManagementAuditEvent
 from backoffice.permissions import IsManagementUser
 from catalog.models import Category, Product
 from commerce.models import Coupon, CouponRedemption, PromotionRule
-from landing.models import HeroSlide, LandingCollection, PromotionPopup, PromotionSlide
+from landing.models import (
+    CatalogSlide,
+    HeroSlide,
+    LandingCollection,
+    PromotionPopup,
+    PromotionSlide,
+)
 
 CONTENT_TYPES = {
+    "catalog": (CatalogSlide, ManagementCatalogSlideSerializer),
     "hero": (HeroSlide, ManagementHeroSerializer),
     "promotions": (PromotionSlide, ManagementPromotionSlideSerializer),
     "collections": (LandingCollection, ManagementCollectionSerializer),

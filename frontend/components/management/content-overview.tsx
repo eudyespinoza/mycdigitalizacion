@@ -9,6 +9,7 @@ import type { ContentKind, ManagedContent } from "@/lib/management/content-types
 
 const labels: Record<ContentKind, string> = {
   hero: "Hero principal",
+  catalog: "Carrusel del catálogo",
   promotions: "Carrusel de promociones",
   collections: "Colecciones",
   popups: "Popup de promociones",
@@ -45,7 +46,7 @@ export function ContentOverview({ content }: { content: Record<ContentKind, Mana
         <section className="management-form-section" key={kind}>
           <div className="management-section-heading">
             <div>
-              <p className="management-kicker">Landing</p>
+              <p className="management-kicker">{kind === "catalog" ? "Catálogo" : "Landing"}</p>
               <h2>{labels[kind]}</h2>
             </div>
             <Link className="button secondary" href={`/gestion/contenido/${kind}/nuevo`}>Agregar</Link>

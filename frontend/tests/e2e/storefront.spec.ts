@@ -57,7 +57,9 @@ test("responsive landing, optimized media, product and keyboard-safe cart drawer
     await page.screenshot({ path: "../.impeccable/review/hero-repro.png" });
   }
   await page.getByRole("link", { name: "Explorar catálogo" }).first().click();
-  await expect(page.getByRole("heading", { name: "Todo el catálogo" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Encontrá lo que necesitás" })).toBeVisible();
+  await page.getByRole("button", { name: "Contenido siguiente" }).click();
+  await expect(page.getByRole("heading", { name: "Ideas para todos los días" })).toBeVisible();
   const productImage = page.getByRole("img", { name: /cuadernos y útiles/i }).first();
   await expect(productImage).toHaveAttribute("src", /_next\/image\?url=%2Fmedia%2F/);
   await page.getByRole("link", { name: "Ver Cuaderno A5" }).click();

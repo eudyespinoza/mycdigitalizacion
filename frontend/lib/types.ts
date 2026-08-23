@@ -8,6 +8,7 @@ export type ScheduledContent = {
   safe_height_desktop: number; starts_at: string | null; ends_at: string | null; order: number;
 };
 export type TimedCampaign = ScheduledContent & { body: string; interval_ms: number; pause_on_reduced_motion: boolean };
+export type CatalogContent = { slides: TimedCampaign[] };
 export type PopupFrequency = "once_session" | "daily" | "weekly" | "always";
 export type PromotionPopupContent = ScheduledContent & { body: string; frequency: PopupFrequency; display_delay_ms: number; dismissible: boolean; version: number };
 export type LandingCollection = ScheduledContent & { product_ids: number[] };

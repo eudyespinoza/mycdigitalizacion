@@ -84,6 +84,70 @@ def test_management_landing_content_crud_controls_schedule_height_and_popup(djan
     assert owner.management_audit_events.filter(resource="landing_content").count() == 3
 
 
+def test_catalog_carousel_has_audited_management_and_a_dedicated_public_feed(
+    django_user_model,
+):
+    client, owner = management_client(django_user_model)
+    created = client.post(
+        "/api/v1/management/content/catalog/",
+        {
+            "title": "Encontrá lo que necesitás",
+            "body": "Explorá productos para estudiar, crear y organizar cada espacio.",
+            "enabled": True,
+            "order": 2,
+            "cta_label": "Ver ofertas",
+            "cta_url": "/catalogo?offer=true",
+            "safe_height_mobile": 240,
+            "safe_height_tablet": 210,
+            "safe_height_desktop": 220,
+            "interval_ms": 6500,
+            "pause_on_reduced_motion": True,
+        },
+        format="json",
+    )
+
+    assert created.status_code == 201
+    assert created.json()["safe_height_desktop"] == 220
+    assert created.json()["interval_ms"] == 6500
+
+    public = APIClient().get("/api/v1/storefront/catalog-content/")
+
+    assert public.status_code == 200
+    assert public.json()["slides"] == [
+        {
+            **{
+                key: created.json()[key]
+                for key in (
+                    "id",
+                    "title",
+                    "alt_text",
+                    "desktop_image_url",
+                    "mobile_image_url",
+                    "desktop_responsive_sources",
+                    "mobile_responsive_sources",
+                    "cta_label",
+                    "cta_url",
+                    "focal_x",
+                    "focal_y",
+                    "safe_height_mobile",
+                    "safe_height_tablet",
+                    "safe_height_desktop",
+                    "starts_at",
+                    "ends_at",
+                    "order",
+                    "body",
+                    "interval_ms",
+                    "pause_on_reduced_motion",
+                )
+            }
+        }
+    ]
+    assert owner.management_audit_events.filter(
+        action="content.created",
+        object_reference=f"catalog:{created.json()['id']}",
+    ).exists()
+
+
 def test_management_can_delete_landing_content_and_its_media(
     django_user_model, tmp_path
 ):

@@ -1,4 +1,4 @@
-export type ContentKind = "hero" | "promotions" | "collections" | "popups";
+export type ContentKind = "hero" | "catalog" | "promotions" | "collections" | "popups";
 
 export type ManagedContent = {
   id: number;

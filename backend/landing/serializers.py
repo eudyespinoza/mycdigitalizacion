@@ -4,6 +4,7 @@ from rest_framework import serializers
 from config.api_serializers import ResponsiveMediaSourceSerializer
 from config.media import public_derivative_sources
 from landing.models import (
+    CatalogSlide,
     HeroSlide,
     LandingCollection,
     PromotionPopup,
@@ -129,6 +130,20 @@ class PromotionSlideSerializer(ScheduledContentSerializer):
             "interval_ms",
             "pause_on_reduced_motion",
         )
+
+
+class CatalogSlideSerializer(ScheduledContentSerializer):
+    class Meta(ScheduledContentSerializer.Meta):
+        model = CatalogSlide
+        fields = ScheduledContentSerializer.Meta.fields + (
+            "body",
+            "interval_ms",
+            "pause_on_reduced_motion",
+        )
+
+
+class CatalogContentSerializer(serializers.Serializer):
+    slides = CatalogSlideSerializer(many=True)
 
 
 class LandingCollectionSerializer(ScheduledContentSerializer):

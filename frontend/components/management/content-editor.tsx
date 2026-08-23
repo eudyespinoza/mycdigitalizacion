@@ -20,6 +20,13 @@ const defaults: Omit<ContentPayload, "title"> = {
   safe_height_desktop: 520,
 };
 
+const catalogDefaults: Omit<ContentPayload, "title"> = {
+  ...defaults,
+  safe_height_mobile: 240,
+  safe_height_tablet: 210,
+  safe_height_desktop: 220,
+};
+
 
 export function ContentEditor({
   kind,
@@ -31,7 +38,7 @@ export function ContentEditor({
   onSave: (payload: ContentPayload) => Promise<void>;
 }) {
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const values = { ...defaults, ...initial };
+  const values = { ...(kind === "catalog" ? catalogDefaults : defaults), ...initial };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -52,7 +59,7 @@ export function ContentEditor({
       safe_height_mobile: Number(form.get("safe_height_mobile")),
       safe_height_tablet: Number(form.get("safe_height_tablet")),
       safe_height_desktop: Number(form.get("safe_height_desktop")),
-      ...(kind === "hero" || kind === "promotions" ? {
+      ...(kind === "hero" || kind === "catalog" || kind === "promotions" ? {
         interval_ms: Number(form.get("interval_ms")),
         pause_on_reduced_motion: form.has("pause_on_reduced_motion"),
       } : {}),
@@ -106,7 +113,7 @@ export function ContentEditor({
           <label><span>Altura escritorio (px)</span><input defaultValue={values.safe_height_desktop} max="1200" min="120" name="safe_height_desktop" type="number" /></label>
         </div>
       </section>
-      {(kind === "hero" || kind === "promotions") && <section className="management-form-section"><h2>Carrusel</h2><div className="management-field-grid"><label><span>Duración de la diapositiva (ms)</span><input defaultValue={values.interval_ms ?? 6000} min="1000" name="interval_ms" type="number" /></label><label className="management-check"><input defaultChecked={values.pause_on_reduced_motion ?? true} name="pause_on_reduced_motion" type="checkbox" /><span>Detener movimiento reducido</span></label></div></section>}
+      {(kind === "hero" || kind === "catalog" || kind === "promotions") && <section className="management-form-section"><h2>Carrusel</h2><div className="management-field-grid"><label><span>Duración de la diapositiva (ms)</span><input defaultValue={values.interval_ms ?? 6000} max="30000" min="1000" name="interval_ms" type="number" /></label><label className="management-check"><input defaultChecked={values.pause_on_reduced_motion ?? true} name="pause_on_reduced_motion" type="checkbox" /><span>Detener movimiento reducido</span></label></div></section>}
       {kind === "collections" && <section className="management-form-section"><h2>Productos</h2><label><span>IDs de productos separados por coma</span><input defaultValue={values.product_ids?.join(", ") ?? ""} name="product_ids" /></label></section>}
       {kind === "popups" && <section className="management-form-section"><h2>Comportamiento del aviso</h2><div className="management-field-grid"><label><span>Frecuencia</span><select defaultValue={values.frequency ?? "once_session"} name="frequency"><option value="once_session">Una vez por sesión</option><option value="daily">Una vez por día</option><option value="weekly">Una vez por semana</option><option value="always">Siempre</option></select></label><label><span>Demora antes de mostrar (ms)</span><input defaultValue={values.display_delay_ms ?? 1500} min="0" name="display_delay_ms" type="number" /></label><label><span>Versión de campaña</span><input defaultValue={values.version ?? 1} min="1" name="version" type="number" /></label><label className="management-check"><input defaultChecked={values.dismissible ?? true} name="dismissible" type="checkbox" /><span>Permitir cerrar</span></label></div></section>}
       {state === "saved" && <p className="success-message">Contenido guardado.</p>}

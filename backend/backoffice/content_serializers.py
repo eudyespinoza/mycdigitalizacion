@@ -10,6 +10,7 @@ from commerce.models import Coupon, CouponRedemption, PromotionRule
 from config.api_serializers import ResponsiveMediaSourceSerializer
 from config.media import public_derivative_sources
 from landing.models import (
+    CatalogSlide,
     HeroSlide,
     LandingCollection,
     PromotionPopup,
@@ -96,6 +97,16 @@ class ManagementHeroSerializer(ManagementScheduledContentSerializer):
 class ManagementPromotionSlideSerializer(ManagementScheduledContentSerializer):
     class Meta(ManagementScheduledContentSerializer.Meta):
         model = PromotionSlide
+        fields = ManagementScheduledContentSerializer.Meta.fields + (
+            "body",
+            "interval_ms",
+            "pause_on_reduced_motion",
+        )
+
+
+class ManagementCatalogSlideSerializer(ManagementScheduledContentSerializer):
+    class Meta(ManagementScheduledContentSerializer.Meta):
+        model = CatalogSlide
         fields = ManagementScheduledContentSerializer.Meta.fields + (
             "body",
             "interval_ms",

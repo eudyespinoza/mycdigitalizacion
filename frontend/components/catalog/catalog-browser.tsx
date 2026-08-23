@@ -96,7 +96,7 @@ export function CatalogBrowser({
   useEffect(() => {
     if (!filtersOpen) return;
     const background = [...document.querySelectorAll<HTMLElement>(
-      ".site-header, .trust-rail, .site-footer, .breadcrumb, .catalog-title",
+      ".site-header, .trust-rail, .site-footer, .breadcrumb, .catalog-carousel, .catalog-title",
     )];
     background.forEach((item) => item.setAttribute("inert", ""));
     resultsRef.current?.setAttribute("inert", "");
@@ -152,12 +152,7 @@ export function CatalogBrowser({
   if (state.onOffer) chips.push({ label: "En oferta", clear: () => void apply({ ...state, onOffer: undefined, page: 1 }) });
   Object.entries(state.attributes ?? {}).forEach(([name, values]) => values.forEach((value) => chips.push({ label: `${name}: ${value}`, clear: () => void apply({ ...state, attributes: { ...state.attributes, [name]: values.filter((item) => item !== value) }, page: 1 }) })));
 
-  return <>
-    <div className="catalog-title">
-      <h1>{state.q ? `Resultados para “${state.q}”` : "Todo el catálogo"}</h1>
-      <p>Elegí por categoría, marca, precio y disponibilidad.</p>
-    </div>
-    <div className="catalog-layout">
+  return <div className="catalog-layout">
       <button ref={triggerRef} className="filter-trigger button secondary" type="button" onClick={() => setFiltersOpen(true)} aria-expanded={filtersOpen} aria-controls="catalog-filters"><FunnelSimple size={19} /> Filtrar</button>
       <aside ref={sheetRef} id="catalog-filters" className={`filters ${filtersOpen ? "is-open" : ""}`} aria-label="Filtros de catálogo" role={filtersOpen ? "dialog" : undefined} aria-modal={filtersOpen || undefined}>
         <div className="filters-title"><h2>Filtrar</h2><button className="icon-button filter-close" type="button" aria-label="Cerrar filtros" onClick={close}><X size={20} /></button></div>
@@ -176,6 +171,5 @@ export function CatalogBrowser({
         {catalog.results.length ? <div className={`product-grid count-${Math.min(catalog.results.length, 4)}`}>{catalog.results.map((product, index) => <ProductCard product={product} key={product.id} priority={index < 2} />)}</div> : <div className="empty-state catalog-empty"><h2>No encontramos resultados</h2><p>Probá con otra búsqueda o quitá alguno de los filtros.</p><button className="button primary" type="button" disabled={pending} onClick={() => void apply({})}>Ver todo el catálogo</button></div>}
         {(catalog.previous || catalog.next) && <nav className="pagination" aria-label="Páginas del catálogo"><button type="button" disabled={!catalog.previous || pending} onClick={() => void apply({ ...state, page: Math.max(1, (state.page ?? 1) - 1) })}>Anterior</button><span>Página {state.page ?? 1}</span><button type="button" disabled={!catalog.next || pending} onClick={() => void apply({ ...state, page: (state.page ?? 1) + 1 })}>Siguiente</button></nav>}
       </section>
-    </div>
-  </>;
+    </div>;
 }

@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { Hero } from "@/components/home/hero";
+import { CatalogContentCarousel } from "@/components/catalog/catalog-content-carousel";
 import { PromotionCarousel } from "@/components/home/promotion-carousel";
 import { ScheduledPromotionPopup } from "@/components/home/promotion-popup";
 import { SiteHeader } from "@/components/layout/site-header";
@@ -77,6 +78,38 @@ describe("CMS campaign behavior", () => {
     expect(screen.getByRole("heading", { name: "Primera" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Hero anterior" }));
     expect(screen.getByRole("heading", { name: "Segunda" })).toBeVisible();
+  });
+
+  test("catalog content replaces its heading and exposes manual slide navigation", () => {
+    render(
+      <CatalogContentCarousel
+        fallbackBody="Elegí por categoría, marca, precio y disponibilidad."
+        fallbackTitle="Todo el catálogo"
+        slides={[
+          campaign(1, "Encontrá lo que necesitás", 30_000),
+          campaign(2, "Ofertas para aprovechar", 30_000),
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("region", { name: "Destacados del catálogo" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Encontrá lo que necesitás" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Contenido siguiente" }));
+    expect(screen.getByRole("heading", { name: "Ofertas para aprovechar" })).toBeVisible();
+    expect(screen.getByText("Contenido 2 de 2")).toHaveClass("sr-only");
+  });
+
+  test("catalog content keeps the useful title when no campaign is published", () => {
+    render(
+      <CatalogContentCarousel
+        fallbackBody="Elegí por categoría, marca, precio y disponibilidad."
+        fallbackTitle="Resultados para “cuaderno”"
+        slides={[]}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Resultados para “cuaderno”" })).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Destacados del catálogo" })).not.toBeInTheDocument();
   });
 
   test("hero and promotions expose direct segmented navigation without a visible technical counter", () => {

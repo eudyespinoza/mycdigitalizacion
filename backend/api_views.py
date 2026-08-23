@@ -7,7 +7,7 @@ from django.core import signing
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.middleware.csrf import get_token
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -117,6 +117,7 @@ from commerce.shipping import (
     create_shipping_quote_options,
 )
 from landing.models import (
+    CatalogSlide,
     HeroSlide,
     LandingCollection,
     PromotionPopup,
@@ -124,6 +125,8 @@ from landing.models import (
     SiteSettings,
 )
 from landing.serializers import (
+    CatalogContentSerializer,
+    CatalogSlideSerializer,
     HeroSlideSerializer,
     LandingCollectionSerializer,
     PromotionPopupSerializer,
@@ -461,6 +464,28 @@ class StorefrontHomeView(generics.GenericAPIView):
                 "promotion_slides": scheduled(PromotionSlide, PromotionSlideSerializer),
                 "collections": scheduled(LandingCollection, LandingCollectionSerializer),
                 "promotion_popups": scheduled(PromotionPopup, PromotionPopupSerializer),
+            }
+        )
+
+
+class CatalogContentView(generics.GenericAPIView):
+    permission_classes = (permissions.AllowAny,)
+    serializer_class = CatalogContentSerializer
+
+    @extend_schema(responses={200: CatalogContentSerializer})
+    def get(self, request):
+        now = timezone.now()
+        slides = CatalogSlide.objects.filter(enabled=True).filter(
+            (Q(starts_at__isnull=True) | Q(starts_at__lte=now))
+            & (Q(ends_at__isnull=True) | Q(ends_at__gte=now))
+        )
+        return Response(
+            {
+                "slides": CatalogSlideSerializer(
+                    slides,
+                    many=True,
+                    context={"request": request},
+                ).data
             }
         )
 
