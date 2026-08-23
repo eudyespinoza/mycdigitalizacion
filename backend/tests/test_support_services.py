@@ -8,6 +8,7 @@ from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image
 
+import support.services as support_services
 from support.access import issue_guest_session
 from support.models import SupportAttachment, SupportCase, SupportGuestAccess
 from support.services import append_message, claim_case, create_case
@@ -142,6 +143,8 @@ def test_create_case_returns_recovery_code_once_and_grants_guest_access():
     assert result.recovery_code not in result.case.recovery_code_hash
     assert SupportGuestAccess.objects.filter(case=result.case, session=session).exists()
     assert result.message.case_id == result.case.pk
+    result.case.refresh_from_db()
+    assert result.case.status == SupportCase.Status.WAITING_STAFF
 
     retry = create_case(
         actor=None,
@@ -157,6 +160,48 @@ def test_create_case_returns_recovery_code_once_and_grants_guest_access():
     )
     assert retry.case.pk == result.case.pk
     assert retry.recovery_code is None
+
+
+@pytest.mark.django_db
+def test_create_case_requires_a_stable_owner_boundary():
+    with pytest.raises(ValueError, match="authenticated actor or guest session"):
+        create_case(
+            actor=None,
+            guest_session=None,
+            payload={
+                "kind": "consultation",
+                "subject": "Consulta sin dueño",
+                "category": "productos",
+                "body": "Necesito ayuda",
+            },
+            files=[],
+            idempotency_key="missing-owner",
+        )
+
+
+@pytest.mark.django_db
+def test_transition_failure_after_attachment_persistence_cleans_private_files(
+    case, customer, monkeypatch, settings, tmp_path
+):
+    settings.SUPPORT_PRIVATE_MEDIA_ROOT = tmp_path
+
+    def fail_transition(*args, **kwargs):
+        raise RuntimeError("transition failed")
+
+    monkeypatch.setattr(support_services, "transition_after_message", fail_transition)
+
+    with pytest.raises(RuntimeError, match="transition failed"):
+        append_message(
+            case=case,
+            actor=customer,
+            role="customer",
+            body="Hola",
+            files=[png_upload()],
+            idempotency_key="transition-failure",
+        )
+
+    assert not case.messages.exists()
+    assert not [path for path in tmp_path.rglob("*") if path.is_file()]
 
 
 @pytest.mark.django_db

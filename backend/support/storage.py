@@ -68,6 +68,19 @@ def persist_validated_uploads(message, uploads):
     return attachments
 
 
+def delete_persisted_uploads(attachments):
+    storage = private_support_storage()
+    keys = {
+        key
+        for attachment in attachments
+        for key in (attachment.storage_key, attachment.thumbnail_storage_key)
+        if key
+    }
+    for key in keys:
+        if storage.exists(key):
+            storage.delete(key)
+
+
 def attachment_download_headers(attachment):
     safe_name = attachment.original_name.replace('"', "")
     return {

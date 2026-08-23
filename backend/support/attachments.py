@@ -31,6 +31,19 @@ ALLOWED_TYPES = {
     ".docx": {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
     ".xlsx": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
 }
+TEXT_SCRIPT_PREFIX = re.compile(
+    r"^\s*(?:"
+    r"@echo(?:\s+off)?\b|"
+    r"(?:powershell|pwsh)(?:\.exe)?\b|"
+    r"(?:wscript|cscript)(?:\.exe)?\b|"
+    r"dim\s+\w+\s*:.*\b(?:createobject|wscript\.shell)\b|"
+    r"<\?php\b|"
+    r"(?:/bin/)?(?:ba)?sh\b|"
+    r"python(?:\d(?:\.\d+)?)?\s+-[cm]\b|"
+    r"(?:javascript|vbscript)\s*:"
+    r")",
+    re.IGNORECASE,
+)
 
 
 class AttachmentValidationError(ValueError):
@@ -120,7 +133,11 @@ def _validate_text(content, extension):
         raise AttachmentValidationError(
             "El archivo de texto debe estar codificado en UTF-8"
         ) from error
-    if "\x00" in decoded or re.search(r"<\s*(?:!doctype|html|svg|script)\b", decoded, re.I):
+    if (
+        "\x00" in decoded
+        or re.search(r"<\s*(?:!doctype|html|svg|script)\b", decoded, re.I)
+        or TEXT_SCRIPT_PREFIX.search(decoded)
+    ):
         raise AttachmentValidationError("No se permiten archivos HTML ni scripts")
     return "text/csv" if extension == ".csv" else "text/plain"
 

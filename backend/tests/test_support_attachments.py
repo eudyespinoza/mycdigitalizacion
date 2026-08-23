@@ -43,6 +43,34 @@ def test_rejects_extension_mime_and_content_disguises():
         )
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"@echo off\r\nstart cmd.exe\r\n",
+        b"powershell -NoProfile -Command Write-Output bad\n",
+        b"wscript.exe malicious.vbs\n",
+        b'Dim shell: Set shell = CreateObject("WScript.Shell")\n',
+        b"<?php system('id'); ?>\n",
+        b"/bin/sh -c 'id'\n",
+        b'python -c "import os"\n',
+    ],
+)
+def test_rejects_script_launchers_disguised_as_text(content):
+    upload = SimpleUploadedFile("notas.txt", content, content_type="text/plain")
+
+    with pytest.raises(AttachmentValidationError):
+        validate_support_files([upload])
+
+
+def test_accepts_ordinary_text_and_csv():
+    text = SimpleUploadedFile("notas.txt", b"Gracias por la ayuda.", content_type="text/plain")
+    csv = SimpleUploadedFile("pedido.csv", b"sku,cantidad\nABC,2\n", content_type="text/csv")
+
+    validated = validate_support_files([text, csv])
+
+    assert [upload.detected_mime_type for upload in validated] == ["text/plain", "text/csv"]
+
+
 def test_rejects_archives_even_when_named_as_allowed_document():
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, "w") as file:
