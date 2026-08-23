@@ -246,7 +246,7 @@ services:
       target: production
       args: {API_INTERNAL_URL: http://backend:8000/api/v1, API_PROXY_TARGET: http://backend:8000}
     user: "1000:1000"
-    environment: {NODE_ENV: production, API_INTERNAL_URL: http://backend:8000/api/v1, API_PROXY_TARGET: http://backend:8000}
+    environment: {NODE_ENV: production, HOSTNAME: 0.0.0.0, API_INTERNAL_URL: http://backend:8000/api/v1, API_PROXY_TARGET: http://backend:8000}
     depends_on:
       config-check: {condition: service_completed_successfully}
       backend: {condition: service_healthy}

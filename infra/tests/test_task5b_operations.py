@@ -84,6 +84,7 @@ class ProductionContractTests(unittest.TestCase):
             self.assertIn("limits", service.get("deploy", {}).get("resources", {}), name)
         for name in {"frontend", "backend", "worker", "beat", "backup"}:
             self.assertNotEqual(str(compose["services"][name].get("user", "0")).split(":", 1)[0], "0", name)
+        self.assertEqual(compose["services"]["frontend"]["environment"]["HOSTNAME"], "0.0.0.0")
         self.assertTrue({"postgres_data", "media_data", "static_data", "backup_data", "caddy_data", "caddy_config"}.issubset(compose["volumes"]))
 
     def test_production_environment_rejects_placeholders_and_accepts_real_secrets(self) -> None:
