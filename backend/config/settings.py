@@ -408,7 +408,7 @@ MERCADOPAGO_OAUTH_REDIRECT_URI = environ.get("MERCADOPAGO_OAUTH_REDIRECT_URI", "
 )
 MERCADOPAGO_OAUTH_AUTH_URL = environ.get(
     "MERCADOPAGO_OAUTH_AUTH_URL",
-    "https://auth.mercadopago.com/authorization",
+    "https://auth.mercadopago.com.ar/authorization",
 )
 MERCADOPAGO_OAUTH_TOKEN_URL = environ.get(
     "MERCADOPAGO_OAUTH_TOKEN_URL",

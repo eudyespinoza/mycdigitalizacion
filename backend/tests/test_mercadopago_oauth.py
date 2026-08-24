@@ -170,7 +170,7 @@ def test_authorization_session_uses_static_redirect_state_and_pkce_s256(django_u
     query = parse_qs(urlsplit(authorization_url).query)
 
     assert urlsplit(authorization_url)._replace(query="").geturl() == (
-        "https://auth.mercadopago.com/authorization"
+        "https://auth.mercadopago.com.ar/authorization"
     )
     assert query["client_id"] == ["1234567890123456"]
     assert query["response_type"] == ["code"]
