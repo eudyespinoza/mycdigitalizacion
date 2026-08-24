@@ -171,6 +171,44 @@ def test_authenticated_creation_cannot_spoof_contact_snapshot(api_client, django
     assert created.contact_email == "real@example.test"
 
 
+def test_authenticated_creation_ignores_malformed_contact_values_before_field_validation(
+    api_client, django_user_model
+):
+    customer = django_user_model.objects.create_user("safe@example.test", password="password")
+    Profile.objects.create(user=customer, first_name="Cuenta", last_name="Segura")
+    api_client.force_login(customer)
+
+    response = api_client.post(
+        "/api/v1/support/cases/",
+        guest_payload(
+            contact_name="x" * 181,
+            contact_email="no-es-un-correo",
+            idempotency_key="authenticated-create-malformed-contact",
+        ),
+        format="multipart",
+    )
+
+    assert response.status_code == 201
+    created = SupportCase.objects.get(public_id=response.json()["public_id"])
+    assert created.contact_name == "Cuenta Segura"
+    assert created.contact_email == "safe@example.test"
+
+
+def test_guest_creation_rejects_malformed_contact_values(api_client):
+    response = api_client.post(
+        "/api/v1/support/cases/",
+        guest_payload(
+            contact_name="x" * 181,
+            contact_email="no-es-un-correo",
+            idempotency_key="guest-create-malformed-contact",
+        ),
+        format="multipart",
+    )
+
+    assert response.status_code == 400
+    assert {"contact_name", "contact_email"} <= response.json().keys()
+
+
 def test_guest_creation_requires_contact_fields_with_spanish_errors(api_client):
     response = api_client.post(
         "/api/v1/support/cases/",

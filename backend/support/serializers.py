@@ -96,6 +96,14 @@ class SupportCaseCreateSerializer(serializers.Serializer):
         child=serializers.FileField(), required=False, write_only=True
     )
 
+    def to_internal_value(self, data):
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            data = data.copy() if hasattr(data, "copy") else dict(data)
+            data.pop("contact_name", None)
+            data.pop("contact_email", None)
+        return super().to_internal_value(data)
+
     def validate(self, attrs):
         if attrs["category"] not in SUPPORT_CATEGORIES[attrs["kind"]]:
             raise serializers.ValidationError(
