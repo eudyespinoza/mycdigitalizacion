@@ -13,16 +13,24 @@ function dateLabel(value: string) {
   return Number.isNaN(date.getTime()) ? "Fecha no disponible" : new Intl.DateTimeFormat("es-AR", { dateStyle: "medium", timeStyle: "short" }).format(date).replace(/[\u00a0\u202f]/g, " ");
 }
 
+function assigneeFailure(cause: unknown) {
+  const forbidden = typeof cause === "object" && cause !== null && "status" in cause && cause.status === 403;
+  return forbidden
+    ? { message: "No tenés permiso para asignar responsables.", retryable: false }
+    : { message: "No pudimos cargar las personas disponibles para asignar. Reintentá.", retryable: true };
+}
+
 function attachmentLink(publicId: string, preview = false) {
   return managementSupportAttachmentDownloadUrl(publicId, preview);
 }
 
-export function ManagementSupportCasePanel({ initialCase, initialAssignees = [], initialAssigneeError = "" }: { initialCase: ManagementSupportCaseDetail; initialAssignees?: ManagementSupportUser[]; initialAssigneeError?: string }) {
+export function ManagementSupportCasePanel({ initialCase, initialAssignees = [], initialAssigneeError = "", initialAssigneeRetryable = true }: { initialCase: ManagementSupportCaseDetail; initialAssignees?: ManagementSupportUser[]; initialAssigneeError?: string; initialAssigneeRetryable?: boolean }) {
   const [supportCase, setSupportCase] = useState(initialCase);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [assignees, setAssignees] = useState(initialAssignees);
   const [assigneeError, setAssigneeError] = useState(initialAssigneeError);
+  const [assigneeRetryable, setAssigneeRetryable] = useState(initialAssigneeRetryable);
   const [assigneesLoading, setAssigneesLoading] = useState(false);
 
   async function patch(change: Record<string, string | number | null>) {
@@ -57,11 +65,14 @@ export function ManagementSupportCasePanel({ initialCase, initialAssignees = [],
   async function reloadAssignees() {
     setAssigneesLoading(true);
     setAssigneeError("");
+    setAssigneeRetryable(true);
     try {
       const result = await managementRequest<ManagementSupportAssigneeList>("/support/assignees/");
       setAssignees(result.results);
-    } catch {
-      setAssigneeError("No pudimos cargar las personas disponibles para asignar. Reintentá.");
+    } catch (cause) {
+      const failure = assigneeFailure(cause);
+      setAssigneeError(failure.message);
+      setAssigneeRetryable(failure.retryable);
     } finally {
       setAssigneesLoading(false);
     }
@@ -77,7 +88,7 @@ export function ManagementSupportCasePanel({ initialCase, initialAssignees = [],
       <label>Prioridad del caso<select disabled={busy} onChange={(event) => void patch({ priority: event.target.value })} value={supportCase.priority}>{Object.entries(managementSupportLabels.priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <label>Asignar a<select disabled={busy || assigneesLoading || Boolean(assigneeError)} onChange={(event) => void patch({ assigned_to: event.target.value ? Number(event.target.value) : null })} value={supportCase.assigned_to?.id ?? ""}><option value="">Sin asignar</option>{assignees.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
     </div>
-    {assigneeError ? <p className="inline-error" role="alert">{assigneeError} <button className="text-button" disabled={assigneesLoading} onClick={() => void reloadAssignees()} type="button">Reintentar</button></p> : null}
+    {assigneeError ? <p className="inline-error" role="alert">{assigneeError} {assigneeRetryable ? <button className="text-button" disabled={assigneesLoading} onClick={() => void reloadAssignees()} type="button">Reintentar</button> : null}</p> : null}
     <ol aria-label="Mensajes del caso" className="support-message-list">{[...supportCase.messages].sort((left, right) => left.created_at.localeCompare(right.created_at) || left.id - right.id).map((message) => <li key={message.id}><article className="support-message"><header><strong>{message.author_role === "staff" ? message.author?.name || "Equipo de atención" : message.author?.name || "Cliente"}</strong><time dateTime={message.created_at}>{dateLabel(message.created_at)}</time></header><p>{message.body}</p>{message.attachments.map((attachment) => <p key={attachment.public_id}><a download href={attachmentLink(attachment.public_id)}>Descargar {attachment.original_name}</a></p>)}</article></li>)}</ol>
     {closed ? <p role="status">Este caso está cerrado y no admite nuevas respuestas.</p> : <MessageComposer disabled={busy} onSend={reply} />}
   </section>;

@@ -9,8 +9,11 @@ export default async function ManagementSupportPage({ searchParams }: { searchPa
   const [data, assigneeResult] = await Promise.all([
     managementServerGet<ManagementSupportCaseList>(`/support/cases/${query.size ? `?${query}` : ""}`),
     managementServerGet<ManagementSupportAssigneeList>("/support/assignees/")
-      .then((result) => ({ assignees: result.results, error: "" }))
-      .catch(() => ({ assignees: [], error: "No pudimos cargar las personas disponibles para asignar. Reintentá." })),
+      .then((result) => ({ assignees: result.results, error: "", retryable: true }))
+      .catch((cause) => {
+        const forbidden = typeof cause === "object" && cause !== null && "status" in cause && cause.status === 403;
+        return { assignees: [], error: forbidden ? "No tenés permiso para asignar responsables." : "No pudimos cargar las personas disponibles para asignar. Reintentá.", retryable: !forbidden };
+      }),
   ]);
-  return <div className="management-page"><ManagementSupportInbox initialAssigneeError={assigneeResult.error} initialAssignees={assigneeResult.assignees} initialData={data} initialFilters={filters} /></div>;
+  return <div className="management-page"><ManagementSupportInbox initialAssigneeError={assigneeResult.error} initialAssigneeRetryable={assigneeResult.retryable} initialAssignees={assigneeResult.assignees} initialData={data} initialFilters={filters} /></div>;
 }

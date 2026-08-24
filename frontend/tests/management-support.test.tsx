@@ -5,11 +5,13 @@ import ManagementSupportPage from "@/app/gestion/consultas/page";
 import { ManagementSupportCasePanel } from "@/components/management/support-case-panel";
 import { ManagementSupportInbox } from "@/components/management/support-inbox";
 import { ManagementNav } from "@/components/management/management-nav";
+import { ApiError } from "@/lib/api";
 
-const { managementRequest, managementServerGet, createSupportIdempotencyKey } = vi.hoisted(() => ({
+const { managementRequest, managementServerGet, createSupportIdempotencyKey, router } = vi.hoisted(() => ({
   managementRequest: vi.fn(),
   managementServerGet: vi.fn(),
   createSupportIdempotencyKey: vi.fn(() => "support-reply-key"),
+  router: { push: vi.fn(), replace: vi.fn(), refresh: vi.fn() },
 }));
 
 vi.mock("@/lib/management/api", () => ({ managementRequest }));
@@ -17,7 +19,7 @@ vi.mock("@/lib/management/server-api", () => ({
   managementServerGet,
 }));
 vi.mock("@/lib/support/api", () => ({ createSupportIdempotencyKey }));
-vi.mock("next/navigation", () => ({ usePathname: () => "/gestion/consultas" }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/gestion/consultas", useRouter: () => router }));
 
 const supportCase = {
   public_id: "case-1",
@@ -62,6 +64,9 @@ describe("bandeja de soporte de gestión", () => {
   beforeEach(() => {
     vi.useRealTimers();
     managementRequest.mockReset();
+    router.push.mockReset();
+    router.replace.mockReset();
+    router.refresh.mockReset();
     managementServerGet.mockReset().mockImplementation((path: string) => {
       if (path.startsWith("/support/cases")) return Promise.resolve({ count: 1, next: null, previous: null, results: [supportCase] });
       return Promise.resolve({ results: staff });
@@ -155,6 +160,9 @@ describe("bandeja de soporte de gestión", () => {
   });
 
   test("responde y actualiza el hilo sin recargar la página", async () => {
+    const pushState = vi.spyOn(window.history, "pushState");
+    const replaceState = vi.spyOn(window.history, "replaceState");
+    const locationBeforeReply = window.location.href;
     const message = { ...supportCase.messages[0], id: 2, author_role: "staff" as const, body: "Respuesta del equipo" };
     managementRequest.mockResolvedValue(message);
     render(<ManagementSupportCasePanel initialAssignees={staff} initialCase={supportCase} />);
@@ -173,6 +181,14 @@ describe("bandeja de soporte de gestión", () => {
     expect(body.getAll("attachments")).toEqual([attachment]);
     expect(await screen.findByText("Respuesta del equipo")).toBeVisible();
     expect(screen.queryByText("respuesta.txt")).not.toBeInTheDocument();
+    expect(window.location.href).toBe(locationBeforeReply);
+    expect(pushState).not.toHaveBeenCalled();
+    expect(replaceState).not.toHaveBeenCalled();
+    expect(router.push).not.toHaveBeenCalled();
+    expect(router.replace).not.toHaveBeenCalled();
+    expect(router.refresh).not.toHaveBeenCalled();
+    pushState.mockRestore();
+    replaceState.mockRestore();
   });
 
   test("reemplaza el caso con la respuesta autoritativa del PATCH y conserva el estado ante error", async () => {
@@ -209,6 +225,19 @@ describe("bandeja de soporte de gestión", () => {
 
     expect(await screen.findByRole("option", { name: "Equipo Atención" })).toHaveValue("8");
     expect(managementRequest).toHaveBeenCalledWith("/support/assignees/");
+  });
+
+  test("deshabilita la asignación si atención sólo puede responder", async () => {
+    managementRequest.mockRejectedValueOnce(new ApiError(403, "permission_denied", "No autorizado."));
+    render(<ManagementSupportCasePanel initialAssigneeError="No pudimos cargar las personas disponibles para asignar. Reintentá." initialCase={supportCase} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+
+    expect(await screen.findByText("No tenés permiso para asignar responsables.")).toBeVisible();
+    expect(screen.getByLabelText("Asignar a")).toBeDisabled();
+    expect(screen.getByLabelText("Estado del caso")).not.toBeDisabled();
+    expect(screen.getByLabelText("Prioridad del caso")).not.toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Reintentar" })).not.toBeInTheDocument();
   });
 
   test("muestra un contador de pendientes accesible y tolera que falle el resumen", async () => {

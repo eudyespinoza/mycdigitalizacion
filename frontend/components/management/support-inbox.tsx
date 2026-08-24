@@ -35,17 +35,25 @@ function contactLabel(item: ManagementSupportCase) {
   return item.contact_name || item.customer?.name || item.contact_email || "Sin contacto";
 }
 
+function assigneeFailure(cause: unknown) {
+  const forbidden = typeof cause === "object" && cause !== null && "status" in cause && cause.status === 403;
+  return forbidden
+    ? { message: "No tenés permiso para asignar responsables.", retryable: false }
+    : { message: "No pudimos cargar las personas disponibles para asignar. Reintentá.", retryable: true };
+}
+
 function FilterSelect<T extends string>({ label, value, onChange, options }: { label: string; value?: T; onChange: (value: T | "") => void; options: readonly [T, string][] }) {
   return <label>{label}<select aria-label={label} onChange={(event) => onChange(event.target.value as T | "")} value={value ?? ""}><option value="">Todas</option>{options.map(([option, name]) => <option key={option} value={option}>{name}</option>)}</select></label>;
 }
 
-export function ManagementSupportInbox({ initialData, initialFilters, initialAssignees = [], initialAssigneeError = "" }: { initialData: ManagementSupportCaseList; initialFilters: ManagementSupportFilters; initialAssignees?: ManagementSupportUser[]; initialAssigneeError?: string }) {
+export function ManagementSupportInbox({ initialData, initialFilters, initialAssignees = [], initialAssigneeError = "", initialAssigneeRetryable = true }: { initialData: ManagementSupportCaseList; initialFilters: ManagementSupportFilters; initialAssignees?: ManagementSupportUser[]; initialAssigneeError?: string; initialAssigneeRetryable?: boolean }) {
   const [filters, setFilters] = useState(initialFilters);
   const [data, setData] = useState(initialData);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [assignees, setAssignees] = useState(initialAssignees);
   const [assigneeError, setAssigneeError] = useState(initialAssigneeError);
+  const [assigneeRetryable, setAssigneeRetryable] = useState(initialAssigneeRetryable);
   const [assigneesLoading, setAssigneesLoading] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestId = useRef(0);
@@ -71,11 +79,14 @@ export function ManagementSupportInbox({ initialData, initialFilters, initialAss
   async function reloadAssignees() {
     setAssigneesLoading(true);
     setAssigneeError("");
+    setAssigneeRetryable(true);
     try {
       const result = await managementRequest<ManagementSupportAssigneeList>("/support/assignees/");
       setAssignees(result.results);
-    } catch {
-      setAssigneeError("No pudimos cargar las personas disponibles para asignar. Reintentá.");
+    } catch (cause) {
+      const failure = assigneeFailure(cause);
+      setAssigneeError(failure.message);
+      setAssigneeRetryable(failure.retryable);
     } finally {
       setAssigneesLoading(false);
     }
@@ -103,12 +114,12 @@ export function ManagementSupportInbox({ initialData, initialFilters, initialAss
       <FilterSelect label="Tipo" onChange={(value) => changeFilter("kind", value)} options={Object.entries(kindLabels) as [SupportCaseKind, string][]} value={filters.kind} />
       <FilterSelect label="Estado" onChange={(value) => changeFilter("status", value)} options={Object.entries(statusLabels) as [SupportCaseStatus, string][]} value={filters.status} />
       <FilterSelect label="Prioridad" onChange={(value) => changeFilter("priority", value)} options={Object.entries(priorityLabels) as [ManagementSupportPriority, string][]} value={filters.priority} />
-      <label>Asignación<select aria-label="Asignación" disabled={assigneesLoading} onChange={(event) => changeFilter("assignee", event.target.value)} value={filters.assignee ?? ""}><option value="">Todas</option><option value="unassigned">Sin asignar</option>{assignees.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
+      <label>Asignación<select aria-label="Asignación" disabled={assigneesLoading || Boolean(assigneeError)} onChange={(event) => changeFilter("assignee", event.target.value)} value={filters.assignee ?? ""}><option value="">Todas</option><option value="unassigned">Sin asignar</option>{assignees.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
       <label><input aria-label="Sólo pendientes" checked={filters.pending === "1"} onChange={(event) => changeFilter("pending", event.target.checked ? "1" : "")} type="checkbox" /> Pendientes</label>
       <label><input aria-label="Sólo sin leer" checked={filters.unread === "1"} onChange={(event) => changeFilter("unread", event.target.checked ? "1" : "")} type="checkbox" /> Sin leer</label>
       <label><span className="sr-only">Buscar consultas</span><input aria-label="Buscar consultas" defaultValue={filters.search} onChange={(event) => changeFilter("search", event.target.value, true)} placeholder="Buscar número, asunto o contacto" type="search" /></label>
     </div>
-    {assigneeError ? <p className="inline-error" role="alert">{assigneeError} <button className="text-button" disabled={assigneesLoading} onClick={() => void reloadAssignees()} type="button">Reintentar</button></p> : null}
+    {assigneeError ? <p className="inline-error" role="alert">{assigneeError} {assigneeRetryable ? <button className="text-button" disabled={assigneesLoading} onClick={() => void reloadAssignees()} type="button">Reintentar</button> : null}</p> : null}
     {loading ? <p role="status">Cargando consultas...</p> : null}
     {error ? <p className="inline-error" role="alert">{error} <button className="text-button" onClick={() => void load(filters)} type="button">Reintentar</button></p> : null}
     <div className="management-table-wrap">

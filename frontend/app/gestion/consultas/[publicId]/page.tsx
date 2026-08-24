@@ -7,8 +7,11 @@ export default async function ManagementSupportCasePage({ params }: { params: Pr
   const [supportCase, assigneeResult] = await Promise.all([
     managementServerGet<ManagementSupportCaseDetail>(`/support/cases/${publicId}/`),
     managementServerGet<ManagementSupportAssigneeList>("/support/assignees/")
-      .then((result) => ({ assignees: result.results, error: "" }))
-      .catch(() => ({ assignees: [], error: "No pudimos cargar las personas disponibles para asignar. Reintentá." })),
+      .then((result) => ({ assignees: result.results, error: "", retryable: true }))
+      .catch((cause) => {
+        const forbidden = typeof cause === "object" && cause !== null && "status" in cause && cause.status === 403;
+        return { assignees: [], error: forbidden ? "No tenés permiso para asignar responsables." : "No pudimos cargar las personas disponibles para asignar. Reintentá.", retryable: !forbidden };
+      }),
   ]);
-  return <div className="management-page"><ManagementSupportCasePanel initialAssigneeError={assigneeResult.error} initialAssignees={assigneeResult.assignees} initialCase={supportCase} /></div>;
+  return <div className="management-page"><ManagementSupportCasePanel initialAssigneeError={assigneeResult.error} initialAssigneeRetryable={assigneeResult.retryable} initialAssignees={assigneeResult.assignees} initialCase={supportCase} /></div>;
 }
