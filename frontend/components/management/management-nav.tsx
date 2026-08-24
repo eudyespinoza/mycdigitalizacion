@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+import { managementRequest } from "@/lib/management/api";
 
 
 const sections = [
@@ -11,6 +13,7 @@ const sections = [
   ["Inventario", "/gestion/inventario"],
   ["Pedidos", "/gestion/pedidos"],
   ["Clientes", "/gestion/clientes"],
+  ["Consultas", "/gestion/consultas"],
   ["Contenido", "/gestion/contenido"],
   ["Promociones", "/gestion/promociones"],
   ["Envíos", "/gestion/envios"],
@@ -24,6 +27,14 @@ const sections = [
 export function ManagementNav() {
   const pathname = usePathname() ?? "";
   const [open, setOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    let active = true;
+    void managementRequest<{ unread: number }>("/support/summary/")
+      .then((summary) => { if (active) setUnread(summary.unread); })
+      .catch(() => { if (active) setUnread(0); });
+    return () => { active = false; };
+  }, []);
   const current = sections.find(([, href]) => href === "/gestion" ? pathname === href : pathname.startsWith(href))?.[0] ?? "Gestión";
   return (
     <div className="management-navigation">
@@ -40,7 +51,8 @@ export function ManagementNav() {
       <nav aria-label="Gestión de la tienda" className="management-nav" data-open={open} id="management-menu">
         {sections.map(([label, href]) => {
           const active = href === "/gestion" ? pathname === href : pathname.startsWith(href);
-          return <Link aria-current={active ? "page" : undefined} href={href} key={href} onClick={() => setOpen(false)}>{label}</Link>;
+          const name = label === "Consultas" ? unread ? `Consultas, ${unread} sin leer` : "Consultas, sin consultas sin leer" : label;
+          return <Link aria-current={active ? "page" : undefined} aria-label={name} href={href} key={href} onClick={() => setOpen(false)}>{label}{label === "Consultas" && unread ? <span aria-hidden="true">{unread}</span> : null}</Link>;
         })}
       </nav>
     </div>
