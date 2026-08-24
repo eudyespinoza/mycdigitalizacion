@@ -64,7 +64,7 @@ describe("presencia social configurable", () => {
       </BrandProvider>,
     );
 
-    expect(screen.getByText("Tienda Demo")).toBeVisible();
+    expect(screen.getByRole("img", { name: "Logo de Tienda Demo" })).toBeVisible();
     expect(screen.getByRole("link", { name: "hola@tienda.test" })).toHaveAttribute(
       "href",
       "mailto:hola@tienda.test",

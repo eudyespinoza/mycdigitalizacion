@@ -349,6 +349,10 @@ AUTH_PASSWORD_VALIDATORS = [
 SPECTACULAR_SETTINGS = {
     "TITLE": "mycdigitalizacion API",
     "VERSION": "1.0.0",
+    "ENUM_NAME_OVERRIDES": {
+        "SupportCaseKindEnum": "support.models.SupportCase.Kind",
+        "SupportCaseStatusEnum": "support.models.SupportCase.Status",
+    },
     "APPEND_COMPONENTS": {
         "securitySchemes": {
             "supportGuestCookie": {

@@ -35,7 +35,7 @@ class ManagementSupportUserSerializer(serializers.ModelSerializer):
         model = get_user_model()
         fields = ("id", "email", "name")
 
-    def get_name(self, user):
+    def get_name(self, user) -> str:
         return user.get_full_name().strip() or user.email
 
 
@@ -43,7 +43,7 @@ class ManagementSupportAttachmentSerializer(SupportAttachmentSerializer):
     class Meta(SupportAttachmentSerializer.Meta):
         fields = SupportAttachmentSerializer.Meta.fields
 
-    def get_preview_url(self, attachment):
+    def get_preview_url(self, attachment) -> str | None:
         if not attachment.thumbnail_storage_key:
             return None
         request = self.context.get("request")
@@ -133,6 +133,11 @@ class ManagementSupportMessageCreateSerializer(serializers.Serializer):
         if not attrs["idempotency_key"].strip():
             raise serializers.ValidationError({"idempotency_key": "La clave es obligatoria."})
         return attrs
+
+
+class ManagementSupportSummarySerializer(serializers.Serializer):
+    pending = serializers.IntegerField(min_value=0)
+    unread = serializers.IntegerField(min_value=0)
 
 
 class ManagementSupportCategorySerializer(serializers.ModelSerializer):

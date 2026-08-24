@@ -20,6 +20,7 @@ from support.management_serializers import (
     ManagementSupportCategorySerializer,
     ManagementSupportMessageCreateSerializer,
     ManagementSupportMessageSerializer,
+    ManagementSupportSummarySerializer,
     ManagementSupportUserSerializer,
     support_assignee_queryset,
 )
@@ -210,6 +211,7 @@ class ManagementSupportCaseDetailView(APIView):
         )
         return (permission_class(),)
 
+    @extend_schema(responses={200: ManagementSupportCaseDetailSerializer})
     def get(self, request, public_id):
         case = self.get_case()
         SupportCase.objects.filter(pk=case.pk).update(staff_last_read_at=timezone.now())
@@ -218,6 +220,10 @@ class ManagementSupportCaseDetailView(APIView):
         )
         return Response(serializer.data)
 
+    @extend_schema(
+        request=ManagementSupportCaseUpdateSerializer,
+        responses={200: ManagementSupportCaseDetailSerializer},
+    )
     @transaction.atomic
     def patch(self, request, public_id):
         case = get_object_or_404(
@@ -361,6 +367,7 @@ class ManagementSupportAttachmentDownloadView(APIView):
 class ManagementSupportSummaryView(APIView):
     permission_classes = (CanManageSupportCases,)
 
+    @extend_schema(responses={200: ManagementSupportSummarySerializer})
     def get(self, request):
         awaiting_staff = Q(status__in=(SupportCase.Status.NEW, SupportCase.Status.WAITING_STAFF))
         return Response(
