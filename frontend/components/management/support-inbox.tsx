@@ -123,7 +123,7 @@ export function ManagementSupportInbox({ initialData, initialFilters, initialAss
     {loading ? <p role="status">Cargando consultas...</p> : null}
     {error ? <p className="inline-error" role="alert">{error} <button className="text-button" onClick={() => void load(filters)} type="button">Reintentar</button></p> : null}
     <div className="management-table-wrap">
-      <table aria-label="Consultas y problemas" className="management-table">
+      <table aria-label="Consultas y problemas" className="management-table management-support-table">
         <thead><tr><th>Número</th><th>Consulta</th><th>Tipo</th><th>Estado</th><th>Prioridad</th><th>Asignada a</th><th>Actualizada</th><th>Sin leer</th></tr></thead>
         <tbody>{data.results.map((item) => <tr key={item.public_id}>
           <td><Link aria-label={`Abrir ${item.case_number}: ${item.subject}`} href={`/gestion/consultas/${item.public_id}`}>{item.case_number}</Link></td>

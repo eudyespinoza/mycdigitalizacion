@@ -39,7 +39,22 @@ const supportCase = (public_id, status = "waiting_staff") => ({
   resolved_at: null,
   closed_at: status === "closed" ? supportTimestamp : null,
   staff_last_read_at: null,
-  messages: [{ id: 1, author: null, author_role: "guest", body: "Necesito ayuda con este producto.", created_at: "2026-08-23T13:30:00Z", attachments: [] }],
+  messages: [{
+    id: 1,
+    author: null,
+    author_role: "guest",
+    body: "Necesito ayuda con este producto.",
+    created_at: "2026-08-23T13:30:00Z",
+    attachments: [{
+      public_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      original_name: "captura.png",
+      detected_mime_type: "image/png",
+      size_bytes: 2048,
+      is_image: true,
+      preview_url: "/api/v1/support/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/?preview=1",
+      created_at: "2026-08-23T13:30:00Z",
+    }],
+  }],
 });
 const supportSummary = (item) => (({ public_id, case_number, kind, subject, category, status, updated_at }) => ({ public_id, case_number, kind, subject, category, status, updated_at }))(item);
 const supportMessage = (message) => (({ id, author_role, body, created_at, attachments }) => ({ id, author_role, body, created_at, attachments }))(message);
@@ -90,10 +105,32 @@ http.createServer(async (request, response) => {
   if (path === "/api/v1/management/support/assignees" && request.method === "GET") return json(response, 200, { results: [supportStaff] });
   if (path === "/api/v1/management/support/summary" && request.method === "GET") return json(response, 200, { pending: state.supportCases.filter((item) => ["new", "waiting_staff"].includes(item.status)).length, unread: state.supportCases.filter((item) => item.unread).length });
   if (path === "/api/v1/management/support/cases" && request.method === "GET") {
+    const kind = url.searchParams.get("kind");
     const status = url.searchParams.get("status");
+    const priority = url.searchParams.get("priority");
+    const assignee = url.searchParams.get("assignee");
+    const pending = ["1", "true"].includes((url.searchParams.get("pending") ?? "").toLowerCase());
+    const unread = ["1", "true"].includes((url.searchParams.get("unread") ?? "").toLowerCase());
     const search = url.searchParams.get("search")?.toLowerCase();
-    const results = state.supportCases.filter((item) => (!status || item.status === status) && (!search || `${item.case_number} ${item.subject} ${item.contact_name} ${item.contact_email}`.toLowerCase().includes(search)));
+    const results = state.supportCases.filter((item) => (
+      (!kind || item.kind === kind)
+      && (!status || item.status === status)
+      && (!priority || item.priority === priority)
+      && (!assignee || (assignee === "unassigned" ? item.assigned_to === null : String(item.assigned_to?.id ?? "") === assignee))
+      && (!pending || ["new", "waiting_staff"].includes(item.status))
+      && (!unread || item.unread)
+      && (!search || `${item.case_number} ${item.subject} ${item.contact_name} ${item.contact_email}`.toLowerCase().includes(search))
+    ));
     return json(response, 200, { count: results.length, next: null, previous: null, results });
+  }
+  if (path.startsWith("/api/v1/management/support/attachments/") && request.method === "GET") {
+    response.writeHead(200, {
+      "content-type": url.searchParams.get("preview") === "1" ? "image/webp" : "image/png",
+      "content-disposition": `${url.searchParams.get("preview") === "1" ? "inline" : "attachment"}; filename="adjunto.png"`,
+      "x-content-type-options": "nosniff",
+    });
+    response.end(image);
+    return;
   }
   if (path.startsWith("/api/v1/management/support/cases/") && path.endsWith("/messages") && request.method === "POST") {
     if (!validateCsrf(request, response)) return;
@@ -112,7 +149,10 @@ http.createServer(async (request, response) => {
   }
   if (path.startsWith("/api/v1/management/support/cases/") && request.method === "GET") {
     const item = supportCaseFor(path.split("/")[6]);
-    return item ? json(response, 200, supportManagementDetail(item)) : json(response, 404, { detail: "Consulta no encontrada." });
+    if (!item) return json(response, 404, { detail: "Consulta no encontrada." });
+    item.staff_last_read_at = new Date().toISOString();
+    item.unread = false;
+    return json(response, 200, supportManagementDetail(item));
   }
   if (path === "/api/v1/support/configuration" && request.method === "GET") return json(response, 200, { authenticated: true, email_available: false, categories: { consultation: ["productos", "compra", "envios", "pagos", "facturacion", "otra"], problem: ["pedido", "pago", "envio", "producto", "cuenta", "sitio", "otro"] }, limits: { max_files: 5, max_file_size_bytes: 10485760, max_total_size_bytes: 31457280 } });
   if (path === "/api/v1/support/cases" && request.method === "GET") return json(response, 200, { results: state.supportCases.map(supportSummary) });
@@ -120,6 +160,8 @@ http.createServer(async (request, response) => {
     if (!validateCsrf(request, response)) return;
     const publicId = "33333333-3333-4333-8333-333333333333";
     const created = supportCase(publicId);
+    created.kind = supportFormValue(body, "kind") || "consultation";
+    created.case_number = created.kind === "problem" ? "PRO-2026-000125" : "CON-2026-000125";
     created.subject = supportFormValue(body, "subject") || "Consulta creada";
     created.category = supportFormValue(body, "category") || "productos";
     created.messages[0].body = supportFormValue(body, "body") || "Mensaje inicial";
@@ -130,6 +172,22 @@ http.createServer(async (request, response) => {
     if (!validateCsrf(request, response)) return;
     const item = state.supportCases.find((candidate) => candidate.case_number === body.case_number);
     return item && body.code === "REC-1234" ? json(response, 200, supportPublicDetail(item)) : json(response, 400, { code: ["El código privado no es válido."] });
+  }
+  if (path.startsWith("/api/v1/support/attachments/") && request.method === "GET") {
+    response.writeHead(200, {
+      "content-type": url.searchParams.get("preview") === "1" ? "image/webp" : "image/png",
+      "content-disposition": `${url.searchParams.get("preview") === "1" ? "inline" : "attachment"}; filename="adjunto.png"`,
+      "x-content-type-options": "nosniff",
+    });
+    response.end(image);
+    return;
+  }
+  if (path.startsWith("/api/v1/support/cases/") && path.endsWith("/claim") && request.method === "POST") {
+    if (!validateCsrf(request, response)) return;
+    const item = supportCaseFor(path.split("/")[5]);
+    if (!item || body.code !== "REC-1234") return json(response, 400, { code: ["El código privado no es válido."] });
+    item.customer = { id: state.customer.id, email: state.customer.email, name: `${state.customer.profile.first_name} ${state.customer.profile.last_name}`.trim() };
+    return json(response, 200, supportPublicDetail(item));
   }
   if (path.startsWith("/api/v1/support/cases/") && path.endsWith("/messages") && request.method === "POST") {
     if (!validateCsrf(request, response)) return;

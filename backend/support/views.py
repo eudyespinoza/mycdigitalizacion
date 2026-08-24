@@ -269,7 +269,13 @@ class SupportAttachmentDownloadView(APIView):
     @extend_schema(
         operation_id="support_attachment_download",
         parameters=[],
-        responses={200: OpenApiTypes.BINARY, 404: OpenApiResponse(description="No encontrado.")},
+        responses={
+            (200, "application/octet-stream"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description="Adjunto privado del caso; requiere una sesión de cliente o acceso privado de invitado.",
+            ),
+            404: OpenApiResponse(description="No encontrado."),
+        },
         tags=("Soporte",),
     )
     def get(self, request, public_id):

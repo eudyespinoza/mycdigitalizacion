@@ -70,7 +70,7 @@ class SupportCaseDetailSerializer(SupportCaseSummarySerializer):
 
 
 class SupportCaseCreatedSerializer(SupportCaseDetailSerializer):
-    recovery_code = serializers.CharField(read_only=True, required=False)
+    recovery_code = serializers.CharField(required=False)
 
     class Meta(SupportCaseDetailSerializer.Meta):
         fields = SupportCaseDetailSerializer.Meta.fields + ("recovery_code",)

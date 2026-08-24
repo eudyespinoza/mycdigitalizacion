@@ -657,7 +657,8 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .management-line-list span, .management-audit-list li { display: grid; gap: 3px; }
 .management-line-list small, .management-audit-list span { color: var(--muted); }
 .management-audit-list { display: grid; gap: 16px; }
-.management-audit-list li { padding-left: 16px; border-left: 3px solid var(--cyan); }
+.management-audit-list li { padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.management-audit-list li:last-child { padding-bottom: 0; border-bottom: 0; }
 .button.danger { background: #fff0f3; color: #8a1535; border: 1px solid #f3a7bd; }
 .status-paid { background: #dff8f1; color: #00614f; }
 .status-failed, .status-needs_attention { background: #ffe2e8; color: #8a1535; }
@@ -904,6 +905,11 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .support-recovery-code { width: fit-content; max-width: 100%; overflow-wrap: anywhere; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-elevated); color: var(--blue); font-variant-numeric: tabular-nums; }
 .support-case-form, .support-recovery-form { margin: 0; }
 .support-case-form .helper { margin: 0; }
+.support-create-panel h1:focus { outline: none; }
+.support-attachment-label { font-weight: 850; }
+.support-case-form input[type="file"] { width: 1px; min-height: 1px; padding: 0; overflow: hidden; position: absolute; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+.support-file-trigger { width: fit-content; min-height: 44px; display: inline-flex; align-items: center; padding: 8px 12px; border: 1px solid var(--blue); border-radius: 12px; background: var(--surface-elevated); color: var(--blue); cursor: pointer; font-weight: 800; }
+.support-file-trigger:hover { background: var(--surface-cyan); }
 .support-thread > header { display: grid; gap: 6px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
 .support-thread > header > p { margin: 0; color: var(--muted); }
 .support-thread > header > p:first-child { color: var(--blue); font-size: .86rem; font-weight: 850; font-variant-numeric: tabular-nums; }
@@ -934,6 +940,7 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .management-list-section .management-search input[type="checkbox"] { width: 20px; min-height: 20px; margin: 0; accent-color: var(--cyan-action); }
 .management-list-section .management-search select, .management-list-section .management-content-actions select { min-height: 44px; background: var(--surface-elevated); }
 .management-list-section .management-table-wrap { border-radius: 14px; box-shadow: none; }
+.management-list-section .management-support-table { min-width: 920px; }
 .management-list-section .management-table td { max-width: 30ch; overflow-wrap: anywhere; }
 .management-list-section .management-table td small { display: block; margin-top: 3px; color: var(--muted); }
 .management-list-section .management-table td a { color: var(--blue); font-weight: 850; }

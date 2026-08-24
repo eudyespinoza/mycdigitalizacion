@@ -3,6 +3,7 @@ from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from drf_spectacular.utils import OpenApiResponse, OpenApiTypes, extend_schema
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -279,6 +280,18 @@ class ManagementSupportMessageCreateView(generics.GenericAPIView):
 class ManagementSupportAttachmentDownloadView(APIView):
     permission_classes = (CanDownloadSupportAttachments,)
 
+    @extend_schema(
+        operation_id="management_support_attachment_download",
+        parameters=[],
+        responses={
+            (200, "application/octet-stream"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description="Adjunto privado del caso; requiere una sesión autorizada de Administración.",
+            ),
+            404: OpenApiResponse(description="No encontrado."),
+        },
+        tags=("Soporte",),
+    )
     def get(self, request, public_id):
         attachment = get_object_or_404(
             SupportAttachment.objects.select_related("message__case"), public_id=public_id

@@ -163,8 +163,10 @@ export function CaseCreateDialog({ kind, presentation, onClose, onCreated }: Cas
       <label htmlFor="support-body">Mensaje</label>
       <textarea aria-describedby={fieldErrors.body ? "support-body-error" : undefined} aria-invalid={Boolean(fieldErrors.body)} id="support-body" name="body" required />
       {fieldErrors.body ? <span className="field-error" id="support-body-error" role="alert">{fieldErrors.body}</span> : null}
-      <label htmlFor="support-attachments">Adjuntos (opcional)</label>
-      <input accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,text/csv,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-describedby={fieldErrors.attachments ? "support-attachments-error" : undefined} aria-invalid={Boolean(fieldErrors.attachments)} id="support-attachments" multiple name="attachments" onChange={(event) => setAttachments(Array.from(event.currentTarget.files ?? []))} type="file" />
+      <span className="support-attachment-label">Adjuntos (opcional)</span>
+      <input accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,text/csv,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-describedby={fieldErrors.attachments ? "support-attachments-error" : "support-attachments-summary"} aria-invalid={Boolean(fieldErrors.attachments)} aria-label="Adjuntos (opcional)" id="support-attachments" multiple name="attachments" onChange={(event) => setAttachments(Array.from(event.currentTarget.files ?? []))} type="file" />
+      <label className="support-file-trigger" htmlFor="support-attachments">Adjuntar archivos</label>
+      <span aria-live="polite" className="helper" id="support-attachments-summary">{attachments.length ? `${attachments.length} ${attachments.length === 1 ? "archivo seleccionado" : "archivos seleccionados"}` : "Ningún archivo seleccionado"}</span>
       {fieldErrors.attachments ? <span className="field-error" id="support-attachments-error" role="alert">{fieldErrors.attachments}</span> : null}
       <p className="helper">Hasta {configuration.limits.max_files} archivos por mensaje.</p>
       {formError ? <p className="inline-error" role="alert">{formError}</p> : null}

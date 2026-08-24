@@ -325,12 +325,37 @@ def test_openapi_documents_public_and_management_support_contracts(client):
     assert "recovery_code" in created_schema["properties"]
     assert "recovery_code" not in created_schema.get("required", [])
 
+    for component_name in ("SupportCaseSummary", "SupportCaseDetail"):
+        assert "recovery_code" not in schema["components"]["schemas"][component_name]["properties"]
+
+    for path, method in (
+        ("/api/v1/support/cases/{public_id}/", "get"),
+        ("/api/v1/support/access/", "post"),
+        ("/api/v1/support/cases/{public_id}/claim/", "post"),
+    ):
+        response_schema = paths[path][method]["responses"]["200"]["content"]["application/json"]["schema"]
+        component = schema["components"]["schemas"][response_schema["$ref"].rsplit("/", 1)[-1]]
+        assert "recovery_code" not in component["properties"]
+
     for path in (
         "/api/v1/support/attachments/{public_id}/",
         "/api/v1/management/support/attachments/{public_id}/",
     ):
-        content = paths[path]["get"]["responses"]["200"].get("content", {})
-        assert "application/json" not in content
+        operation = paths[path]["get"]
+        response = operation["responses"]["200"]
+        content = response.get("content", {})
+        assert "application/octet-stream" in content
+        assert content["application/octet-stream"]["schema"] == {
+            "type": "string",
+            "format": "binary",
+        }
+        assert "privad" in response["description"].lower()
+        assert operation["security"]
+
+    management_attachment = paths[
+        "/api/v1/management/support/attachments/{public_id}/"
+    ]["get"]
+    assert {} not in management_attachment["security"]
 
 
 @pytest.mark.django_db
