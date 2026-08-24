@@ -188,6 +188,7 @@ class IntegrationConfigurationResponseSerializer(serializers.Serializer):
     oauth_callback_url = serializers.URLField(required=False)
     connected_account_id = serializers.CharField(required=False, allow_blank=True)
     oauth_connected_at = serializers.CharField(required=False, allow_null=True)
+    webhook_ready = serializers.BooleanField(required=False)
 
 
 class MercadoPagoOAuthStartResponseSerializer(serializers.Serializer):

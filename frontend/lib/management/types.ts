@@ -55,6 +55,7 @@ export type IntegrationConfiguration = {
   oauth_callback_url?: string;
   connected_account_id?: string;
   oauth_connected_at?: string | null;
+  webhook_ready?: boolean;
 };
 
 export type IntegrationUpdate = {

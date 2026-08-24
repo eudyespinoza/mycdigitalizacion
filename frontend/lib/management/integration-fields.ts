@@ -17,12 +17,11 @@ export const integrationFields: Record<
   mercadopago: {
     description: "Cobros con Checkout Pro, conciliación, cancelaciones y reintegros.",
     public: [
-      { key: "collector_id", label: "Collector ID" },
-      { key: "live_mode", label: "Usar modo producción", type: "boolean" },
+      { key: "oauth_client_id", label: "ID de aplicación (Client ID)" },
     ],
     secrets: [
-      { key: "access_token", label: "Access token", type: "password" },
-      { key: "webhook_secret", label: "Secreto del webhook", type: "password" },
+      { key: "oauth_client_secret", label: "Client Secret", type: "password" },
+      { key: "webhook_secret", label: "Clave secreta del webhook", type: "password" },
     ],
   },
   correo_argentino: {

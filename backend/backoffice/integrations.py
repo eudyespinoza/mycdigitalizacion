@@ -15,8 +15,13 @@ class IntegrationDefinition:
 INTEGRATION_DEFINITIONS = {
     "mercadopago": IntegrationDefinition(
         "Mercado Pago",
-        ("collector_id", "live_mode"),
-        ("access_token", "webhook_secret"),
+        ("collector_id", "live_mode", "oauth_client_id"),
+        (
+            "access_token",
+            "refresh_token",
+            "oauth_client_secret",
+            "webhook_secret",
+        ),
         ("collector_id",),
         ("access_token", "webhook_secret"),
     ),
@@ -168,7 +173,25 @@ def serialize_configuration(provider, configuration=None):
         "last_test_message": configuration.last_test_message if configuration else "",
     }
     if provider == "mercadopago":
-        from commerce.mercadopago_oauth import oauth_callback_url, oauth_is_ready
+        from commerce.mercadopago_oauth import (
+            oauth_application_configuration,
+            oauth_callback_url,
+            oauth_is_ready,
+            webhook_is_ready,
+        )
+
+        application = oauth_application_configuration(configuration)
+        oauth_ready = oauth_is_ready(configuration)
+        serialized["public_config"] = {
+            **serialized["public_config"],
+            "oauth_client_id": application.client_id,
+        }
+        serialized["secret_fields"]["oauth_client_secret"] = bool(
+            application.client_secret
+        )
+        serialized["secret_fields"]["webhook_secret"] = bool(
+            application.webhook_secret
+        )
 
         connected = bool(
             configuration
@@ -184,14 +207,15 @@ def serialize_configuration(provider, configuration=None):
             oauth_status = "reconnect_required"
         elif connected:
             oauth_status = "connected"
-        elif not oauth_is_ready():
+        elif not oauth_ready:
             oauth_status = "not_ready"
         else:
             oauth_status = "disconnected"
         serialized.update(
             {
-                "oauth_ready": oauth_is_ready(),
+                "oauth_ready": oauth_ready,
                 "oauth_status": oauth_status,
+                "webhook_ready": webhook_is_ready(configuration),
                 "oauth_callback_url": oauth_callback_url(),
                 "connected_account_id": (
                     str(configuration.public_config.get("collector_id") or "")

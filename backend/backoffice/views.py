@@ -146,7 +146,10 @@ class IntegrationDetailView(APIView):
         if "environment" in values:
             configuration.environment = values["environment"]
         if "public_config" in values:
-            configuration.public_config = values["public_config"]
+            configuration.public_config = {
+                **configuration.public_config,
+                **values["public_config"],
+            }
         current_secrets = unseal_secret_map(configuration.sealed_secrets)
         for field, value in values.get("secrets", {}).items():
             if value:
@@ -195,6 +198,34 @@ class IntegrationTestView(APIView):
             )
         configuration = get_object_or_404(IntegrationConfiguration, provider=provider)
         serialized = serialize_configuration(provider, configuration)
+        if provider == "mercadopago":
+            from commerce.mercadopago_oauth import oauth_is_ready, webhook_is_ready
+
+            if not oauth_is_ready(configuration):
+                return Response(
+                    {
+                        "code": "integration_incomplete",
+                        "detail": "Completá el Client ID y el Client Secret antes de verificar.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            webhook_ready = webhook_is_ready(configuration)
+            configuration.last_test_status = "success" if webhook_ready else "pending"
+            configuration.last_tested_at = timezone.now()
+            configuration.last_test_message = (
+                "La aplicación está preparada y la firma del webhook está configurada."
+                if webhook_ready
+                else "La aplicación está preparada. Falta configurar la firma del webhook."
+            )
+            configuration.save(
+                update_fields=(
+                    "last_test_status",
+                    "last_tested_at",
+                    "last_test_message",
+                    "updated_at",
+                )
+            )
+            return Response(serialize_configuration(provider, configuration))
         if serialized["status"] not in {"configured", "error"}:
             return Response(
                 {

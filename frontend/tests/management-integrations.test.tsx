@@ -43,17 +43,29 @@ describe("configuración e integraciones", () => {
   });
 
   test("nunca rellena el secreto existente y permite reemplazarlo", async () => {
-    const onSave = vi.fn().mockResolvedValue(mercadoPago);
-    render(<IntegrationEditor integration={mercadoPago} onSave={onSave} />);
+    const smtp: IntegrationConfiguration = {
+      ...mercadoPago,
+      provider: "smtp",
+      label: "Correo transaccional",
+      public_config: {
+        host: "smtp.example.test",
+        port: 587,
+        use_tls: true,
+        from_email: "ventas@example.test",
+      },
+      secret_fields: { username: true, password: true },
+    };
+    const onSave = vi.fn().mockResolvedValue(smtp);
+    render(<IntegrationEditor integration={smtp} onSave={onSave} />);
 
-    const token = screen.getByLabelText("Access token");
-    expect(token).toHaveValue("");
+    const password = screen.getByLabelText("Contraseña");
+    expect(password).toHaveValue("");
     expect(screen.getAllByText("Configurada").length).toBeGreaterThan(0);
-    fireEvent.change(token, { target: { value: "nuevo-token" } });
+    fireEvent.change(password, { target: { value: "nueva-clave" } });
     fireEvent.click(screen.getByRole("button", { name: "Guardar configuración" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(
-      expect.objectContaining({ secrets: expect.objectContaining({ access_token: "nuevo-token" }) }),
+      expect.objectContaining({ secrets: expect.objectContaining({ password: "nueva-clave" }) }),
     ));
   });
 

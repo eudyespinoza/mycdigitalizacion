@@ -44,6 +44,13 @@ class AuthorizationState:
     code_verifier: str
 
 
+@dataclass(frozen=True)
+class OAuthApplicationConfiguration:
+    client_id: str
+    client_secret: str
+    webhook_secret: str
+
+
 TokenRequest = Callable[[dict[str, str]], dict[str, Any]]
 
 
@@ -51,16 +58,50 @@ def oauth_callback_url() -> str:
     return settings.MERCADOPAGO_OAUTH_REDIRECT_URI
 
 
-def oauth_is_ready() -> bool:
+def oauth_application_configuration(
+    configuration: IntegrationConfiguration | None = None,
+) -> OAuthApplicationConfiguration:
+    if configuration is None:
+        configuration = IntegrationConfiguration.objects.filter(
+            provider="mercadopago"
+        ).first()
+    public_config = configuration.public_config if configuration else {}
+    stored_secrets = (
+        unseal_secret_map(configuration.sealed_secrets) if configuration else {}
+    )
+    return OAuthApplicationConfiguration(
+        client_id=str(
+            public_config.get("oauth_client_id")
+            or settings.MERCADOPAGO_OAUTH_CLIENT_ID
+            or ""
+        ).strip(),
+        client_secret=str(
+            stored_secrets.get("oauth_client_secret")
+            or settings.MERCADOPAGO_OAUTH_CLIENT_SECRET
+            or ""
+        ).strip(),
+        webhook_secret=str(
+            stored_secrets.get("webhook_secret")
+            or settings.MERCADOPAGO_WEBHOOK_SECRET
+            or ""
+        ).strip(),
+    )
+
+
+def oauth_is_ready(configuration: IntegrationConfiguration | None = None) -> bool:
+    application = oauth_application_configuration(configuration)
     return all(
         str(value).strip()
         for value in (
-            settings.MERCADOPAGO_OAUTH_CLIENT_ID,
-            settings.MERCADOPAGO_OAUTH_CLIENT_SECRET,
+            application.client_id,
+            application.client_secret,
             settings.MERCADOPAGO_OAUTH_REDIRECT_URI,
-            settings.MERCADOPAGO_WEBHOOK_SECRET,
         )
     )
+
+
+def webhook_is_ready(configuration: IntegrationConfiguration | None = None) -> bool:
+    return bool(oauth_application_configuration(configuration).webhook_secret)
 
 
 def _state_digest(state: str) -> str:
@@ -81,6 +122,7 @@ def _code_challenge(code_verifier: str) -> str:
 
 
 def create_authorization_session(actor_id: int) -> str:
+    application = oauth_application_configuration()
     if not oauth_is_ready():
         raise MercadoPagoOAuthNotConfigured(
             "Mercado Pago todavía no está preparado para conectar una cuenta."
@@ -95,7 +137,7 @@ def create_authorization_session(actor_id: int) -> str:
     query = urlencode(
         {
             "response_type": "code",
-            "client_id": settings.MERCADOPAGO_OAUTH_CLIENT_ID,
+            "client_id": application.client_id,
             "redirect_uri": oauth_callback_url(),
             "state": state,
             "code_challenge": _code_challenge(code_verifier),
@@ -171,14 +213,15 @@ def exchange_authorization_code(
     *,
     token_request: TokenRequest | None = None,
 ) -> dict[str, Any]:
+    application = oauth_application_configuration()
     if not oauth_is_ready():
         raise MercadoPagoOAuthNotConfigured(
             "Mercado Pago todavía no está preparado para conectar una cuenta."
         )
     return (token_request or _default_token_request)(
         {
-            "client_id": settings.MERCADOPAGO_OAUTH_CLIENT_ID,
-            "client_secret": settings.MERCADOPAGO_OAUTH_CLIENT_SECRET,
+            "client_id": application.client_id,
+            "client_secret": application.client_secret,
             "grant_type": "authorization_code",
             "code": str(code),
             "redirect_uri": oauth_callback_url(),
@@ -245,19 +288,21 @@ def store_oauth_credentials(
     configuration.enabled = True
     configuration.environment = "production" if normalized["live_mode"] else "sandbox"
     configuration.public_config = {
+        **configuration.public_config,
         "collector_id": normalized["collector_id"],
         "live_mode": normalized["live_mode"],
         "oauth_connected_at": connected_at,
         "oauth_reconnect_required": False,
         "token_expires_at": (now + timedelta(seconds=normalized["expires_in"])).isoformat(),
     }
-    configuration.sealed_secrets = seal_secret_map(
-        {
-            "access_token": normalized["access_token"],
-            "refresh_token": normalized["refresh_token"],
-            "webhook_secret": settings.MERCADOPAGO_WEBHOOK_SECRET,
-        }
-    )
+    stored_secrets = {
+        **existing_secrets,
+        "access_token": normalized["access_token"],
+        "refresh_token": normalized["refresh_token"],
+    }
+    if not stored_secrets.get("webhook_secret") and settings.MERCADOPAGO_WEBHOOK_SECRET:
+        stored_secrets["webhook_secret"] = settings.MERCADOPAGO_WEBHOOK_SECRET
+    configuration.sealed_secrets = seal_secret_map(stored_secrets)
     if actor is not None:
         configuration.updated_by = actor
     configuration.version = 1 if created else configuration.version + 1
@@ -305,14 +350,15 @@ def resolve_oauth_access_token(*, token_request: TokenRequest | None = None) -> 
     expires_at = parse_datetime(str(configuration.public_config.get("token_expires_at", "")))
     if access_token and (expires_at is None or expires_at > timezone.now() + OAUTH_REFRESH_WINDOW):
         return access_token
-    if not refresh_token or not oauth_is_ready():
+    application = oauth_application_configuration(configuration)
+    if not refresh_token or not oauth_is_ready(configuration):
         _mark_reconnect_required(configuration)
         raise ProviderNotConfigured("Mercado Pago necesita volver a conectarse.")
     try:
         payload = (token_request or _default_token_request)(
             {
-                "client_id": settings.MERCADOPAGO_OAUTH_CLIENT_ID,
-                "client_secret": settings.MERCADOPAGO_OAUTH_CLIENT_SECRET,
+                "client_id": application.client_id,
+                "client_secret": application.client_secret,
                 "grant_type": "refresh_token",
                 "refresh_token": refresh_token,
                 "redirect_uri": oauth_callback_url(),
@@ -334,15 +380,23 @@ def disconnect_mercadopago(*, actor) -> IntegrationConfiguration:
     )
     if configuration is None:
         configuration = IntegrationConfiguration(provider="mercadopago")
+    existing_secrets = unseal_secret_map(configuration.sealed_secrets)
     configuration.enabled = False
     configuration.public_config = {
+        "oauth_client_id": configuration.public_config.get("oauth_client_id", ""),
         "collector_id": "",
         "live_mode": False,
         "oauth_connected_at": None,
         "oauth_reconnect_required": False,
         "token_expires_at": None,
     }
-    configuration.sealed_secrets = ""
+    configuration.sealed_secrets = seal_secret_map(
+        {
+            key: value
+            for key, value in existing_secrets.items()
+            if key in {"oauth_client_secret", "webhook_secret"} and value
+        }
+    )
     configuration.updated_by = actor
     configuration.version = max(configuration.version, 0) + 1
     configuration.last_test_status = ""

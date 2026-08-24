@@ -27,6 +27,17 @@ OAUTH_SETTINGS = {
     "MERCADOPAGO_WEBHOOK_SECRET": "webhook-secret",
 }
 
+EMPTY_OAUTH_SETTINGS = {
+    "CONFIG_ENCRYPTION_MASTER_KEY": "oauth-config-master-key-for-tests",
+    "PUBLIC_BACKEND_URL": "https://shop.example.test",
+    "MERCADOPAGO_OAUTH_CLIENT_ID": "",
+    "MERCADOPAGO_OAUTH_CLIENT_SECRET": "",
+    "MERCADOPAGO_OAUTH_REDIRECT_URI": (
+        "https://shop.example.test/api/v1/payments/mercadopago/oauth/callback/"
+    ),
+    "MERCADOPAGO_WEBHOOK_SECRET": "",
+}
+
 
 def create_owner(django_user_model):
     return django_user_model.objects.create_superuser(
@@ -41,6 +52,112 @@ def owner_client(django_user_model):
     owner = create_owner(django_user_model)
     client.force_login(owner)
     return client, owner
+
+
+@override_settings(**EMPTY_OAUTH_SETTINGS)
+def test_owner_configures_oauth_application_in_admin_without_webhook(
+    django_user_model,
+):
+    client, _ = owner_client(django_user_model)
+
+    saved = client.patch(
+        "/api/v1/management/integrations/mercadopago/",
+        {
+            "environment": "production",
+            "public_config": {"oauth_client_id": "app-123456"},
+            "secrets": {"oauth_client_secret": "protected-app-secret"},
+        },
+        format="json",
+    )
+
+    assert saved.status_code == 200
+    assert saved.json()["oauth_ready"] is True
+    assert saved.json()["webhook_ready"] is False
+    assert saved.json()["oauth_status"] == "disconnected"
+    assert saved.json()["secret_fields"]["oauth_client_secret"] is True
+    assert "protected-app-secret" not in json.dumps(saved.json())
+    configuration = IntegrationConfiguration.objects.get(provider="mercadopago")
+    assert "protected-app-secret" not in configuration.sealed_secrets
+
+    started = client.post(
+        "/api/v1/management/integrations/mercadopago/oauth/start/", format="json"
+    )
+    assert started.status_code == 200
+    query = parse_qs(urlsplit(started.json()["authorization_url"]).query)
+    assert query["client_id"] == ["app-123456"]
+
+
+@override_settings(**EMPTY_OAUTH_SETTINGS)
+def test_owner_verifies_saved_oauth_application_before_connecting(
+    django_user_model,
+):
+    client, _ = owner_client(django_user_model)
+    saved = client.patch(
+        "/api/v1/management/integrations/mercadopago/",
+        {
+            "environment": "production",
+            "public_config": {"oauth_client_id": "app-ready"},
+            "secrets": {"oauth_client_secret": "saved-secret"},
+        },
+        format="json",
+    )
+    assert saved.status_code == 200
+
+    verified = client.post(
+        "/api/v1/management/integrations/mercadopago/test/", format="json"
+    )
+
+    assert verified.status_code == 200
+    assert verified.json()["last_test_status"] == "pending"
+    assert "aplicación está preparada" in verified.json()["last_test_message"].lower()
+    assert verified.json()["webhook_ready"] is False
+
+
+@override_settings(**EMPTY_OAUTH_SETTINGS)
+def test_disconnect_keeps_saved_application_and_webhook_configuration(
+    django_user_model,
+):
+    from commerce.mercadopago_oauth import store_oauth_credentials
+
+    client, owner = owner_client(django_user_model)
+    saved = client.patch(
+        "/api/v1/management/integrations/mercadopago/",
+        {
+            "environment": "production",
+            "public_config": {"oauth_client_id": "app-987654"},
+            "secrets": {
+                "oauth_client_secret": "saved-client-secret",
+                "webhook_secret": "saved-webhook-secret",
+            },
+        },
+        format="json",
+    )
+    assert saved.status_code == 200
+    store_oauth_credentials(
+        {
+            "access_token": "connected-access",
+            "refresh_token": "connected-refresh",
+            "user_id": "445566",
+            "live_mode": True,
+            "expires_in": 15_552_000,
+        },
+        actor=owner,
+    )
+
+    disconnected = client.post(
+        "/api/v1/management/integrations/mercadopago/oauth/disconnect/", format="json"
+    )
+
+    assert disconnected.status_code == 200
+    assert disconnected.json()["oauth_ready"] is True
+    assert disconnected.json()["webhook_ready"] is True
+    assert disconnected.json()["oauth_status"] == "disconnected"
+    configuration = IntegrationConfiguration.objects.get(provider="mercadopago")
+    assert configuration.public_config["oauth_client_id"] == "app-987654"
+    assert unseal_secret_map(configuration.sealed_secrets) == {
+        "oauth_client_secret": "saved-client-secret",
+        "webhook_secret": "saved-webhook-secret",
+    }
 
 
 @override_settings(**OAUTH_SETTINGS)
@@ -211,7 +328,9 @@ def test_owner_can_start_callback_and_disconnect_oauth(monkeypatch, django_user_
     assert disconnected.status_code == 200
     assert disconnected.json()["oauth_status"] == "disconnected"
     configuration = IntegrationConfiguration.objects.get(provider="mercadopago")
-    assert unseal_secret_map(configuration.sealed_secrets) == {}
+    assert unseal_secret_map(configuration.sealed_secrets) == {
+        "webhook_secret": "webhook-secret"
+    }
     assert configuration.enabled is False
 
 

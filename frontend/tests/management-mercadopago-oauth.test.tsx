@@ -24,6 +24,7 @@ const disconnected: IntegrationConfiguration = {
   oauth_callback_url: "https://shop.example.test/api/v1/payments/mercadopago/oauth/callback/",
   connected_account_id: "",
   oauth_connected_at: null,
+  webhook_ready: false,
 };
 
 
@@ -41,6 +42,8 @@ describe("conexión simple con Mercado Pago", () => {
         navigate={navigate}
         onConnect={onConnect}
         onDisconnect={vi.fn()}
+        onSave={vi.fn()}
+        onTest={vi.fn()}
       />,
     );
 
@@ -69,6 +72,8 @@ describe("conexión simple con Mercado Pago", () => {
         navigate={vi.fn()}
         onConnect={vi.fn()}
         onDisconnect={onDisconnect}
+        onSave={vi.fn()}
+        onTest={vi.fn()}
       />,
     );
 
@@ -85,6 +90,8 @@ describe("conexión simple con Mercado Pago", () => {
         navigate={vi.fn()}
         onConnect={vi.fn()}
         onDisconnect={vi.fn()}
+        onSave={vi.fn()}
+        onTest={vi.fn()}
       />,
     );
 
@@ -99,10 +106,76 @@ describe("conexión simple con Mercado Pago", () => {
         navigate={vi.fn()}
         onConnect={vi.fn()}
         onDisconnect={vi.fn()}
+        onSave={vi.fn()}
+        onTest={vi.fn()}
         result="connected"
       />,
     );
 
     expect(screen.getByText("Mercado Pago quedó conectado.")).toBeVisible();
+  });
+
+  test("guarda la aplicación en Administración y habilita OAuth sin webhook", async () => {
+    const configured = {
+      ...disconnected,
+      environment: "production" as const,
+      public_config: { oauth_client_id: "app-123456" },
+      secret_fields: {
+        ...disconnected.secret_fields,
+        oauth_client_secret: true,
+      },
+      oauth_ready: true,
+      webhook_ready: false,
+      version: 1,
+    };
+    const onSave = vi.fn().mockResolvedValue(configured);
+
+    render(
+      <MercadoPagoConnectPanel
+        integration={{ ...disconnected, oauth_ready: false, oauth_status: "not_ready" }}
+        navigate={vi.fn()}
+        onConnect={vi.fn()}
+        onDisconnect={vi.fn()}
+        onSave={onSave}
+        onTest={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("ID de aplicación (Client ID)"), {
+      target: { value: "app-123456" },
+    });
+    fireEvent.change(screen.getByLabelText("Client Secret"), {
+      target: { value: "protected-secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar configuración" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({
+      environment: "production",
+      public_config: { oauth_client_id: "app-123456" },
+      secrets: {
+        oauth_client_secret: "protected-secret",
+        webhook_secret: "",
+      },
+    }));
+    expect(screen.getByRole("button", { name: "Conectar Mercado Pago" })).toBeEnabled();
+    expect(screen.getByText(/falta configurar la firma del webhook/i)).toBeVisible();
+  });
+
+  test("muestra el callback de OAuth con una acción para copiarlo", () => {
+    render(
+      <MercadoPagoConnectPanel
+        integration={disconnected}
+        navigate={vi.fn()}
+        onConnect={vi.fn()}
+        onDisconnect={vi.fn()}
+        onSave={vi.fn()}
+        onTest={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("URL de retorno de OAuth")).toHaveValue(
+      "https://shop.example.test/api/v1/payments/mercadopago/oauth/callback/",
+    );
+    expect(screen.getByRole("button", { name: "Copiar URL" })).toBeVisible();
   });
 });

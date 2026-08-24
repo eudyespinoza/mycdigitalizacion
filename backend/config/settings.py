@@ -65,12 +65,8 @@ def validate_runtime_environment(environment: Mapping[str, str]) -> None:
     }
     oauth_enabled = any(oauth_fields.values())
     if oauth_enabled:
-        required_oauth = {
-            **oauth_fields,
-            "MERCADOPAGO_WEBHOOK_SECRET": mp_fields["MERCADOPAGO_WEBHOOK_SECRET"],
-        }
-        if not all(required_oauth.values()):
-            missing = next(field for field, value in required_oauth.items() if not value)
+        if not all(oauth_fields.values()):
+            missing = next(field for field, value in oauth_fields.items() if not value)
             raise ImproperlyConfigured(f"{missing} is required for Mercado Pago OAuth")
         redirect_uri = environment.get("MERCADOPAGO_OAUTH_REDIRECT_URI", "").strip() or (
             f"https://{environment.get('SITE_ADDRESS', 'localhost')}"

@@ -17,6 +17,15 @@ export function IntegrationPanel({
     return (
       <MercadoPagoConnectPanel
         integration={integration}
+        onSave={(payload: IntegrationUpdate) =>
+          managementRequest<IntegrationConfiguration>(`/integrations/${integration.provider}/`, {
+            method: "PATCH",
+            body: JSON.stringify(payload),
+          })}
+        onTest={() =>
+          managementRequest<IntegrationConfiguration>(`/integrations/${integration.provider}/test/`, {
+            method: "POST",
+          })}
         onConnect={() =>
           managementRequest<{ authorization_url: string; callback_url: string }>(
             "/integrations/mercadopago/oauth/start/",

@@ -90,7 +90,12 @@ def test_mercadopago_configuration_is_encrypted_write_only_and_used_by_adapter(
     assert saved.status_code == 200
     body = saved.json()
     assert body["status"] == "configured"
-    assert body["secret_fields"] == {"access_token": True, "webhook_secret": True}
+    assert body["secret_fields"] == {
+        "access_token": True,
+        "refresh_token": False,
+        "oauth_client_secret": False,
+        "webhook_secret": True,
+    }
     assert "TEST-secret-access-token" not in json.dumps(body)
     assert "secret-webhook-value" not in json.dumps(body)
     with connection.cursor() as cursor:

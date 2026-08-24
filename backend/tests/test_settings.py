@@ -52,6 +52,15 @@ def test_mercadopago_oauth_requires_the_complete_server_configuration():
         )
 
 
+def test_mercadopago_oauth_does_not_require_webhook_to_start_authorization():
+    validate_runtime_environment(
+        production_environment(
+            MERCADOPAGO_OAUTH_CLIENT_ID="123456",
+            MERCADOPAGO_OAUTH_CLIENT_SECRET="oauth-secret",
+        )
+    )
+
+
 def test_mercadopago_oauth_requires_https_redirect_in_production():
     with pytest.raises(ImproperlyConfigured, match="must use HTTPS"):
         validate_runtime_environment(
