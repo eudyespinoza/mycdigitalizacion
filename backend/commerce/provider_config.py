@@ -62,7 +62,7 @@ def get_payment_adapter():
         secrets = stored["secrets"]
         if not stored["enabled"] or not secrets.get("webhook_secret"):
             return UnconfiguredPaymentAdapter()
-        if secrets.get("refresh_token"):
+        if secrets.get("refresh_token") or public.get("oauth_grant_type") == "client_credentials":
             from commerce.mercadopago_oauth import resolve_oauth_access_token
 
             access_token = resolve_oauth_access_token()

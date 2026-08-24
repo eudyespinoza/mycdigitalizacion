@@ -31,19 +31,19 @@ const disconnected: IntegrationConfiguration = {
 describe("conexión simple con Mercado Pago", () => {
   test("conecta con un botón sin mostrar campos de tokens", async () => {
     const onConnect = vi.fn().mockResolvedValue({
-      authorization_url: "https://auth.mercadopago.com/authorization?state=safe",
-      callback_url: disconnected.oauth_callback_url,
+      ...disconnected,
+      enabled: true,
+      status: "configured",
+      oauth_status: "connected",
+      connected_account_id: "99887766",
     });
-    const navigate = vi.fn();
 
     render(
       <MercadoPagoConnectPanel
         integration={disconnected}
-        navigate={navigate}
         onConnect={onConnect}
         onDisconnect={vi.fn()}
         onSave={vi.fn()}
-        onTest={vi.fn()}
       />,
     );
 
@@ -52,9 +52,8 @@ describe("conexión simple con Mercado Pago", () => {
     fireEvent.click(screen.getByRole("button", { name: "Conectar Mercado Pago" }));
 
     await waitFor(() => expect(onConnect).toHaveBeenCalledTimes(1));
-    expect(navigate).toHaveBeenCalledWith(
-      "https://auth.mercadopago.com/authorization?state=safe",
-    );
+    expect(await screen.findByText("Cuenta conectada")).toBeVisible();
+    expect(screen.getByText(/99887766/)).toBeVisible();
   });
 
   test("muestra la cuenta conectada y permite desconectarla", async () => {
@@ -69,11 +68,9 @@ describe("conexión simple con Mercado Pago", () => {
           connected_account_id: "99887766",
           oauth_connected_at: "2026-08-21T12:00:00Z",
         }}
-        navigate={vi.fn()}
         onConnect={vi.fn()}
         onDisconnect={onDisconnect}
         onSave={vi.fn()}
-        onTest={vi.fn()}
       />,
     );
 
@@ -87,11 +84,9 @@ describe("conexión simple con Mercado Pago", () => {
     render(
       <MercadoPagoConnectPanel
         integration={{ ...disconnected, oauth_ready: false, oauth_status: "not_ready" }}
-        navigate={vi.fn()}
         onConnect={vi.fn()}
         onDisconnect={vi.fn()}
         onSave={vi.fn()}
-        onTest={vi.fn()}
       />,
     );
 
@@ -103,11 +98,9 @@ describe("conexión simple con Mercado Pago", () => {
     render(
       <MercadoPagoConnectPanel
         integration={disconnected}
-        navigate={vi.fn()}
         onConnect={vi.fn()}
         onDisconnect={vi.fn()}
         onSave={vi.fn()}
-        onTest={vi.fn()}
         result="connected"
       />,
     );
@@ -115,7 +108,7 @@ describe("conexión simple con Mercado Pago", () => {
     expect(screen.getByText("Mercado Pago quedó conectado.")).toBeVisible();
   });
 
-  test("guarda la aplicación en Administración y habilita OAuth sin webhook", async () => {
+  test("guarda la aplicación en Administración y habilita la conexión sin webhook", async () => {
     const configured = {
       ...disconnected,
       environment: "production" as const,
@@ -133,11 +126,9 @@ describe("conexión simple con Mercado Pago", () => {
     render(
       <MercadoPagoConnectPanel
         integration={{ ...disconnected, oauth_ready: false, oauth_status: "not_ready" }}
-        navigate={vi.fn()}
         onConnect={vi.fn()}
         onDisconnect={vi.fn()}
         onSave={onSave}
-        onTest={vi.fn()}
       />,
     );
 
@@ -161,21 +152,18 @@ describe("conexión simple con Mercado Pago", () => {
     expect(screen.getByText(/falta configurar la firma del webhook/i)).toBeVisible();
   });
 
-  test("muestra el callback de OAuth con una acción para copiarlo", () => {
+  test("no pide URL de retorno porque conecta la cuenta propia", () => {
     render(
       <MercadoPagoConnectPanel
         integration={disconnected}
-        navigate={vi.fn()}
         onConnect={vi.fn()}
         onDisconnect={vi.fn()}
         onSave={vi.fn()}
-        onTest={vi.fn()}
       />,
     );
 
-    expect(screen.getByLabelText("URL de retorno de OAuth")).toHaveValue(
-      "https://shop.example.test/api/v1/payments/mercadopago/oauth/callback/",
-    );
-    expect(screen.getByRole("button", { name: "Copiar URL" })).toBeVisible();
+    expect(screen.queryByLabelText("URL de retorno de OAuth")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copiar URL" })).not.toBeInTheDocument();
+    expect(screen.getByText(/cuenta propia de la tienda/i)).toBeVisible();
   });
 });

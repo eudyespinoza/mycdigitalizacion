@@ -30,6 +30,7 @@ from backoffice.content_views import (
 from backoffice.oauth_views import (
     MercadoPagoOAuthDisconnectView,
     MercadoPagoOAuthStartView,
+    MercadoPagoOwnAccountConnectView,
 )
 from backoffice.operations_views import (
     ManagementCustomerAddressDetailView,
@@ -113,6 +114,11 @@ urlpatterns = [
         "integrations/<slug:provider>/test/",
         IntegrationTestView.as_view(),
         name="management-integration-test",
+    ),
+    path(
+        "integrations/mercadopago/connect/",
+        MercadoPagoOwnAccountConnectView.as_view(),
+        name="management-mercadopago-connect-own-account",
     ),
     path(
         "integrations/mercadopago/oauth/start/",

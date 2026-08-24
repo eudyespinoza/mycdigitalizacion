@@ -285,6 +285,152 @@ def test_expiring_oauth_token_refreshes_and_rotates_refresh_token(django_user_mo
 
 
 @override_settings(**OAUTH_SETTINGS)
+def test_own_account_connects_with_client_credentials_and_validates_the_account(
+    django_user_model,
+):
+    from commerce.mercadopago_oauth import connect_own_mercadopago_account
+    from commerce.provider_config import get_payment_adapter
+
+    owner = create_owner(django_user_model)
+    observed = {}
+
+    def token_request(payload):
+        observed["token_payload"] = payload
+        return {
+            "access_token": "APP_USR-own-account-access",
+            "expires_in": 21_600,
+            "token_type": "Bearer",
+        }
+
+    def account_request(access_token):
+        observed["account_access_token"] = access_token
+        return {
+            "id": 99887766,
+            "site_id": "MLA",
+            "status": "active",
+        }
+
+    configuration = connect_own_mercadopago_account(
+        actor=owner,
+        token_request=token_request,
+        account_request=account_request,
+    )
+
+    assert observed == {
+        "token_payload": {
+            "client_id": "1234567890123456",
+            "client_secret": "oauth-client-secret",
+            "grant_type": "client_credentials",
+        },
+        "account_access_token": "APP_USR-own-account-access",
+    }
+    configuration.refresh_from_db()
+    assert configuration.enabled is True
+    assert configuration.environment == "production"
+    assert configuration.public_config["oauth_grant_type"] == "client_credentials"
+    assert configuration.public_config["collector_id"] == "99887766"
+    assert configuration.public_config["connected_account_site_id"] == "MLA"
+    assert unseal_secret_map(configuration.sealed_secrets) == {
+        "access_token": "APP_USR-own-account-access",
+        "webhook_secret": "webhook-secret",
+    }
+    serialized = serialize_configuration("mercadopago", configuration)
+    assert serialized["oauth_status"] == "connected"
+    assert "APP_USR-own-account-access" not in json.dumps(serialized)
+    adapter = get_payment_adapter()
+    assert adapter.access_token == "APP_USR-own-account-access"
+    assert adapter.collector_id == "99887766"
+    assert adapter.live_mode is True
+
+
+@override_settings(**OAUTH_SETTINGS)
+def test_expired_client_credentials_token_is_renewed_without_refresh_token(
+    django_user_model,
+):
+    from commerce.mercadopago_oauth import (
+        connect_own_mercadopago_account,
+        resolve_oauth_access_token,
+    )
+
+    owner = create_owner(django_user_model)
+    configuration = connect_own_mercadopago_account(
+        actor=owner,
+        token_request=lambda payload: {
+            "access_token": "old-own-access",
+            "expires_in": 1,
+        },
+        account_request=lambda access_token: {
+            "id": 5511,
+            "site_id": "MLA",
+            "status": "active",
+        },
+    )
+    configuration.public_config["token_expires_at"] = (
+        timezone.now() - timedelta(minutes=1)
+    ).isoformat()
+    configuration.save(update_fields=("public_config", "updated_at"))
+
+    def token_request(payload):
+        assert payload == {
+            "client_id": "1234567890123456",
+            "client_secret": "oauth-client-secret",
+            "grant_type": "client_credentials",
+        }
+        return {"access_token": "renewed-own-access", "expires_in": 21_600}
+
+    assert resolve_oauth_access_token(
+        token_request=token_request,
+        account_request=lambda access_token: {
+            "id": 5511,
+            "site_id": "MLA",
+            "status": "active",
+        },
+    ) == "renewed-own-access"
+    configuration.refresh_from_db()
+    assert unseal_secret_map(configuration.sealed_secrets)["access_token"] == (
+        "renewed-own-access"
+    )
+    assert "refresh_token" not in unseal_secret_map(configuration.sealed_secrets)
+
+
+@override_settings(**OAUTH_SETTINGS)
+def test_owner_connects_own_account_without_external_authorization(
+    monkeypatch,
+    django_user_model,
+):
+    client, owner = owner_client(django_user_model)
+    monkeypatch.setattr(
+        "commerce.mercadopago_oauth._default_token_request",
+        lambda payload: {
+            "access_token": "management-own-access",
+            "expires_in": 21_600,
+        },
+    )
+    monkeypatch.setattr(
+        "commerce.mercadopago_oauth._default_account_request",
+        lambda access_token: {
+            "id": 778899,
+            "site_id": "MLA",
+            "status": "active",
+        },
+    )
+
+    connected = client.post(
+        "/api/v1/management/integrations/mercadopago/connect/", format="json"
+    )
+
+    assert connected.status_code == 200
+    assert connected.json()["oauth_status"] == "connected"
+    assert connected.json()["connected_account_id"] == "778899"
+    assert "authorization_url" not in connected.json()
+    assert ManagementAuditEvent.objects.filter(
+        actor=owner,
+        action="integration.oauth_connected",
+        object_reference="mercadopago",
+    ).exists()
+
+
+@override_settings(**OAUTH_SETTINGS)
 def test_owner_can_start_callback_and_disconnect_oauth(monkeypatch, django_user_model):
     client, owner = owner_client(django_user_model)
     cache.clear()
@@ -349,6 +495,9 @@ def test_non_owner_cannot_start_or_disconnect_mercadopago(django_user_model):
         "/api/v1/management/integrations/mercadopago/oauth/start/", format="json"
     ).status_code == 403
     assert client.post(
+        "/api/v1/management/integrations/mercadopago/connect/", format="json"
+    ).status_code == 403
+    assert client.post(
         "/api/v1/management/integrations/mercadopago/oauth/disconnect/", format="json"
     ).status_code == 403
 
@@ -382,5 +531,6 @@ def test_openapi_documents_oauth_start_callback_and_disconnect(django_user_model
     paths = client.get("/api/v1/schema/?format=json").json()["paths"]
 
     assert "/api/v1/management/integrations/mercadopago/oauth/start/" in paths
+    assert "/api/v1/management/integrations/mercadopago/connect/" in paths
     assert "/api/v1/payments/mercadopago/oauth/callback/" in paths
     assert "/api/v1/management/integrations/mercadopago/oauth/disconnect/" in paths

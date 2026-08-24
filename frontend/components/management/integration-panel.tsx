@@ -22,13 +22,9 @@ export function IntegrationPanel({
             method: "PATCH",
             body: JSON.stringify(payload),
           })}
-        onTest={() =>
-          managementRequest<IntegrationConfiguration>(`/integrations/${integration.provider}/test/`, {
-            method: "POST",
-          })}
         onConnect={() =>
-          managementRequest<{ authorization_url: string; callback_url: string }>(
-            "/integrations/mercadopago/oauth/start/",
+          managementRequest<IntegrationConfiguration>(
+            "/integrations/mercadopago/connect/",
             { method: "POST" },
           )}
         onDisconnect={() =>

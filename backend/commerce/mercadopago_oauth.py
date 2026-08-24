@@ -52,6 +52,7 @@ class OAuthApplicationConfiguration:
 
 
 TokenRequest = Callable[[dict[str, str]], dict[str, Any]]
+AccountRequest = Callable[[str], dict[str, Any]]
 
 
 def oauth_callback_url() -> str:
@@ -90,14 +91,7 @@ def oauth_application_configuration(
 
 def oauth_is_ready(configuration: IntegrationConfiguration | None = None) -> bool:
     application = oauth_application_configuration(configuration)
-    return all(
-        str(value).strip()
-        for value in (
-            application.client_id,
-            application.client_secret,
-            settings.MERCADOPAGO_OAUTH_REDIRECT_URI,
-        )
-    )
+    return bool(application.client_id and application.client_secret)
 
 
 def webhook_is_ready(configuration: IntegrationConfiguration | None = None) -> bool:
@@ -123,7 +117,7 @@ def _code_challenge(code_verifier: str) -> str:
 
 def create_authorization_session(actor_id: int) -> str:
     application = oauth_application_configuration()
-    if not oauth_is_ready():
+    if not oauth_is_ready() or not str(settings.MERCADOPAGO_OAUTH_REDIRECT_URI).strip():
         raise MercadoPagoOAuthNotConfigured(
             "Mercado Pago todavía no está preparado para conectar una cuenta."
         )
@@ -207,6 +201,176 @@ def _default_token_request(payload: dict[str, str]) -> dict[str, Any]:
     return decoded
 
 
+def _default_account_request(access_token: str) -> dict[str, Any]:
+    account_url = "https://api.mercadopago.com/users/me"
+    request = Request(
+        account_url,
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {access_token}",
+        },
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=15) as response:  # noqa: S310 - fixed HTTPS URL
+            raw = response.read()
+    except HTTPError as exc:
+        raise ProviderUnavailable(
+            "Mercado Pago rechazó las credenciales de la aplicación.",
+            diagnostics=f"http_status={exc.code}",
+        ) from exc
+    except (TimeoutError, URLError, OSError) as exc:
+        raise ProviderUnavailable("Mercado Pago no está disponible.") from exc
+    try:
+        decoded = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ProviderInvalidResponse(
+            "Mercado Pago devolvió una cuenta inválida."
+        ) from exc
+    if not isinstance(decoded, dict):
+        raise ProviderInvalidResponse("Mercado Pago devolvió una cuenta inválida.")
+    return decoded
+
+
+def _client_credentials_payload(
+    configuration: IntegrationConfiguration | None = None,
+) -> dict[str, str]:
+    application = oauth_application_configuration(configuration)
+    if not oauth_is_ready(configuration):
+        raise MercadoPagoOAuthNotConfigured(
+            "Completá el Client ID y el Client Secret de Mercado Pago."
+        )
+    return {
+        "client_id": application.client_id,
+        "client_secret": application.client_secret,
+        "grant_type": "client_credentials",
+    }
+
+
+def _normalize_own_account_payload(
+    token_payload: dict[str, Any],
+    account_payload: dict[str, Any],
+    *,
+    configuration: IntegrationConfiguration | None,
+) -> dict[str, Any]:
+    access_token = str(token_payload.get("access_token") or "").strip()
+    collector_id = str(account_payload.get("id") or "").strip()
+    try:
+        expires_in = int(token_payload.get("expires_in") or 0)
+    except (TypeError, ValueError) as exc:
+        raise ProviderInvalidResponse(
+            "Mercado Pago no devolvió la vigencia de la autorización."
+        ) from exc
+    token_user_id = str(token_payload.get("user_id") or "").strip()
+    if (
+        not access_token
+        or not collector_id
+        or expires_in <= 0
+        or (token_user_id and token_user_id != collector_id)
+    ):
+        raise ProviderInvalidResponse(
+            "Mercado Pago no devolvió una cuenta propia válida."
+        )
+    live_mode_value = token_payload.get("live_mode")
+    if isinstance(live_mode_value, bool):
+        live_mode = live_mode_value
+    elif access_token.startswith("APP_USR-"):
+        live_mode = True
+    else:
+        live_mode = bool(configuration and configuration.environment == "production")
+    return {
+        "access_token": access_token,
+        "collector_id": collector_id,
+        "site_id": str(account_payload.get("site_id") or "").strip(),
+        "live_mode": live_mode,
+        "expires_in": expires_in,
+    }
+
+
+@transaction.atomic
+def _store_own_account_credentials(
+    normalized: dict[str, Any],
+    *,
+    actor=None,
+    audit_action: str = "integration.oauth_connected",
+) -> IntegrationConfiguration:
+    configuration = (
+        IntegrationConfiguration.objects.select_for_update()
+        .filter(provider="mercadopago")
+        .first()
+    )
+    created = configuration is None
+    if configuration is None:
+        configuration = IntegrationConfiguration(provider="mercadopago")
+    existing_secrets = unseal_secret_map(configuration.sealed_secrets)
+    now = timezone.now()
+    connected_at = configuration.public_config.get("oauth_connected_at") or now.isoformat()
+    configuration.enabled = True
+    if normalized["live_mode"]:
+        configuration.environment = "production"
+    configuration.public_config = {
+        **configuration.public_config,
+        "collector_id": normalized["collector_id"],
+        "connected_account_site_id": normalized["site_id"],
+        "live_mode": normalized["live_mode"],
+        "oauth_grant_type": "client_credentials",
+        "oauth_connected_at": connected_at,
+        "oauth_reconnect_required": False,
+        "token_expires_at": (now + timedelta(seconds=normalized["expires_in"])).isoformat(),
+    }
+    existing_secrets.pop("refresh_token", None)
+    existing_secrets["access_token"] = normalized["access_token"]
+    if not existing_secrets.get("webhook_secret") and settings.MERCADOPAGO_WEBHOOK_SECRET:
+        existing_secrets["webhook_secret"] = settings.MERCADOPAGO_WEBHOOK_SECRET
+    configuration.sealed_secrets = seal_secret_map(existing_secrets)
+    if actor is not None:
+        configuration.updated_by = actor
+    configuration.version = 1 if created else configuration.version + 1
+    configuration.last_test_status = "success"
+    configuration.last_tested_at = now
+    configuration.last_test_message = "Cuenta propia de Mercado Pago validada y conectada."
+    configuration.full_clean()
+    configuration.save()
+    if actor is not None:
+        ManagementAuditEvent.objects.create(
+            actor=actor,
+            action=audit_action,
+            resource="integration",
+            object_reference="mercadopago",
+            metadata={"collector_id": normalized["collector_id"]},
+        )
+    return configuration
+
+
+def connect_own_mercadopago_account(
+    *,
+    actor=None,
+    token_request: TokenRequest | None = None,
+    account_request: AccountRequest | None = None,
+    audit_action: str = "integration.oauth_connected",
+) -> IntegrationConfiguration:
+    configuration = IntegrationConfiguration.objects.filter(provider="mercadopago").first()
+    token_payload = (token_request or _default_token_request)(
+        _client_credentials_payload(configuration)
+    )
+    access_token = str(token_payload.get("access_token") or "").strip()
+    if not access_token:
+        raise ProviderInvalidResponse(
+            "Mercado Pago no devolvió una credencial de acceso válida."
+        )
+    account_payload = (account_request or _default_account_request)(access_token)
+    normalized = _normalize_own_account_payload(
+        token_payload,
+        account_payload,
+        configuration=configuration,
+    )
+    return _store_own_account_credentials(
+        normalized,
+        actor=actor,
+        audit_action=audit_action,
+    )
+
+
 def exchange_authorization_code(
     code: str,
     code_verifier: str,
@@ -214,7 +378,7 @@ def exchange_authorization_code(
     token_request: TokenRequest | None = None,
 ) -> dict[str, Any]:
     application = oauth_application_configuration()
-    if not oauth_is_ready():
+    if not oauth_is_ready() or not str(settings.MERCADOPAGO_OAUTH_REDIRECT_URI).strip():
         raise MercadoPagoOAuthNotConfigured(
             "Mercado Pago todavía no está preparado para conectar una cuenta."
         )
@@ -340,7 +504,11 @@ def _mark_reconnect_required(configuration: IntegrationConfiguration) -> None:
     )
 
 
-def resolve_oauth_access_token(*, token_request: TokenRequest | None = None) -> str:
+def resolve_oauth_access_token(
+    *,
+    token_request: TokenRequest | None = None,
+    account_request: AccountRequest | None = None,
+) -> str:
     configuration = IntegrationConfiguration.objects.filter(provider="mercadopago").first()
     if configuration is None or not configuration.enabled:
         raise ProviderNotConfigured("Mercado Pago no está conectado.")
@@ -350,6 +518,17 @@ def resolve_oauth_access_token(*, token_request: TokenRequest | None = None) -> 
     expires_at = parse_datetime(str(configuration.public_config.get("token_expires_at", "")))
     if access_token and (expires_at is None or expires_at > timezone.now() + OAUTH_REFRESH_WINDOW):
         return access_token
+    if configuration.public_config.get("oauth_grant_type") == "client_credentials":
+        try:
+            refreshed = connect_own_mercadopago_account(
+                token_request=token_request,
+                account_request=account_request,
+                audit_action="integration.oauth_refreshed",
+            )
+        except (ProviderInvalidResponse, ProviderUnavailable, MercadoPagoOAuthError):
+            _mark_reconnect_required(configuration)
+            raise
+        return unseal_secret_map(refreshed.sealed_secrets)["access_token"]
     application = oauth_application_configuration(configuration)
     if not refresh_token or not oauth_is_ready(configuration):
         _mark_reconnect_required(configuration)

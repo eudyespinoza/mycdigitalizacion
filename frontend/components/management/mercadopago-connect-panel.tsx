@@ -2,46 +2,27 @@
 
 import { type FormEvent, useState } from "react";
 
-import type {
-  IntegrationConfiguration,
-  IntegrationUpdate,
-} from "@/lib/management/types";
-
-
-type AuthorizationStart = {
-  authorization_url: string;
-  callback_url: string;
-};
+import type { IntegrationConfiguration, IntegrationUpdate } from "@/lib/management/types";
 
 type PanelState =
   | "idle"
   | "saving"
-  | "testing"
   | "connecting"
   | "disconnecting"
   | "error";
 
 
-function defaultNavigate(url: string) {
-  window.location.assign(url);
-}
-
-
 export function MercadoPagoConnectPanel({
   integration,
   onSave,
-  onTest,
   onConnect,
   onDisconnect,
-  navigate = defaultNavigate,
   result,
 }: {
   integration: IntegrationConfiguration;
   onSave: (payload: IntegrationUpdate) => Promise<IntegrationConfiguration>;
-  onTest: () => Promise<IntegrationConfiguration>;
-  onConnect: () => Promise<AuthorizationStart>;
+  onConnect: () => Promise<IntegrationConfiguration>;
   onDisconnect: () => Promise<IntegrationConfiguration>;
-  navigate?: (url: string) => void;
   result?: string;
 }) {
   const [current, setCurrent] = useState(integration);
@@ -54,13 +35,11 @@ export function MercadoPagoConnectPanel({
   );
   const [clientSecret, setClientSecret] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
-  const [copied, setCopied] = useState(false);
   const oauthStatus = current.oauth_status ?? "disconnected";
   const connected = oauthStatus === "connected";
   const reconnect = oauthStatus === "reconnect_required";
   const ready = Boolean(current.oauth_ready);
   const webhookReady = Boolean(current.webhook_ready);
-  const callbackUrl = current.oauth_callback_url ?? "";
 
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -83,31 +62,11 @@ export function MercadoPagoConnectPanel({
     }
   };
 
-  const testConfiguration = async () => {
-    setState("testing");
-    try {
-      setCurrent(await onTest());
-      setState("idle");
-    } catch {
-      setState("error");
-    }
-  };
-
-  const copyCallback = async () => {
-    if (!callbackUrl) return;
-    try {
-      await navigator.clipboard.writeText(callbackUrl);
-      setCopied(true);
-    } catch {
-      setState("error");
-    }
-  };
-
   const connect = async () => {
     setState("connecting");
     try {
-      const authorization = await onConnect();
-      navigate(authorization.authorization_url);
+      setCurrent(await onConnect());
+      setState("idle");
     } catch {
       setState("error");
     }
@@ -150,7 +109,7 @@ export function MercadoPagoConnectPanel({
           ) : reconnect ? (
             <p>La autorización venció. Conectala otra vez para seguir cobrando.</p>
           ) : (
-            <p>Guardá una vez los datos de tu aplicación y después autorizá la cuenta desde Mercado Pago.</p>
+            <p>Guardá los datos de la aplicación y validá la cuenta propia de la tienda en un solo paso.</p>
           )}
         </div>
         <div className="mercadopago-connect-actions">
@@ -162,7 +121,7 @@ export function MercadoPagoConnectPanel({
               type="button"
             >
               {state === "connecting"
-                ? "Abriendo Mercado Pago…"
+                ? "Conectando…"
                 : reconnect
                   ? "Volver a conectar"
                   : "Conectar Mercado Pago"}
@@ -231,27 +190,10 @@ export function MercadoPagoConnectPanel({
               value={webhookSecret}
             />
           </label>
-          <div className="field-wide mercadopago-callback-field">
-            <label>
-              URL de retorno de OAuth
-              <input aria-label="URL de retorno de OAuth" readOnly value={callbackUrl} />
-            </label>
-            <button className="button secondary" onClick={() => void copyCallback()} type="button">
-              {copied ? "URL copiada" : "Copiar URL"}
-            </button>
-          </div>
         </div>
         <div className="management-form-actions">
           <button className="button primary" disabled={state === "saving"} type="submit">
             {state === "saving" ? "Guardando…" : "Guardar configuración"}
-          </button>
-          <button
-            className="button secondary"
-            disabled={!ready || state === "testing"}
-            onClick={() => void testConfiguration()}
-            type="button"
-          >
-            {state === "testing" ? "Verificando…" : "Verificar configuración"}
           </button>
         </div>
       </form>
@@ -278,8 +220,7 @@ export function MercadoPagoConnectPanel({
         <h2>Cómo conectarlo</h2>
         <ol>
           <li>Creá la aplicación en Mercado Pago y copiá el Client ID y el Client Secret.</li>
-          <li>Registrá allí la URL de retorno que aparece arriba.</li>
-          <li>Guardá y presioná “Conectar Mercado Pago” para confirmar los permisos.</li>
+          <li>Guardá y presioná “Conectar Mercado Pago”; verificaremos directamente la cuenta propia.</li>
           <li>Copiá la clave secreta de Webhooks para habilitar los cobros productivos.</li>
         </ol>
       </section>

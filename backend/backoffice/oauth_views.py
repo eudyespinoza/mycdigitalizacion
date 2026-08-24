@@ -18,6 +18,7 @@ from backoffice.serializers import (
 from commerce.mercadopago_oauth import (
     MercadoPagoOAuthError,
     MercadoPagoOAuthNotConfigured,
+    connect_own_mercadopago_account,
     consume_authorization_state,
     create_authorization_session,
     disconnect_mercadopago,
@@ -62,6 +63,41 @@ class MercadoPagoOAuthStartView(APIView):
                 "callback_url": oauth_callback_url(),
             }
         )
+
+
+class MercadoPagoOwnAccountConnectView(APIView):
+    permission_classes = (IsManagementOwner,)
+
+    @extend_schema(
+        operation_id="management_mercadopago_connect_own_account",
+        request=None,
+        responses={
+            200: IntegrationConfigurationResponseSerializer,
+            409: IntegrationErrorSerializer,
+            502: IntegrationErrorSerializer,
+        },
+        tags=("Gestión - integraciones",),
+    )
+    def post(self, request):
+        try:
+            configuration = connect_own_mercadopago_account(actor=request.user)
+        except MercadoPagoOAuthNotConfigured as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except ProviderError as exc:
+            return Response(
+                {
+                    "code": exc.code,
+                    "detail": (
+                        "Mercado Pago rechazó la conexión. Revisá el Client ID y el "
+                        "Client Secret."
+                    ),
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response(serialize_configuration("mercadopago", configuration))
 
 
 class MercadoPagoOAuthDisconnectView(APIView):

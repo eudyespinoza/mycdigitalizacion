@@ -197,7 +197,11 @@ def serialize_configuration(provider, configuration=None):
             configuration
             and configuration.enabled
             and secrets.get("access_token")
-            and secrets.get("refresh_token")
+            and (
+                secrets.get("refresh_token")
+                or configuration.public_config.get("oauth_grant_type")
+                == "client_credentials"
+            )
         )
         reconnect_required = bool(
             configuration
