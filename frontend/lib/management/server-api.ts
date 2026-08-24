@@ -22,12 +22,3 @@ export async function managementServerGet<T>(path: string): Promise<T> {
   if (!response.ok) throw new ManagementServerError(response.status);
   return response.json() as Promise<T>;
 }
-
-
-export async function managementServerGetOr<T>(path: string, fallback: T): Promise<T> {
-  try {
-    return await managementServerGet<T>(path);
-  } catch {
-    return fallback;
-  }
-}

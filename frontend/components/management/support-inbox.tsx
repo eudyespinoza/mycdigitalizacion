@@ -4,8 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { managementRequest } from "@/lib/management/api";
-import type { ManagementStaffUser } from "@/lib/management/access-types";
-import type { ManagementSupportCase, ManagementSupportCaseList, ManagementSupportFilters, ManagementSupportPriority } from "@/lib/management/support-types";
+import type { ManagementSupportAssigneeList, ManagementSupportCase, ManagementSupportCaseList, ManagementSupportFilters, ManagementSupportPriority, ManagementSupportUser } from "@/lib/management/support-types";
 import type { SupportCaseKind, SupportCaseStatus } from "@/lib/support/types";
 
 const kindLabels: Record<SupportCaseKind, string> = { consultation: "Consulta", problem: "Problema" };
@@ -40,27 +39,45 @@ function FilterSelect<T extends string>({ label, value, onChange, options }: { l
   return <label>{label}<select aria-label={label} onChange={(event) => onChange(event.target.value as T | "")} value={value ?? ""}><option value="">Todas</option>{options.map(([option, name]) => <option key={option} value={option}>{name}</option>)}</select></label>;
 }
 
-export function ManagementSupportInbox({ initialData, initialFilters, assignees = [] }: { initialData: ManagementSupportCaseList; initialFilters: ManagementSupportFilters; assignees?: ManagementStaffUser[] }) {
+export function ManagementSupportInbox({ initialData, initialFilters, initialAssignees = [], initialAssigneeError = "" }: { initialData: ManagementSupportCaseList; initialFilters: ManagementSupportFilters; initialAssignees?: ManagementSupportUser[]; initialAssigneeError?: string }) {
   const [filters, setFilters] = useState(initialFilters);
   const [data, setData] = useState(initialData);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [assignees, setAssignees] = useState(initialAssignees);
+  const [assigneeError, setAssigneeError] = useState(initialAssigneeError);
+  const [assigneesLoading, setAssigneesLoading] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestId = useRef(0);
 
   useEffect(() => () => { if (searchTimer.current) clearTimeout(searchTimer.current); }, []);
 
   async function load(nextFilters: ManagementSupportFilters) {
+    const currentRequest = ++requestId.current;
     const query = queryFor(nextFilters);
     setLoading(true);
     setError("");
     window.history.replaceState(null, "", hrefFor(nextFilters));
     try {
       const result = await managementRequest<ManagementSupportCaseList>(`/support/cases/${query ? `?${query}` : ""}`);
-      setData(result);
+      if (currentRequest === requestId.current) setData(result);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "No pudimos cargar las consultas. Intentá nuevamente.");
+      if (currentRequest === requestId.current) setError(cause instanceof Error ? cause.message : "No pudimos cargar las consultas. Intentá nuevamente.");
     } finally {
-      setLoading(false);
+      if (currentRequest === requestId.current) setLoading(false);
+    }
+  }
+
+  async function reloadAssignees() {
+    setAssigneesLoading(true);
+    setAssigneeError("");
+    try {
+      const result = await managementRequest<ManagementSupportAssigneeList>("/support/assignees/");
+      setAssignees(result.results);
+    } catch {
+      setAssigneeError("No pudimos cargar las personas disponibles para asignar. Reintentá.");
+    } finally {
+      setAssigneesLoading(false);
     }
   }
 
@@ -86,11 +103,12 @@ export function ManagementSupportInbox({ initialData, initialFilters, assignees 
       <FilterSelect label="Tipo" onChange={(value) => changeFilter("kind", value)} options={Object.entries(kindLabels) as [SupportCaseKind, string][]} value={filters.kind} />
       <FilterSelect label="Estado" onChange={(value) => changeFilter("status", value)} options={Object.entries(statusLabels) as [SupportCaseStatus, string][]} value={filters.status} />
       <FilterSelect label="Prioridad" onChange={(value) => changeFilter("priority", value)} options={Object.entries(priorityLabels) as [ManagementSupportPriority, string][]} value={filters.priority} />
-      <label>Asignación<select aria-label="Asignación" onChange={(event) => changeFilter("assignee", event.target.value)} value={filters.assignee ?? ""}><option value="">Todas</option><option value="unassigned">Sin asignar</option>{assignees.filter((user) => user.is_active).map((user) => <option key={user.id} value={user.id}>{[user.first_name, user.last_name].filter(Boolean).join(" ") || user.email}</option>)}</select></label>
+      <label>Asignación<select aria-label="Asignación" disabled={assigneesLoading} onChange={(event) => changeFilter("assignee", event.target.value)} value={filters.assignee ?? ""}><option value="">Todas</option><option value="unassigned">Sin asignar</option>{assignees.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
       <label><input aria-label="Sólo pendientes" checked={filters.pending === "1"} onChange={(event) => changeFilter("pending", event.target.checked ? "1" : "")} type="checkbox" /> Pendientes</label>
       <label><input aria-label="Sólo sin leer" checked={filters.unread === "1"} onChange={(event) => changeFilter("unread", event.target.checked ? "1" : "")} type="checkbox" /> Sin leer</label>
       <label><span className="sr-only">Buscar consultas</span><input aria-label="Buscar consultas" defaultValue={filters.search} onChange={(event) => changeFilter("search", event.target.value, true)} placeholder="Buscar número, asunto o contacto" type="search" /></label>
     </div>
+    {assigneeError ? <p className="inline-error" role="alert">{assigneeError} <button className="text-button" disabled={assigneesLoading} onClick={() => void reloadAssignees()} type="button">Reintentar</button></p> : null}
     {loading ? <p role="status">Cargando consultas...</p> : null}
     {error ? <p className="inline-error" role="alert">{error} <button className="text-button" onClick={() => void load(filters)} type="button">Reintentar</button></p> : null}
     <div className="management-table-wrap">
@@ -98,7 +116,7 @@ export function ManagementSupportInbox({ initialData, initialFilters, assignees 
         <thead><tr><th>Número</th><th>Consulta</th><th>Tipo</th><th>Estado</th><th>Prioridad</th><th>Asignada a</th><th>Actualizada</th><th>Sin leer</th></tr></thead>
         <tbody>{data.results.map((item) => <tr key={item.public_id}>
           <td><Link aria-label={`Abrir ${item.case_number}: ${item.subject}`} href={`/gestion/consultas/${item.public_id}`}>{item.case_number}</Link></td>
-          <td><strong>{item.subject}</strong><small>{contactLabel(item)}</small></td><td>{kindLabels[item.kind]}</td><td>{statusLabels[item.status]}</td><td>{priorityLabels[item.priority]}</td><td>{item.assigned_to?.name || "Sin asignar"}</td><td><time dateTime={item.updated_at}>{displayDate(item.updated_at)}</time></td><td>Ver en detalle</td>
+          <td><strong>{item.subject}</strong><small>{contactLabel(item)}</small></td><td>{kindLabels[item.kind]}</td><td>{statusLabels[item.status]}</td><td>{priorityLabels[item.priority]}</td><td>{item.assigned_to?.name || "Sin asignar"}</td><td><time dateTime={item.updated_at}>{displayDate(item.updated_at)}</time></td><td><span aria-label={item.unread ? "Sin leer" : "Leída"}>{item.unread ? "Sin leer" : "Leída"}</span></td>
         </tr>)}</tbody>
       </table>
     </div>

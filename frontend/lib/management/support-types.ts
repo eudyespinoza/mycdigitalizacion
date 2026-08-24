@@ -30,6 +30,7 @@ export type ManagementSupportCase = {
   customer: ManagementSupportUser | null;
   assigned_to: ManagementSupportUser | null;
   message_count: number;
+  unread: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -50,6 +51,10 @@ export type ManagementSupportCaseList = {
   next: string | null;
   previous: string | null;
   results: ManagementSupportCase[];
+};
+
+export type ManagementSupportAssigneeList = {
+  results: ManagementSupportUser[];
 };
 
 export type ManagementSupportFilters = {
