@@ -35,6 +35,22 @@ describe("Fix Round 2 CMS behavior", () => {
     expect(image).toHaveStyle({ objectPosition: "63% 42%" });
   });
 
+  test("CMS campaign media bypasses the internal Next optimizer", () => {
+    const content: ScheduledContent = {
+      id: 8, title: "Hero publicado", body: "", alt_text: "Productos destacados",
+      desktop_image_url: "/media/cms/hero-desktop.png", mobile_image_url: "/media/cms/hero-mobile.png",
+      desktop_responsive_sources: [], mobile_responsive_sources: [],
+      cta_label: "Ver", cta_url: "/catalogo", focal_x: "50", focal_y: "50",
+      safe_height_mobile: 320, safe_height_tablet: 460, safe_height_desktop: 580,
+      starts_at: null, ends_at: null, order: 1,
+    };
+
+    const { container } = render(<CampaignImage content={content} prefix="hero" />);
+
+    expect(screen.getByRole("img", { name: content.alt_text })).toHaveAttribute("src", "/media/cms/hero-desktop.png");
+    expect(container.querySelector("picture source")).toHaveAttribute("srcset", "/media/cms/hero-mobile.png");
+  });
+
   test("collection product IDs resolve beyond the first server page without loading unnecessary pages", async () => {
     const pages: CatalogResponse[] = [
       { count: 3, next: "/api/v1/products/?page=2", previous: null, results: [product(1), product(2)], facets },
