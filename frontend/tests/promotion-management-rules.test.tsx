@@ -113,6 +113,7 @@ describe("reglas de promociones en gestión", () => {
     fireEvent.click(screen.getByRole("button", { name: "Eliminar Oferta cuadernos" }));
     fireEvent.click(within(screen.getByRole("dialog", { name: "Eliminar oferta" })).getByRole("button", { name: "Eliminar" }));
     await waitFor(() => expect(screen.queryByText("Oferta cuadernos")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Eliminar UNO10" }));
     fireEvent.click(within(screen.getByRole("dialog", { name: "Eliminar cupón" })).getByRole("button", { name: "Eliminar" }));
 
