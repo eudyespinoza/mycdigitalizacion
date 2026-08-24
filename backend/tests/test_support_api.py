@@ -7,6 +7,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image
 from rest_framework.test import APIClient
 
+from accounts.models import Profile
 from support.models import SupportAttachment, SupportCase, SupportMessage
 
 pytestmark = pytest.mark.django_db
@@ -23,6 +24,13 @@ def guest_payload(**overrides):
         "idempotency_key": "guest-create-1",
     }
     payload.update(overrides)
+    return payload
+
+
+def payload_without_contact_fields(**overrides):
+    payload = guest_payload(**overrides)
+    payload.pop("contact_name")
+    payload.pop("contact_email")
     return payload
 
 
@@ -121,6 +129,78 @@ def test_recovery_requires_number_and_private_code_and_links_this_session(
     assert denied.status_code == 400
     assert allowed.status_code == 200
     assert api_client.get(f"/api/v1/support/cases/{case.public_id}/").status_code == 200
+
+
+def test_authenticated_creation_derives_contact_snapshot_without_contact_fields(
+    api_client, django_user_model
+):
+    customer = django_user_model.objects.create_user("ada@example.test", password="password")
+    Profile.objects.create(user=customer, first_name="Ada", last_name="Lovelace")
+    api_client.force_login(customer)
+
+    response = api_client.post(
+        "/api/v1/support/cases/",
+        payload_without_contact_fields(idempotency_key="authenticated-create-1"),
+        format="multipart",
+    )
+
+    assert response.status_code == 201
+    created = SupportCase.objects.get(public_id=response.json()["public_id"])
+    assert created.contact_name == "Ada Lovelace"
+    assert created.contact_email == "ada@example.test"
+
+
+def test_authenticated_creation_cannot_spoof_contact_snapshot(api_client, django_user_model):
+    customer = django_user_model.objects.create_user("real@example.test", password="password")
+    Profile.objects.create(user=customer, first_name="Nombre", last_name="Real")
+    api_client.force_login(customer)
+
+    response = api_client.post(
+        "/api/v1/support/cases/",
+        guest_payload(
+            contact_name="Nombre impostor",
+            contact_email="impostor@example.test",
+            idempotency_key="authenticated-create-2",
+        ),
+        format="multipart",
+    )
+
+    assert response.status_code == 201
+    created = SupportCase.objects.get(public_id=response.json()["public_id"])
+    assert created.contact_name == "Nombre Real"
+    assert created.contact_email == "real@example.test"
+
+
+def test_guest_creation_requires_contact_fields_with_spanish_errors(api_client):
+    response = api_client.post(
+        "/api/v1/support/cases/",
+        payload_without_contact_fields(idempotency_key="guest-missing-contact"),
+        format="multipart",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["contact_name"] == ["El nombre de contacto es obligatorio."]
+    assert response.json()["contact_email"] == ["El correo electrónico de contacto es obligatorio."]
+
+
+def test_authenticated_creation_without_account_email_returns_spanish_validation_error(
+    api_client, django_user_model
+):
+    customer = django_user_model(email="")
+    customer.set_password("password")
+    customer.save()
+    api_client.force_login(customer)
+
+    response = api_client.post(
+        "/api/v1/support/cases/",
+        payload_without_contact_fields(idempotency_key="authenticated-create-no-email"),
+        format="multipart",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["contact_email"] == [
+        "Tu cuenta no tiene un correo electrónico válido para crear el caso."
+    ]
 
 
 def test_authenticated_customer_only_sees_own_cases_and_claim_requires_code(

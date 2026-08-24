@@ -1,6 +1,8 @@
 from urllib.parse import urlsplit
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -78,8 +80,8 @@ class SupportCaseCreateSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(choices=SupportCase.Kind.choices)
     subject = serializers.CharField(max_length=180)
     category = serializers.CharField(max_length=32)
-    contact_name = serializers.CharField(max_length=180)
-    contact_email = serializers.EmailField()
+    contact_name = serializers.CharField(max_length=180, required=False, allow_blank=True)
+    contact_email = serializers.EmailField(required=False, allow_blank=True)
     contact_phone = serializers.CharField(max_length=40, required=False, allow_blank=True)
     order = serializers.PrimaryKeyRelatedField(
         queryset=Order.objects.all(), required=False, allow_null=True
@@ -106,10 +108,45 @@ class SupportCaseCreateSerializer(serializers.Serializer):
         if not attrs["idempotency_key"].strip():
             raise serializers.ValidationError({"idempotency_key": "La clave es obligatoria."})
         user = self.context["request"].user
+        if user.is_authenticated:
+            attrs.update(self._account_contact_snapshot(user))
+        else:
+            errors = {}
+            if not attrs.get("contact_name", "").strip():
+                errors["contact_name"] = ["El nombre de contacto es obligatorio."]
+            if not attrs.get("contact_email", "").strip():
+                errors["contact_email"] = ["El correo electrónico de contacto es obligatorio."]
+            if errors:
+                raise serializers.ValidationError(errors)
         order = attrs.get("order")
         if order and (not user.is_authenticated or order.user_id != user.pk):
             raise serializers.ValidationError({"order": "No podés asociar un pedido ajeno."})
         return attrs
+
+    @staticmethod
+    def _account_contact_snapshot(user):
+        email = str(user.email or "").strip()
+        try:
+            validate_email(email)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(
+                {
+                    "contact_email": [
+                        "Tu cuenta no tiene un correo electrónico válido para crear el caso."
+                    ]
+                }
+            ) from exc
+        profile = getattr(user, "profile", None)
+        profile_name = " ".join(
+            part.strip()
+            for part in (
+                getattr(profile, "first_name", ""),
+                getattr(profile, "last_name", ""),
+            )
+            if part.strip()
+        )
+        contact_name = profile_name or user.get_full_name().strip() or email
+        return {"contact_name": contact_name, "contact_email": email}
 
     def validate_source_url(self, value):
         if not value.strip():
