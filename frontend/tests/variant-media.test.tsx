@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import ProductPage from "@/app/producto/[slug]/page";
 import { ProductCard } from "@/components/product/product-card";
+import { ProductDetail } from "@/components/product/product-detail";
 import { serverGet } from "@/lib/api";
 import type { Product } from "@/lib/types";
 
@@ -47,6 +48,19 @@ describe("galería por variante", () => {
     fireEvent.change(screen.getByLabelText("Opción"), { target: { value: "12" } });
     await waitFor(() => expect(screen.getByAltText("Mochila rosa")).toBeVisible());
     expect(screen.queryByAltText("Mochila azul")).not.toBeInTheDocument();
+  });
+
+  test("selecciona una variante con imagen cuando el producto no tiene imagen general", () => {
+    render(<ProductDetail product={{
+      ...product,
+      media: [
+        { ...product.media[2], order: 0 },
+      ],
+    }} />);
+
+    expect(screen.getByLabelText("Opción")).toHaveValue("12");
+    expect(screen.getByAltText("Mochila rosa")).toHaveAttribute("src", "/media/catalog/rosa.png");
+    expect(screen.queryByText("Imagen no publicada")).not.toBeInTheDocument();
   });
 
   test("usa una imagen general como portada del catálogo", () => {

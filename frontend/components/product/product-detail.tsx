@@ -7,8 +7,30 @@ import { ProductPurchase } from "@/components/product/product-purchase";
 import { normalizeMediaUrl } from "@/lib/api";
 import type { Product } from "@/lib/types";
 
+function getInitialVariantId(product: Product) {
+  const firstVariantId = product.variants[0]?.id ?? 0;
+  const hasGeneralMedia = product.media.some(
+    (item) => item.variant_id === null && normalizeMediaUrl(item.file),
+  );
+
+  if (hasGeneralMedia) {
+    return firstVariantId;
+  }
+
+  const variantIdsWithMedia = new Set(
+    product.media
+      .filter((item) => item.variant_id !== null && normalizeMediaUrl(item.file))
+      .map((item) => item.variant_id),
+  );
+  const variantWithMedia = product.variants.find(
+    (variant) => variant.is_available && variantIdsWithMedia.has(variant.id),
+  ) ?? product.variants.find((variant) => variantIdsWithMedia.has(variant.id));
+
+  return variantWithMedia?.id ?? firstVariantId;
+}
+
 export function ProductDetail({ product }: { product: Product }) {
-  const [variantId, setVariantId] = useState(product.variants[0]?.id ?? 0);
+  const [variantId, setVariantId] = useState(() => getInitialVariantId(product));
   const media = [...product.media]
     .filter((item) => item.variant_id === null || item.variant_id === variantId)
     .filter((item) => normalizeMediaUrl(item.file))
