@@ -109,6 +109,7 @@ describe("bandeja de soporte de gestión", () => {
     fireEvent.change(screen.getByLabelText("Orden"), { target: { value: "30" } });
     fireEvent.click(screen.getByRole("button", { name: "Guardar categoría" }));
     expect(await screen.findByText("Impresiones 3D")).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Editar Productos" }));
     fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Productos y stock" } });
