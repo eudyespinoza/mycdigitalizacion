@@ -181,6 +181,8 @@ SUPPORT_GUEST_SESSION_COOKIE_AGE = int(
     environ.get("SUPPORT_GUEST_SESSION_COOKIE_AGE", str(180 * 24 * 60 * 60))
 )
 SUPPORT_EMAIL_AVAILABLE = environ.get("SUPPORT_EMAIL_AVAILABLE", "false").lower() == "true"
+EMAIL_HOST = environ.get("EMAIL_HOST", "")
+SUPPORT_NOTIFICATION_FROM_EMAIL = environ.get("SUPPORT_NOTIFICATION_FROM_EMAIL", "")
 CSRF_FAILURE_VIEW = "config.views.csrf_failure"
 SECURE_SSL_REDIRECT = APP_ENV == "production"
 SECURE_HSTS_SECONDS = 31_536_000 if APP_ENV == "production" else 0

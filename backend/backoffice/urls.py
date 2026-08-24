@@ -49,8 +49,40 @@ from backoffice.views import (
     ManagementDashboardView,
     ManagementSessionView,
 )
+from support.management_views import (
+    ManagementSupportAttachmentDownloadView,
+    ManagementSupportCaseDetailView,
+    ManagementSupportCaseListView,
+    ManagementSupportMessageCreateView,
+    ManagementSupportSummaryView,
+)
 
 urlpatterns = [
+    path(
+        "support/cases/",
+        ManagementSupportCaseListView.as_view(),
+        name="management-support-cases",
+    ),
+    path(
+        "support/cases/<uuid:public_id>/",
+        ManagementSupportCaseDetailView.as_view(),
+        name="management-support-case-detail",
+    ),
+    path(
+        "support/cases/<uuid:public_id>/messages/",
+        ManagementSupportMessageCreateView.as_view(),
+        name="management-support-message-create",
+    ),
+    path(
+        "support/summary/",
+        ManagementSupportSummaryView.as_view(),
+        name="management-support-summary",
+    ),
+    path(
+        "support/attachments/<uuid:public_id>/",
+        ManagementSupportAttachmentDownloadView.as_view(),
+        name="management-support-attachment-download",
+    ),
     path("session/", ManagementSessionView.as_view(), name="management-session"),
     path("dashboard/", ManagementDashboardView.as_view(), name="management-dashboard"),
     path("integrations/", IntegrationListView.as_view(), name="management-integrations"),
