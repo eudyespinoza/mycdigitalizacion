@@ -161,6 +161,36 @@ def test_authenticated_customer_only_sees_own_cases_and_claim_requires_code(
     assert other_client.get(f"/api/v1/support/cases/{recoverable.public_id}/").status_code == 404
 
 
+def test_authenticated_guest_session_keeps_only_its_linked_cases(api_client, django_user_model):
+    created = api_client.post("/api/v1/support/cases/", guest_payload(), format="multipart")
+    guest_case_id = created.json()["public_id"]
+    owner = django_user_model.objects.create_user("owner@example.test", password="password")
+    unrelated = django_user_model.objects.create_user(
+        "unrelated@example.test", password="password"
+    )
+    owned = SupportCase.objects.create(
+        kind=SupportCase.Kind.CONSULTATION,
+        subject="Caso propio",
+        category="productos",
+        customer=owner,
+        recovery_code_hash=make_password("owned-code"),
+    )
+
+    api_client.force_login(unrelated)
+    listed = api_client.get("/api/v1/support/cases/")
+
+    assert listed.status_code == 200
+    assert [item["public_id"] for item in listed.json()["results"]] == [guest_case_id]
+    assert api_client.get(f"/api/v1/support/cases/{guest_case_id}/").status_code == 200
+
+    owner_client = APIClient()
+    owner_client.force_login(owner)
+    assert [item["public_id"] for item in owner_client.get("/api/v1/support/cases/").json()[
+        "results"
+    ]] == [str(owned.public_id)]
+    assert owner_client.get(f"/api/v1/support/cases/{guest_case_id}/").status_code == 404
+
+
 def test_message_uses_case_access_and_private_downloads_do_not_leak(api_client, settings, tmp_path):
     settings.SUPPORT_PRIVATE_MEDIA_ROOT = tmp_path
     created = api_client.post(

@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.db.models import Q
 from rest_framework.permissions import BasePermission
 
 from support.access import resolve_guest_session
@@ -15,9 +16,9 @@ def guest_session_for_request(request):
 
 def can_access_case(request, case):
     user = request.user
-    if user and user.is_authenticated:
-        return case.customer_id == user.pk
     session = guest_session_for_request(request)
+    if user and user.is_authenticated and case.customer_id == user.pk:
+        return True
     return bool(session and SupportGuestAccess.objects.filter(case=case, session=session).exists())
 
 
@@ -30,9 +31,10 @@ class CanAccessSupportCase(BasePermission):
 
 def accessible_cases(request, queryset):
     user = request.user
-    if user and user.is_authenticated:
-        return queryset.filter(customer=user)
     session = guest_session_for_request(request)
-    if not session:
-        return queryset.none()
-    return queryset.filter(guest_accesses__session=session)
+    filters = Q()
+    if user and user.is_authenticated:
+        filters |= Q(customer=user)
+    if session:
+        filters |= Q(guest_accesses__session=session)
+    return queryset.filter(filters).distinct() if filters else queryset.none()
