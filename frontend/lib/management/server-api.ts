@@ -17,7 +17,10 @@ export async function managementServerGet<T>(path: string): Promise<T> {
   const requestHeaders = await headers();
   const response = await fetch(`${SERVER_API_ROOT}/management${path}`, {
     cache: "no-store",
-    headers: { cookie: requestHeaders.get("cookie") ?? "" },
+    headers: {
+      cookie: requestHeaders.get("cookie") ?? "",
+      "X-Forwarded-Proto": "https",
+    },
   });
   if (!response.ok) throw new ManagementServerError(response.status);
   return response.json() as Promise<T>;
