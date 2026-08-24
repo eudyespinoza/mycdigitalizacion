@@ -64,6 +64,8 @@ export function SiteFooter({
             <Link href="/cuenta">Mi cuenta</Link>
             <Link href="/cuenta/direcciones">Direcciones</Link>
             <Link href="/cuenta/fiscal">Datos de facturación</Link>
+            <Link href="/consultas">Consultas</Link>
+            <Link href="/reportar-problema">Reportar un problema</Link>
           </nav>
           <div className="footer-help">
             <strong>Compra sin sorpresas</strong>

@@ -91,6 +91,11 @@ export function AccountDashboard() {
           </Link>
         )) : <div className="empty-compact"><p>Todavía no hay pedidos.</p><Link href="/catalogo">Explorar catálogo</Link></div>}
       </section>
+      <section className="account-panel">
+        <div className="section-heading"><h2>Consultas</h2><Link href="/consultas">Ver consultas</Link></div>
+        <p>SeguÍ tus consultas o recuperá una con el número y código privado.</p>
+        <Link className="button secondary" href="/reportar-problema">Reportar un problema</Link>
+      </section>
     </div>
   );
 }
