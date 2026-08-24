@@ -15,7 +15,7 @@ const allowedTypes: Record<string, string[]> = {
   ".webp": ["image/webp"],
   ".pdf": ["application/pdf"],
   ".txt": ["text/plain"],
-  ".csv": ["text/csv", "application/csv", "application/vnd.ms-excel"],
+  ".csv": ["text/csv"],
   ".docx": ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
   ".xlsx": ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
 };
@@ -31,7 +31,7 @@ function fingerprint(file: File) {
 
 function isAllowedFile(file: File) {
   const types = allowedTypes[extension(file.name)];
-  return Boolean(types && (!file.type || types.includes(file.type.toLowerCase())));
+  return Boolean(types?.includes(file.type.toLowerCase()));
 }
 
 function isPreviewableImage(file: File) {

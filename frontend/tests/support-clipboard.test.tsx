@@ -64,6 +64,16 @@ describe("adjuntos del compositor", () => {
     expect(mergeAttachmentQueue([], almostTen).error).toBe("Los adjuntos superan el máximo total de 30 MB por mensaje.");
   });
 
+  test("acepta CSV sólo con el MIME que valida el servidor", () => {
+    const accepted = new File(["producto,precio"], "precios.csv", { type: "text/csv" });
+    expect(mergeAttachmentQueue([], [accepted])).toEqual({ files: [accepted] });
+
+    ["application/csv", "application/vnd.ms-excel", ""].forEach((type) => {
+      const rejected = new File(["producto,precio"], "precios.csv", { type });
+      expect(mergeAttachmentQueue([], [rejected]).error).toBe("El archivo «precios.csv» no tiene un formato permitido.");
+    });
+  });
+
   test("revoca las vistas previas de imágenes al quitar archivos y al desmontarse", () => {
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: () => "" });
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: () => undefined });

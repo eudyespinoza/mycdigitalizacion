@@ -37,6 +37,12 @@ const supportCase = {
       image_height: 100,
       preview_url: "/private/should-not-be-used.png",
     }],
+  }, {
+    id: 4,
+    author_role: "guest" as const,
+    body: "Mensaje inicial de la consulta.",
+    created_at: "2026-08-23T10:01:00Z",
+    attachments: [],
   }],
 };
 
@@ -46,16 +52,20 @@ describe("hilo de consultas", () => {
     supportApi.getCase.mockReset().mockResolvedValue(supportCase);
     supportApi.sendMessage.mockReset().mockResolvedValue({ id: 9 });
     supportApi.attachmentDownloadUrl.mockClear();
+    createSupportIdempotencyKey.mockReset().mockReturnValue("stable-message-key");
   });
 
   afterEach(() => vi.useRealTimers());
 
-  test("muestra el detalle autorizado con mensajes ordenados y adjuntos privados", async () => {
+  test("muestra el detalle autorizado en orden cronológico y con adjuntos privados", async () => {
     render(<SupportThread publicId="case-1" />);
 
     expect(await screen.findByRole("heading", { name: "Consulta por cuadernos" })).toBeVisible();
     expect(screen.getByText("Te ayudamos con tu compra.")).toBeVisible();
     expect(screen.getByText("Equipo de atención")).toBeVisible();
+    const firstMessage = screen.getByText("Mensaje inicial de la consulta.");
+    const secondMessage = screen.getByText("Te ayudamos con tu compra.");
+    expect(firstMessage.compareDocumentPosition(secondMessage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const attachment = screen.getByRole("link", { name: /Descargar respuesta\.png/i });
     expect(attachment).toHaveAttribute("href", "/api/v1/support/attachments/attachment-1/");
     expect(screen.getByRole("img", { name: "Vista previa de respuesta.png" })).toHaveAttribute("src", "/api/v1/support/attachments/attachment-1/?preview=1");
@@ -73,15 +83,33 @@ describe("hilo de consultas", () => {
     expect(message).toHaveValue("");
   });
 
-  test("conserva el texto y ofrece reintento si el envío falla", async () => {
+  test("reintenta con la misma clave y conserva texto y archivos tras un error", async () => {
+    createSupportIdempotencyKey.mockReset().mockReturnValueOnce("retry-key").mockReturnValueOnce("next-key");
     supportApi.sendMessage.mockRejectedValueOnce(new Error("No pudimos enviar el mensaje."));
     render(<SupportThread publicId="case-1" />);
     const message = await screen.findByLabelText("Mensaje");
+    const attachment = new File(["png"], "captura.png", { type: "image/png" });
+    const attachmentInput = screen.getByLabelText("Adjuntar archivos") as HTMLInputElement;
+    Object.defineProperty(attachmentInput, "files", { configurable: true, value: [attachment] });
+    fireEvent.change(attachmentInput);
     fireEvent.change(message, { target: { value: "Necesito una respuesta" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar mensaje" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("No pudimos enviar el mensaje.");
     expect(message).toHaveValue("Necesito una respuesta");
+    expect(screen.getByText("captura.png")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+
+    await waitFor(() => expect(supportApi.sendMessage).toHaveBeenCalledTimes(2));
+    expect(supportApi.sendMessage).toHaveBeenNthCalledWith(1, "case-1", "Necesito una respuesta", [attachment], "retry-key");
+    expect(supportApi.sendMessage).toHaveBeenNthCalledWith(2, "case-1", "Necesito una respuesta", [attachment], "retry-key");
+    await waitFor(() => expect(message).toHaveValue(""));
+    expect(screen.queryByText("captura.png")).not.toBeInTheDocument();
+
+    fireEvent.change(message, { target: { value: "Nuevo mensaje" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar mensaje" }));
+    await waitFor(() => expect(supportApi.sendMessage).toHaveBeenCalledTimes(3));
+    expect(supportApi.sendMessage).toHaveBeenLastCalledWith("case-1", "Nuevo mensaje", [], "next-key");
   });
 
   test("deja el caso cerrado en sólo lectura", async () => {
