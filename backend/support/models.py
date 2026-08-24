@@ -110,6 +110,30 @@ class SupportCase(models.Model):
         return super().save(*args, **kwargs)
 
 
+class SupportCategory(models.Model):
+    kind = models.CharField(max_length=16, choices=SupportCase.Kind.choices)
+    slug = models.SlugField(max_length=32)
+    label = models.CharField(max_length=80)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("kind", "sort_order", "id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("kind", "slug"), name="sup_category_kind_slug_uniq"
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=("kind", "is_active", "sort_order", "id"),
+                name="sup_category_public_idx",
+            )
+        ]
+
+
 class SupportMessage(models.Model):
     class AuthorRole(models.TextChoices):
         CUSTOMER = "customer", "Customer"

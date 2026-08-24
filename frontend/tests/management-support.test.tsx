@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import ManagementSupportPage from "@/app/gestion/consultas/page";
 import { ManagementSupportCasePanel } from "@/components/management/support-case-panel";
 import { ManagementSupportInbox } from "@/components/management/support-inbox";
+import { SupportCategoryManager } from "@/components/management/support-category-manager";
 import { ManagementNav } from "@/components/management/management-nav";
 import { ApiError } from "@/lib/api";
 
@@ -82,6 +83,42 @@ describe("bandeja de soporte de gestión", () => {
     expect(screen.queryByLabelText("Asunto de nueva consulta")).not.toBeInTheDocument();
     expect(screen.getByText("CON-2026-000123")).toBeVisible();
     expect(managementServerGet).toHaveBeenCalledWith("/support/assignees/");
+  });
+
+  test("administra categorías sin mostrar formularios hasta solicitarlos", async () => {
+    managementRequest
+      .mockResolvedValueOnce({
+        id: 3, kind: "consultation", slug: "impresiones-3d", label: "Impresiones 3D",
+        sort_order: 30, is_active: true,
+      })
+      .mockResolvedValueOnce({
+        id: 1, kind: "consultation", slug: "productos", label: "Productos y stock",
+        sort_order: 10, is_active: true,
+      })
+      .mockResolvedValueOnce(undefined);
+    render(<SupportCategoryManager initialCategories={[
+      { id: 1, kind: "consultation", slug: "productos", label: "Productos", sort_order: 10, is_active: true },
+      { id: 2, kind: "problem", slug: "pedido", label: "Pedido", sort_order: 10, is_active: true },
+    ]} />);
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Nueva categoría" }));
+    expect(screen.getByRole("dialog", { name: "Nueva categoría" })).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Tipo de atención"), { target: { value: "consultation" } });
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Impresiones 3D" } });
+    fireEvent.change(screen.getByLabelText("Orden"), { target: { value: "30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar categoría" }));
+    expect(await screen.findByText("Impresiones 3D")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Editar Productos" }));
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Productos y stock" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    expect(await screen.findByText("Productos y stock")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar Productos y stock" }));
+    expect(screen.getByRole("dialog", { name: "Eliminar categoría" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Sí, eliminar" }));
+    await waitFor(() => expect(screen.queryByText("Productos y stock")).not.toBeInTheDocument());
   });
 
   test("actualiza filtros en la URL y conserva la página cargada", async () => {

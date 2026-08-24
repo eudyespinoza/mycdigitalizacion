@@ -109,7 +109,7 @@ export function ManagementSupportInbox({ initialData, initialFilters, initialAss
   }
 
   return <section className="management-list-section" aria-labelledby="management-support-inbox-title">
-    <header className="management-section-heading"><div><h1 id="management-support-inbox-title">Consultas</h1><p>Priorizá respuestas y resolvé problemas sin perder el contexto de cada caso.</p></div></header>
+    <header className="management-section-heading"><div><h1 id="management-support-inbox-title">Consultas</h1><p>Priorizá respuestas y resolvé problemas sin perder el contexto de cada caso.</p></div><Link className="button secondary" href="/gestion/consultas/categorias">Categorías</Link></header>
     <div className="management-search" role="search">
       <FilterSelect label="Tipo" onChange={(value) => changeFilter("kind", value)} options={Object.entries(kindLabels) as [SupportCaseKind, string][]} value={filters.kind} />
       <FilterSelect label="Estado" onChange={(value) => changeFilter("status", value)} options={Object.entries(statusLabels) as [SupportCaseStatus, string][]} value={filters.status} />

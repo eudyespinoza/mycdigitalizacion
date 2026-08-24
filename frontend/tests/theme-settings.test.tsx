@@ -4,7 +4,9 @@ import { describe, expect, test, vi } from "vitest";
 import { GeneralSettingsForm } from "@/components/management/general-settings-form";
 import { ManagementShell } from "@/components/management/management-shell";
 import { SiteFooter } from "@/components/layout/site-footer";
+import { BrandProvider } from "@/components/layout/brand-provider";
 import { ApiError } from "@/lib/api";
+import { FALLBACK_BRANDING } from "@/lib/branding";
 import { resolveThemeVariables } from "@/lib/theme";
 
 
@@ -115,5 +117,18 @@ describe("tema global y marcas sociales", () => {
     const whatsapp = screen.getByRole("link", { name: "Consultar por WhatsApp" });
     expect(whatsapp.querySelector("svg")).not.toBeNull();
     expect(whatsapp).not.toHaveTextContent("Consultar");
+  });
+
+  test("el footer usa el mismo logo configurado para la tienda", () => {
+    render(
+      <BrandProvider branding={{ ...FALLBACK_BRANDING, logo_url: "/media/branding/logo-configurado.png" }}>
+        <SiteFooter />
+      </BrandProvider>,
+    );
+
+    expect(screen.getByRole("img", { name: "Logo de mycdigitalizacion" })).toHaveAttribute(
+      "src",
+      "/media/branding/logo-configurado.png",
+    );
   });
 });

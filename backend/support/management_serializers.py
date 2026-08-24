@@ -1,8 +1,9 @@
 from django.contrib.auth import get_user_model
 from django.db.models import Q
+from django.utils.text import slugify
 from rest_framework import serializers
 
-from support.models import SupportCase, SupportMessage
+from support.models import SupportCase, SupportCategory, SupportMessage
 from support.serializers import SupportAttachmentSerializer
 
 
@@ -132,3 +133,35 @@ class ManagementSupportMessageCreateSerializer(serializers.Serializer):
         if not attrs["idempotency_key"].strip():
             raise serializers.ValidationError({"idempotency_key": "La clave es obligatoria."})
         return attrs
+
+
+class ManagementSupportCategorySerializer(serializers.ModelSerializer):
+    slug = serializers.SlugField(read_only=True)
+
+    class Meta:
+        model = SupportCategory
+        fields = ("id", "kind", "slug", "label", "sort_order", "is_active")
+
+    def validate(self, attrs):
+        label = attrs.get("label", getattr(self.instance, "label", "")).strip()
+        if not label:
+            raise serializers.ValidationError({"label": "Ingresá un nombre."})
+        attrs["label"] = label
+        kind = attrs.get("kind", getattr(self.instance, "kind", None))
+        slug = self.instance.slug if self.instance else slugify(label)
+        if not slug:
+            raise serializers.ValidationError(
+                {"label": "El nombre no genera un identificador válido."}
+            )
+        duplicate = SupportCategory.objects.filter(kind=kind, slug=slug)
+        if self.instance:
+            duplicate = duplicate.exclude(pk=self.instance.pk)
+        if duplicate.exists():
+            raise serializers.ValidationError(
+                {"label": "Ya existe una categoría con este nombre para este tipo."}
+            )
+        attrs["slug"] = slug
+        return attrs
+
+    def create(self, validated_data):
+        return SupportCategory.objects.create(**validated_data)

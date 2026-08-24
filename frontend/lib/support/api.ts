@@ -2,6 +2,7 @@ import { apiRequest } from "@/lib/api";
 import type {
   CreateSupportCaseInput,
   SupportCaseDetail,
+  SupportCaseKind,
   SupportCaseSummary,
   SupportConfiguration,
   SupportMessage,
@@ -51,8 +52,8 @@ function createMessageFormData(body: string, files: File[], idempotencyKey: stri
 
 export const supportApi = {
   configuration: () => apiRequest<SupportConfiguration>("/support/configuration/"),
-  listCases: async () => {
-    const response = await apiRequest<CaseListResponse>("/support/cases/");
+  listCases: async (kind?: SupportCaseKind) => {
+    const response = await apiRequest<CaseListResponse>(`/support/cases/${kind ? `?kind=${kind}` : ""}`);
     return Array.isArray(response) ? response : response.results ?? [];
   },
   createCase: (input: CreateSupportCaseInput) => apiRequest<SupportCaseDetail>("/support/cases/", {

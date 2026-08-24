@@ -71,10 +71,14 @@ class SupportCaseListCreateView(generics.GenericAPIView):
         return []
 
     def get_queryset(self):
-        return accessible_cases(
+        queryset = accessible_cases(
             self.request,
             SupportCase.objects.order_by("-updated_at", "-id"),
         ).distinct()
+        kind = self.request.query_params.get("kind", "").strip()
+        if kind in SupportCase.Kind.values:
+            queryset = queryset.filter(kind=kind)
+        return queryset
 
     @extend_schema(
         operation_id="support_case_list",

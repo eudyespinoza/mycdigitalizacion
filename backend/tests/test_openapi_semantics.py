@@ -294,6 +294,8 @@ def test_openapi_documents_public_and_management_support_contracts(client):
     }
     management_paths = {
         "/api/v1/management/support/assignees/": {"get"},
+        "/api/v1/management/support/categories/": {"get", "post"},
+        "/api/v1/management/support/categories/{id}/": {"get", "put", "patch", "delete"},
         "/api/v1/management/support/cases/": {"get"},
         "/api/v1/management/support/cases/{public_id}/": {"get", "patch"},
         "/api/v1/management/support/cases/{public_id}/messages/": {"post"},

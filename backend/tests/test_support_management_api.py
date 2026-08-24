@@ -147,6 +147,65 @@ def test_staff_without_support_permissions_is_forbidden(django_user_model, suppo
     assert client.get("/api/v1/management/support/cases/").status_code == 403
 
 
+def test_owner_manages_support_categories_and_public_configuration_updates(owner_client):
+    listed = owner_client.get("/api/v1/management/support/categories/")
+
+    assert listed.status_code == 200
+    assert any(
+        item["kind"] == "consultation" and item["label"] == "Productos"
+        for item in listed.json()["results"]
+    )
+
+    created = owner_client.post(
+        "/api/v1/management/support/categories/",
+        {
+            "kind": "consultation",
+            "label": "Impresiones 3D",
+            "sort_order": 25,
+            "is_active": True,
+        },
+        format="json",
+    )
+
+    assert created.status_code == 201
+    assert created.json()["slug"] == "impresiones-3d"
+
+    updated = owner_client.patch(
+        f"/api/v1/management/support/categories/{created.json()['id']}/",
+        {"label": "Trabajos de impresión 3D", "is_active": False},
+        format="json",
+    )
+    assert updated.status_code == 200
+    assert updated.json()["label"] == "Trabajos de impresión 3D"
+
+    public_configuration = owner_client.get("/api/v1/support/configuration/")
+    public_categories = public_configuration.json()["categories"]["consultation"]
+    assert {item["value"] for item in public_categories}.isdisjoint({"impresiones-3d"})
+
+    deleted = owner_client.delete(
+        f"/api/v1/management/support/categories/{created.json()['id']}/"
+    )
+    assert deleted.status_code == 204
+
+
+def test_staff_without_category_permissions_cannot_manage_support_categories(django_user_model):
+    staff = django_user_model.objects.create_user(
+        email="category-reader@example.test", password="StrongPassword!2026", is_staff=True
+    )
+    client = APIClient()
+    client.force_login(staff)
+
+    assert client.get("/api/v1/management/support/categories/").status_code == 403
+    assert (
+        client.post(
+            "/api/v1/management/support/categories/",
+            {"kind": "problem", "label": "Nuevo problema"},
+            format="json",
+        ).status_code
+        == 403
+    )
+
+
 def test_staff_with_read_only_support_permission_cannot_mutate(django_user_model, support_case):
     reader = django_user_model.objects.create_user(
         email="reader@example.test", password="StrongPassword!2026", is_staff=True

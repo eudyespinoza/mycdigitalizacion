@@ -9,22 +9,6 @@ import type { SupportCaseDetail, SupportCaseKind, SupportConfiguration } from "@
 
 type FieldErrors = Record<string, string>;
 
-const categoryLabels: Record<string, string> = {
-  productos: "Productos",
-  compra: "Compra",
-  envios: "Envíos",
-  pagos: "Pagos",
-  facturacion: "Facturación",
-  otra: "Otra consulta",
-  pedido: "Pedido",
-  pago: "Pago",
-  envio: "Envío",
-  producto: "Producto",
-  cuenta: "Cuenta",
-  sitio: "Sitio web",
-  otro: "Otro problema",
-};
-
 function readFieldErrors(error: unknown): FieldErrors {
   if (error instanceof ApiError) {
     return Object.fromEntries(Object.entries(error.fields).map(([field, messages]) => [field, messages[0]]));
@@ -157,7 +141,7 @@ export function CaseCreateDialog({ kind, presentation, onClose, onCreated }: Cas
       <label htmlFor="support-category">Categoría</label>
       <select aria-describedby={fieldErrors.category ? "support-category-error" : undefined} aria-invalid={Boolean(fieldErrors.category)} defaultValue="" id="support-category" name="category" required>
         <option disabled value="">Elegí una categoría</option>
-        {configuration.categories[kind].map((category) => <option key={category} value={category}>{categoryLabels[category] ?? category}</option>)}
+        {configuration.categories[kind].map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}
       </select>
       {fieldErrors.category ? <span className="field-error" id="support-category-error" role="alert">{fieldErrors.category}</span> : null}
       <label htmlFor="support-body">Mensaje</label>

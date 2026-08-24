@@ -1,5 +1,7 @@
 export type SupportCaseKind = "consultation" | "problem";
 
+export type SupportCategoryOption = { value: string; label: string };
+
 export type SupportCaseStatus = "new" | "waiting_customer" | "waiting_staff" | "resolved" | "closed";
 
 export type SupportAttachment = {
@@ -39,7 +41,7 @@ export type SupportCaseDetail = SupportCaseSummary & {
 export type SupportConfiguration = {
   authenticated: boolean;
   email_available: boolean;
-  categories: Record<SupportCaseKind, string[]>;
+  categories: Record<SupportCaseKind, SupportCategoryOption[]>;
   limits: {
     max_files: number;
     max_file_size_bytes: number;

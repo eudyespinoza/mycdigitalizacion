@@ -13,6 +13,8 @@ node_modules/
 coverage/
 playwright-report/
 test-results/
+*.tsbuildinfo
+/tmp/
 frontend/.gstack/
 media/
 staticfiles/

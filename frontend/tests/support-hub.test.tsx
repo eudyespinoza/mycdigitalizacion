@@ -20,8 +20,23 @@ const configuration = {
   authenticated: false,
   email_available: false,
   categories: {
-    consultation: ["productos", "compra", "envios", "pagos", "facturacion", "otra"],
-    problem: ["pedido", "pago", "envio", "producto", "cuenta", "sitio", "otro"],
+    consultation: [
+      { value: "productos", label: "Productos" },
+      { value: "compra", label: "Compra" },
+      { value: "envios", label: "Envíos" },
+      { value: "pagos", label: "Pagos" },
+      { value: "facturacion", label: "Facturación" },
+      { value: "otra", label: "Otra consulta" },
+    ],
+    problem: [
+      { value: "pedido", label: "Pedido" },
+      { value: "pago", label: "Pago" },
+      { value: "envio", label: "Envío" },
+      { value: "producto", label: "Producto" },
+      { value: "cuenta", label: "Cuenta" },
+      { value: "sitio", label: "Sitio web" },
+      { value: "otro", label: "Otro problema" },
+    ],
   },
   limits: { max_files: 5, max_file_size_bytes: 10485760, max_total_size_bytes: 31457280 },
 };
@@ -44,6 +59,27 @@ describe("mesa de ayuda pública", () => {
     expect(screen.getByRole("dialog", { name: "Nueva consulta" })).toBeVisible();
     expect(await screen.findByLabelText("Nombre")).toBeVisible();
     expect(screen.queryByRole("dialog", { name: "Recuperar consulta" })).not.toBeInTheDocument();
+  });
+
+  test("muestra únicamente consultas en la pantalla de consultas", async () => {
+    supportApi.listCases.mockResolvedValue([
+      {
+        public_id: "consultation-1", case_number: "CON-2026-1", kind: "consultation",
+        subject: "Consulta de producto", category: "productos", status: "new",
+        updated_at: "2026-08-23T10:00:00Z",
+      },
+      {
+        public_id: "problem-1", case_number: "PRO-2026-1", kind: "problem",
+        subject: "Problema con pedido", category: "pedido", status: "new",
+        updated_at: "2026-08-23T10:00:00Z",
+      },
+    ]);
+
+    render(<SupportHub />);
+
+    expect(await screen.findByText("Consulta de producto")).toBeVisible();
+    expect(screen.queryByText("Problema con pedido")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Reportar un problema" })).not.toBeInTheDocument();
   });
 
   test("enfoca el asunto cuando el formulario termina de prepararse sin robar el foco después", async () => {

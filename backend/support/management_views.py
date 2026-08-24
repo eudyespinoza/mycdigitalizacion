@@ -17,12 +17,13 @@ from support.management_serializers import (
     ManagementSupportCaseDetailSerializer,
     ManagementSupportCaseListSerializer,
     ManagementSupportCaseUpdateSerializer,
+    ManagementSupportCategorySerializer,
     ManagementSupportMessageCreateSerializer,
     ManagementSupportMessageSerializer,
     ManagementSupportUserSerializer,
     support_assignee_queryset,
 )
-from support.models import SupportAttachment, SupportCase, SupportMessage
+from support.models import SupportAttachment, SupportCase, SupportCategory, SupportMessage
 from support.services import append_message
 from support.storage import attachment_download_headers, private_support_storage
 from support.tasks import queue_support_notification
@@ -62,6 +63,36 @@ class CanChooseSupportAssignees(CanEditSupportCases):
 
 class CanDownloadSupportAttachments(HasSupportManagementPermission):
     required_permission = "support.view_supportattachment"
+
+
+class HasSupportCategoryPermission(permissions.BasePermission):
+    permission_by_method = {
+        "GET": "support.view_supportcategory",
+        "POST": "support.add_supportcategory",
+        "PUT": "support.change_supportcategory",
+        "PATCH": "support.change_supportcategory",
+        "DELETE": "support.delete_supportcategory",
+    }
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated and user.is_active and user.is_staff):
+            return False
+        permission = self.permission_by_method.get(request.method)
+        return bool(permission and (_is_owner(user) or user.has_perm(permission)))
+
+
+class ManagementSupportCategoryListCreateView(generics.ListCreateAPIView):
+    permission_classes = (HasSupportCategoryPermission,)
+    serializer_class = ManagementSupportCategorySerializer
+    pagination_class = ManagementPagination
+    queryset = SupportCategory.objects.order_by("kind", "sort_order", "id")
+
+
+class ManagementSupportCategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = (HasSupportCategoryPermission,)
+    serializer_class = ManagementSupportCategorySerializer
+    queryset = SupportCategory.objects.all()
 
 
 def management_case_queryset():

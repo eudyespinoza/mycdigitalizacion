@@ -57,6 +57,22 @@ export type ManagementSupportAssigneeList = {
   results: ManagementSupportUser[];
 };
 
+export type ManagementSupportCategory = {
+  id: number;
+  kind: SupportCaseKind;
+  slug: string;
+  label: string;
+  sort_order: number;
+  is_active: boolean;
+};
+
+export type ManagementSupportCategoryList = {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: ManagementSupportCategory[];
+};
+
 export type ManagementSupportFilters = {
   kind?: SupportCaseKind;
   status?: SupportCaseStatus;

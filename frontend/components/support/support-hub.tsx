@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { Copy, WarningCircle } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -60,7 +59,8 @@ export function SupportHub({ initialKind }: { initialKind?: SupportCaseKind }) {
     setLoading(true);
     setLoadError("");
     try {
-      setCases(await supportApi.listCases());
+      const availableCases = await supportApi.listCases("consultation");
+      setCases(availableCases.filter((supportCase) => supportCase.kind === "consultation"));
     } catch (cause) {
       setLoadError(cause instanceof Error ? cause.message : "No pudimos cargar tus consultas.");
     } finally {
@@ -114,7 +114,6 @@ export function SupportHub({ initialKind }: { initialKind?: SupportCaseKind }) {
       </div>
       <div className="support-hub-actions">
         <button className="button primary" onClick={() => setMode("create")} type="button">Nueva consulta</button>
-        <Link className="button secondary" href="/reportar-problema">Reportar un problema</Link>
         <button className="text-button" onClick={() => setMode("recover")} type="button">Recuperar consulta</button>
       </div>
     </header>

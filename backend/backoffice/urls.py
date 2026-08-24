@@ -54,11 +54,23 @@ from support.management_views import (
     ManagementSupportAttachmentDownloadView,
     ManagementSupportCaseDetailView,
     ManagementSupportCaseListView,
+    ManagementSupportCategoryDetailView,
+    ManagementSupportCategoryListCreateView,
     ManagementSupportMessageCreateView,
     ManagementSupportSummaryView,
 )
 
 urlpatterns = [
+    path(
+        "support/categories/",
+        ManagementSupportCategoryListCreateView.as_view(),
+        name="management-support-categories",
+    ),
+    path(
+        "support/categories/<int:pk>/",
+        ManagementSupportCategoryDetailView.as_view(),
+        name="management-support-category-detail",
+    ),
     path(
         "support/assignees/",
         ManagementSupportAssigneeListView.as_view(),

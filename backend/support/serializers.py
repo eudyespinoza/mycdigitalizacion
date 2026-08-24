@@ -9,19 +9,7 @@ from rest_framework import serializers
 from catalog.models import Product
 from commerce.models import Order
 from support.attachments import MAX_FILE_BYTES, MAX_FILES_PER_MESSAGE, MAX_MESSAGE_BYTES
-from support.models import SupportAttachment, SupportCase, SupportMessage
-
-SUPPORT_CATEGORIES = {
-    SupportCase.Kind.CONSULTATION: (
-        "productos",
-        "compra",
-        "envios",
-        "pagos",
-        "facturacion",
-        "otra",
-    ),
-    SupportCase.Kind.PROBLEM: ("pedido", "pago", "envio", "producto", "cuenta", "sitio", "otro"),
-}
+from support.models import SupportAttachment, SupportCase, SupportCategory, SupportMessage
 
 
 class SupportAttachmentSerializer(serializers.ModelSerializer):
@@ -105,7 +93,9 @@ class SupportCaseCreateSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
     def validate(self, attrs):
-        if attrs["category"] not in SUPPORT_CATEGORIES[attrs["kind"]]:
+        if not SupportCategory.objects.filter(
+            kind=attrs["kind"], slug=attrs["category"], is_active=True
+        ).exists():
             raise serializers.ValidationError(
                 {"category": "La categoría no corresponde al tipo de caso."}
             )
@@ -195,18 +185,33 @@ class SupportClaimSerializer(serializers.Serializer):
     code = serializers.CharField(max_length=256, trim_whitespace=False)
 
 
+class SupportCategoryOptionSerializer(serializers.Serializer):
+    value = serializers.CharField()
+    label = serializers.CharField()
+
+
 class SupportConfigurationSerializer(serializers.Serializer):
     authenticated = serializers.BooleanField()
     email_available = serializers.BooleanField()
-    categories = serializers.DictField(child=serializers.ListField(child=serializers.CharField()))
+    categories = serializers.DictField(
+        child=serializers.ListField(child=SupportCategoryOptionSerializer())
+    )
     limits = serializers.DictField(child=serializers.IntegerField())
 
 
 def support_configuration_payload(request):
+    categories = {
+        SupportCase.Kind.CONSULTATION: [],
+        SupportCase.Kind.PROBLEM: [],
+    }
+    for category in SupportCategory.objects.filter(is_active=True).order_by(
+        "kind", "sort_order", "id"
+    ):
+        categories[category.kind].append({"value": category.slug, "label": category.label})
     return {
         "authenticated": bool(request.user and request.user.is_authenticated),
         "email_available": settings.SUPPORT_EMAIL_AVAILABLE,
-        "categories": {kind: list(categories) for kind, categories in SUPPORT_CATEGORIES.items()},
+        "categories": categories,
         "limits": {
             "max_files": MAX_FILES_PER_MESSAGE,
             "max_file_size_bytes": MAX_FILE_BYTES,

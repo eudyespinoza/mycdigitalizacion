@@ -65,18 +65,44 @@ def test_configuration_exposes_public_categories_limits_and_authentication(api_c
     assert response.json()["authenticated"] is False
     assert response.json()["email_available"] is False
     assert response.json()["categories"]["consultation"] == [
-        "productos",
-        "compra",
-        "envios",
-        "pagos",
-        "facturacion",
-        "otra",
+        {"value": "productos", "label": "Productos"},
+        {"value": "compra", "label": "Compra"},
+        {"value": "envios", "label": "Envíos"},
+        {"value": "pagos", "label": "Pagos"},
+        {"value": "facturacion", "label": "Facturación"},
+        {"value": "otra", "label": "Otra consulta"},
     ]
     assert response.json()["limits"] == {
         "max_files": 5,
         "max_file_size_bytes": 10 * 1024 * 1024,
         "max_total_size_bytes": 30 * 1024 * 1024,
     }
+
+
+def test_public_case_list_filters_consultations_from_problem_reports(api_client, django_user_model):
+    customer = django_user_model.objects.create_user("cliente@example.test", password="password")
+    consultation = SupportCase.objects.create(
+        kind=SupportCase.Kind.CONSULTATION,
+        subject="Consulta visible",
+        category="productos",
+        customer=customer,
+        recovery_code_hash=make_password("consultation-code"),
+    )
+    SupportCase.objects.create(
+        kind=SupportCase.Kind.PROBLEM,
+        subject="Problema separado",
+        category="pedido",
+        customer=customer,
+        recovery_code_hash=make_password("problem-code"),
+    )
+    api_client.force_login(customer)
+
+    response = api_client.get("/api/v1/support/cases/?kind=consultation")
+
+    assert response.status_code == 200
+    assert [item["public_id"] for item in response.json()["results"]] == [
+        str(consultation.public_id)
+    ]
 
 
 def test_guest_creates_case_continues_with_secure_cookie_and_only_sees_own_case(api_client):

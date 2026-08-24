@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FacebookLogo, InstagramLogo, LinkedinLogo, TiktokLogo, WhatsappLogo, YoutubeLogo } from "@phosphor-icons/react/dist/ssr";
 import { useBranding } from "@/components/layout/brand-provider";
+import { normalizeMediaUrl } from "@/lib/api";
 
 type SocialLinks = {
   instagram_url: string;
@@ -38,6 +39,7 @@ export function SiteFooter({
     message: branding.whatsapp_message,
   };
   const publicName = branding.public_name || "mycdigitalizacion";
+  const logoUrl = normalizeMediaUrl(branding.logo_url) || "/brand/mycdigitalizacion-logo.png";
   const configuredNetworks = socialNetworks.filter(([key]) => Boolean(resolvedSocialLinks[key]));
   const whatsappNumber = resolvedWhatsapp.number.replace(/\D/g, "");
   const whatsappHref = whatsappNumber
@@ -49,8 +51,7 @@ export function SiteFooter({
         <div className="shell footer-main">
           <div className="footer-brand">
             <Link aria-label={`${publicName}, inicio`} className="footer-brand-name" href="/">
-              <span aria-hidden="true" className="footer-brand-mark" />
-              {publicName}
+              <img alt={`Logo de ${publicName}`} className="footer-brand-logo" src={logoUrl} />
             </Link>
             <p>Productos para estudiar, crear y organizar cada espacio.</p>
           </div>
