@@ -76,6 +76,7 @@ def test_attention_role_can_filter_reply_assign_and_list_without_message_bodies(
     assert listed.status_code == 200
     row = listed.json()["results"][0]
     assert row["case_number"] == support_case.case_number
+    assert row["unread"] is True
     assert "messages" not in row
     assert "body" not in row
 
@@ -182,7 +183,11 @@ def test_detail_marks_customer_message_read_without_changing_pending_or_updated_
     assert support_case.staff_last_read_at is not None
     assert support_case.updated_at == before
     assert owner_client.get("/api/v1/management/support/cases/?pending=1").json()["count"] == 1
-    assert owner_client.get("/api/v1/management/support/cases/?unread=1").json()["count"] == 0
+    read_list = owner_client.get("/api/v1/management/support/cases/?unread=1")
+    assert read_list.json()["count"] == 0
+    assert owner_client.get("/api/v1/management/support/cases/?pending=1").json()["results"][0][
+        "unread"
+    ] is False
     assert owner_client.get("/api/v1/management/support/summary/").json() == {
         "pending": 1,
         "unread": 0,
@@ -198,7 +203,9 @@ def test_detail_marks_customer_message_read_without_changing_pending_or_updated_
         created_at=support_case.staff_last_read_at + timedelta(seconds=1)
     )
 
-    assert owner_client.get("/api/v1/management/support/cases/?unread=1").json()["count"] == 1
+    unread_list = owner_client.get("/api/v1/management/support/cases/?unread=1")
+    assert unread_list.json()["count"] == 1
+    assert unread_list.json()["results"][0]["unread"] is True
     assert owner_client.get("/api/v1/management/support/summary/").json() == {
         "pending": 1,
         "unread": 1,
@@ -253,3 +260,56 @@ def test_support_role_migration_reverses_group_created_by_the_migration():
     assert not Permission.objects.filter(
         codename="support_attention_role_migration_marker"
     ).exists()
+
+
+def test_attention_can_list_minimal_active_support_assignees_and_assign_them(
+    attention_client, django_user_model, support_case
+):
+    group = Group.objects.get(name="Atención")
+    candidate = django_user_model.objects.create_user(
+        email="ada-support@example.test",
+        password="StrongPassword!2026",
+        first_name="Ada",
+        last_name="Support",
+        is_staff=True,
+        email_verified_at=timezone.now(),
+    )
+    candidate.groups.add(group)
+    inactive = django_user_model.objects.create_user(
+        email="inactive-support@example.test",
+        password="StrongPassword!2026",
+        is_staff=True,
+        is_active=False,
+    )
+    inactive.groups.add(group)
+    django_user_model.objects.create_user(
+        email="customer@example.test", password="StrongPassword!2026"
+    )
+
+    response = attention_client.get("/api/v1/management/support/assignees/")
+
+    assert response.status_code == 200
+    results = response.json()["results"]
+    selected = next(row for row in results if row["id"] == candidate.pk)
+    assert set(selected) == {"id", "name", "email"}
+    assert selected == {"id": candidate.pk, "name": "Ada Support", "email": candidate.email}
+    assert inactive.pk not in {row["id"] for row in results}
+    assert all(row["email"] != "customer@example.test" for row in results)
+
+    assigned = attention_client.patch(
+        f"/api/v1/management/support/cases/{support_case.public_id}/",
+        {"assigned_to": candidate.pk},
+        format="json",
+    )
+    assert assigned.status_code == 200
+    assert assigned.json()["assigned_to"]["id"] == candidate.pk
+
+
+def test_staff_without_support_permission_cannot_list_assignees(django_user_model):
+    staff = django_user_model.objects.create_user(
+        email="staff@example.test", password="StrongPassword!2026", is_staff=True
+    )
+    client = APIClient()
+    client.force_login(staff)
+
+    assert client.get("/api/v1/management/support/assignees/").status_code == 403

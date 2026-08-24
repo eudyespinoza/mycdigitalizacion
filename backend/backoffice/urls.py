@@ -50,6 +50,7 @@ from backoffice.views import (
     ManagementSessionView,
 )
 from support.management_views import (
+    ManagementSupportAssigneeListView,
     ManagementSupportAttachmentDownloadView,
     ManagementSupportCaseDetailView,
     ManagementSupportCaseListView,
@@ -58,6 +59,11 @@ from support.management_views import (
 )
 
 urlpatterns = [
+    path(
+        "support/assignees/",
+        ManagementSupportAssigneeListView.as_view(),
+        name="management-support-assignees",
+    ),
     path(
         "support/cases/",
         ManagementSupportCaseListView.as_view(),

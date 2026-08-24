@@ -13,7 +13,7 @@ class ManagementSupportUserSerializer(serializers.ModelSerializer):
         fields = ("id", "email", "name")
 
     def get_name(self, user):
-        return user.get_full_name().strip()
+        return user.get_full_name().strip() or user.email
 
 
 class ManagementSupportAttachmentSerializer(SupportAttachmentSerializer):
@@ -41,6 +41,7 @@ class ManagementSupportCaseListSerializer(serializers.ModelSerializer):
     assigned_to = ManagementSupportUserSerializer(read_only=True)
     customer = ManagementSupportUserSerializer(read_only=True)
     message_count = serializers.IntegerField(read_only=True)
+    unread = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = SupportCase
@@ -57,6 +58,7 @@ class ManagementSupportCaseListSerializer(serializers.ModelSerializer):
             "customer",
             "assigned_to",
             "message_count",
+            "unread",
             "created_at",
             "updated_at",
         )
