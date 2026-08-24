@@ -69,3 +69,25 @@ test("keyboard dialogs restore focus and reduced motion removes movement", async
     await expect(filterTrigger).toBeFocused();
   }
 });
+
+test("support dialogs, closed thread, and management inbox remain accessible by keyboard", async ({ page }) => {
+  await page.goto("/consultas");
+  const createTrigger = page.getByRole("button", { name: "Nueva consulta" });
+  await createTrigger.focus();
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Nueva consulta" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel("Asunto")).toBeFocused();
+  await expectNoSeriousOrCriticalViolations(page, "support creation dialog");
+  await page.keyboard.press("Escape");
+  await expect(createTrigger).toBeFocused();
+
+  await page.goto("/consultas/22222222-2222-4222-8222-222222222222");
+  await expect(page.getByText("Esta consulta está cerrada y no admite nuevas respuestas.")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Mensaje" })).toHaveCount(0);
+  await expectNoSeriousOrCriticalViolations(page, "closed support thread");
+
+  await page.goto("/gestion/consultas");
+  await expect(page.getByRole("table", { name: "Consultas y problemas" })).toBeVisible();
+  await expectNoSeriousOrCriticalViolations(page, "management support inbox");
+});

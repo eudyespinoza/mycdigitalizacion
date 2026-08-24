@@ -14,15 +14,67 @@ const billing = [{ id: 3, label: "Personal", legal_name: "Cliente sintético de 
 const image = readFileSync(new URL("../public/campaigns/pulso-libreria-collection.png", import.meta.url));
 const horizontalLogoImage = readFileSync(new URL("../public/campaigns/pulso-comercial-hero.png", import.meta.url));
 
+const supportStaff = { id: 90, email: "visual-admin@example.test", name: "Ana Gestión" };
+const supportTimestamp = "2026-08-23T14:30:00Z";
+const supportCase = (public_id, status = "waiting_staff") => ({
+  public_id,
+  case_number: public_id.startsWith("222") ? "PRO-2026-000124" : "CON-2026-000123",
+  kind: public_id.startsWith("222") ? "problem" : "consultation",
+  subject: public_id.startsWith("222") ? "Problema cerrado de prueba" : "Consulta de prueba",
+  category: public_id.startsWith("222") ? "sitio" : "productos",
+  status,
+  priority: "normal",
+  contact_name: "Ana Pérez",
+  contact_email: "ana@example.test",
+  contact_phone: "1155551234",
+  customer: { id: 5, email: "cliente@example.com", name: "Ana Pérez" },
+  assigned_to: supportStaff,
+  message_count: 1,
+  unread: status !== "closed",
+  created_at: "2026-08-23T13:30:00Z",
+  updated_at: supportTimestamp,
+  order_id: null,
+  product_id: 7,
+  source_url: "",
+  resolved_at: null,
+  closed_at: status === "closed" ? supportTimestamp : null,
+  staff_last_read_at: null,
+  messages: [{ id: 1, author: null, author_role: "guest", body: "Necesito ayuda con este producto.", created_at: "2026-08-23T13:30:00Z", attachments: [] }],
+});
+const supportSummary = (item) => (({ public_id, case_number, kind, subject, category, status, updated_at }) => ({ public_id, case_number, kind, subject, category, status, updated_at }))(item);
+const supportMessage = (message) => (({ id, author_role, body, created_at, attachments }) => ({ id, author_role, body, created_at, attachments }))(message);
+const supportPublicDetail = (item, recovery_code) => ({ ...supportSummary(item), created_at: item.created_at, messages: item.messages.map(supportMessage), ...(recovery_code ? { recovery_code } : {}) });
+const supportManagementDetail = (item) => ({ ...item, messages: item.messages.map((message) => ({ ...message, author: message.author ?? (message.author_role === "staff" ? supportStaff : null) })) });
+
 let state;
-const reset = () => { state = { csrf: "csrf-1", loggedIn: true, cmsError: false, pickupEnabled: true, checkoutRedirect: false, fastCampaigns: false, popupEnabled: false, popupFrequency: "once_session", popupDismissible: true, socialEnabled: true, multipleCollections: false, logoUrl: "/brand/mycdigitalizacion-logo.png", faviconUrl: "/brand/mycdigitalizacion-logo.png", collectionProductIds: [7], address: { ...addressBase }, customer: { id: 5, email: "cliente@example.com", email_verified_at: "2026-08-20T10:00:00Z", is_staff: false, profile: { first_name: "Ana", last_name: "Pérez", phone: "1155551234" }, masked_dni: "••••5678", masked_cuit: "" }, cart: { lines: [], subtotal: "0.00", discount: "0.00", total: "0.00", cart_token: "mock-cart-token", coupon: null }, payments: ["pending", "pending", "paid"], requests: [] }; };
+const reset = () => { state = { csrf: "csrf-1", loggedIn: true, cmsError: false, pickupEnabled: true, checkoutRedirect: false, fastCampaigns: false, popupEnabled: false, popupFrequency: "once_session", popupDismissible: true, socialEnabled: true, multipleCollections: false, logoUrl: "/brand/mycdigitalizacion-logo.png", faviconUrl: "/brand/mycdigitalizacion-logo.png", collectionProductIds: [7], address: { ...addressBase }, customer: { id: 5, email: "cliente@example.com", email_verified_at: "2026-08-20T10:00:00Z", is_staff: false, profile: { first_name: "Ana", last_name: "Pérez", phone: "1155551234" }, masked_dni: "••••5678", masked_cuit: "" }, cart: { lines: [], subtotal: "0.00", discount: "0.00", total: "0.00", cart_token: "mock-cart-token", coupon: null }, payments: ["pending", "pending", "paid"], supportCases: [supportCase("11111111-1111-4111-8111-111111111111"), supportCase("22222222-2222-4222-8222-222222222222", "closed")], requests: [] }; };
 reset();
 const json = (response, status, body, headers = {}) => { response.writeHead(status, { "content-type": "application/json", ...headers }); response.end(body === undefined ? "" : JSON.stringify(body)); };
-const read = (request) => new Promise((resolve) => { let data = ""; request.on("data", (chunk) => { data += chunk; }); request.on("end", () => { try { resolve(data ? JSON.parse(data) : {}); } catch { resolve({}); } }); });
+const read = (request) => new Promise((resolve) => { let data = ""; request.on("data", (chunk) => { data += chunk; }); request.on("end", () => { try { resolve(data ? JSON.parse(data) : {}); } catch { resolve({ __raw: data }); } }); });
 const unsafe = (method) => !["GET", "HEAD", "OPTIONS"].includes(method ?? "GET");
 const validateCsrf = (request, response) => { if (unsafe(request.method) && request.headers["x-csrftoken"] !== state.csrf) { json(response, 403, { code: "csrf_failed", detail: "La sesión de seguridad venció. Actualizá la página e intentá nuevamente." }); return false; } return true; };
 const line = (quantity) => ({ id: 1, variant_id: 11, sku: "CUA-A5-AZ", product_name: "Cuaderno A5", variant_name: "Azul", quantity, unit_price: "12500.00", line_subtotal: `${12500 * quantity}.00`, line_discount: "0.00", line_total: `${12500 * quantity}.00`, availability: "available", available_stock: 8, stock_is_infinite: false, purchase_limit: null, notices: [] });
 const setCart = (quantity) => { state.cart = quantity > 0 ? { ...state.cart, lines: [line(quantity)], subtotal: `${12500 * quantity}.00`, total: `${12500 * quantity}.00` } : { ...state.cart, lines: [], subtotal: "0.00", total: "0.00" }; return state.cart; };
+const supportFormValue = (body, name) => {
+  if (typeof body[name] === "string") return body[name];
+  const raw = body.__raw ?? "";
+  const marker = raw.indexOf(`name="${name}"`);
+  if (marker < 0) return "";
+  const valueStart = raw.indexOf("\r\n\r\n", marker);
+  if (valueStart < 0) return "";
+  const valueEnd = raw.indexOf("\r\n--", valueStart + 4);
+  return raw.slice(valueStart + 4, valueEnd < 0 ? undefined : valueEnd);
+};
+const supportCaseFor = (publicId) => state.supportCases.find((item) => item.public_id === publicId);
+const supportNextMessage = (item, role, body) => {
+  const message = { id: item.messages.length + 1, author: role === "staff" ? supportStaff : null, author_role: role, body, created_at: new Date(Date.parse(item.updated_at) + 60_000).toISOString(), attachments: [] };
+  item.messages.push(message);
+  item.message_count = item.messages.length;
+  item.updated_at = message.created_at;
+  item.status = role === "staff" ? "waiting_customer" : "waiting_staff";
+  item.unread = role !== "staff";
+  return message;
+};
 
 http.createServer(async (request, response) => {
   const url = new URL(request.url, "http://127.0.0.1:4010"); const path = url.pathname.replace(/\/$/, "");
@@ -35,6 +87,60 @@ http.createServer(async (request, response) => {
   state.requests.push({ method: request.method, path, body, csrf: request.headers["x-csrftoken"] ?? null, cookie: request.headers.cookie ?? "" });
   if (path === "/api/v1/management/session") return json(response, 200, { user: { id: 90, email: "visual-admin@example.test", first_name: "Ana", last_name: "Gestión", is_staff: true, is_superuser: true, permissions: [] } });
   if (path === "/api/v1/management/dashboard") return json(response, 200, { metrics: { active_products: 24, low_stock_variants: 3, orders_requiring_attention: 2, integration_incidents: 1 } });
+  if (path === "/api/v1/management/support/assignees" && request.method === "GET") return json(response, 200, { results: [supportStaff] });
+  if (path === "/api/v1/management/support/summary" && request.method === "GET") return json(response, 200, { pending: state.supportCases.filter((item) => ["new", "waiting_staff"].includes(item.status)).length, unread: state.supportCases.filter((item) => item.unread).length });
+  if (path === "/api/v1/management/support/cases" && request.method === "GET") {
+    const status = url.searchParams.get("status");
+    const search = url.searchParams.get("search")?.toLowerCase();
+    const results = state.supportCases.filter((item) => (!status || item.status === status) && (!search || `${item.case_number} ${item.subject} ${item.contact_name} ${item.contact_email}`.toLowerCase().includes(search)));
+    return json(response, 200, { count: results.length, next: null, previous: null, results });
+  }
+  if (path.startsWith("/api/v1/management/support/cases/") && path.endsWith("/messages") && request.method === "POST") {
+    if (!validateCsrf(request, response)) return;
+    const item = supportCaseFor(path.split("/")[6]);
+    if (!item) return json(response, 404, { detail: "Consulta no encontrada." });
+    return json(response, 201, supportNextMessage(item, "staff", supportFormValue(body, "body") || "Respuesta del equipo"));
+  }
+  if (path.startsWith("/api/v1/management/support/cases/") && request.method === "PATCH") {
+    if (!validateCsrf(request, response)) return;
+    const item = supportCaseFor(path.split("/")[6]);
+    if (!item) return json(response, 404, { detail: "Consulta no encontrada." });
+    if (body.status) item.status = body.status;
+    if (body.priority) item.priority = body.priority;
+    if (Object.hasOwn(body, "assigned_to")) item.assigned_to = body.assigned_to ? supportStaff : null;
+    return json(response, 200, supportManagementDetail(item));
+  }
+  if (path.startsWith("/api/v1/management/support/cases/") && request.method === "GET") {
+    const item = supportCaseFor(path.split("/")[6]);
+    return item ? json(response, 200, supportManagementDetail(item)) : json(response, 404, { detail: "Consulta no encontrada." });
+  }
+  if (path === "/api/v1/support/configuration" && request.method === "GET") return json(response, 200, { authenticated: true, email_available: false, categories: { consultation: ["productos", "compra", "envios", "pagos", "facturacion", "otra"], problem: ["pedido", "pago", "envio", "producto", "cuenta", "sitio", "otro"] }, limits: { max_files: 5, max_file_size_bytes: 10485760, max_total_size_bytes: 31457280 } });
+  if (path === "/api/v1/support/cases" && request.method === "GET") return json(response, 200, { results: state.supportCases.map(supportSummary) });
+  if (path === "/api/v1/support/cases" && request.method === "POST") {
+    if (!validateCsrf(request, response)) return;
+    const publicId = "33333333-3333-4333-8333-333333333333";
+    const created = supportCase(publicId);
+    created.subject = supportFormValue(body, "subject") || "Consulta creada";
+    created.category = supportFormValue(body, "category") || "productos";
+    created.messages[0].body = supportFormValue(body, "body") || "Mensaje inicial";
+    state.supportCases.unshift(created);
+    return json(response, 201, supportPublicDetail(created, "REC-1234"));
+  }
+  if (path === "/api/v1/support/access" && request.method === "POST") {
+    if (!validateCsrf(request, response)) return;
+    const item = state.supportCases.find((candidate) => candidate.case_number === body.case_number);
+    return item && body.code === "REC-1234" ? json(response, 200, supportPublicDetail(item)) : json(response, 400, { code: ["El código privado no es válido."] });
+  }
+  if (path.startsWith("/api/v1/support/cases/") && path.endsWith("/messages") && request.method === "POST") {
+    if (!validateCsrf(request, response)) return;
+    const item = supportCaseFor(path.split("/")[5]);
+    if (!item || item.status === "closed") return json(response, 404, { detail: "Consulta no encontrada." });
+    return json(response, 201, supportMessage(supportNextMessage(item, "guest", supportFormValue(body, "body") || "Mensaje de prueba")));
+  }
+  if (path.startsWith("/api/v1/support/cases/") && request.method === "GET") {
+    const item = supportCaseFor(path.split("/")[5]);
+    return item ? json(response, 200, supportPublicDetail(item)) : json(response, 404, { detail: "Consulta no encontrada." });
+  }
   if (path === "/api/v1/management/products") return json(response, 200, { count: 1, next: null, previous: null, results: [{ id: 7, name: "Cuaderno A5", slug: "cuaderno-a5", description: "Cuaderno rayado", category: { ...categories[2], is_active: true }, brand: { id: 4, name: "Sur", slug: "sur" }, is_active: true, is_sellable: true, created_at: "2026-08-20T10:00:00Z", on_offer: true, active_offer_names: ["Vuelta al cole"], media: [], variants: [{ id: 11, sku: "CUA-A5-AZ", name: "Azul", price: "15000.00", cost: "8000.00", on_hand: 10, available_stock: 8, stock_is_infinite: false, max_purchase_quantity: 5, is_active: true, packaged_weight_grams: 300, length_cm: "21.00", width_cm: "15.00", height_cm: "2.00", attributes: [] }] }] });
   if (path === "/api/v1/management/inventory") return json(response, 200, { count: 1, next: null, previous: null, results: [{ id: 11, sku: "CUA-A5-AZ", name: "Azul", price: "15000.00", cost: "8000.00", on_hand: 10, available_stock: 8, stock_is_infinite: false, max_purchase_quantity: 5, is_active: true, packaged_weight_grams: 300, length_cm: "21.00", width_cm: "15.00", height_cm: "2.00", product: { id: 7, name: "Cuaderno A5" }, recent_movements: [] }] });
   if (path === "/api/v1/management/orders") return json(response, 200, { count: 1, next: null, previous: null, results: [{ public_id: "33333333-3333-4333-8333-333333333333", customer: { id: 5, name: "Ana Pérez", email: "ana@example.com", phone: "1155551234" }, identity_status: "verified", payment_status: "paid", fulfillment_status: "preparing", fulfillment_method: "shipping", total: "17000.00", created_at: "2026-08-20T10:00:00Z" }] });
@@ -104,4 +210,4 @@ http.createServer(async (request, response) => {
   if (path.startsWith("/api/v1/payments/") && path.endsWith("/status")) return json(response, 200, { status: state.payments.length > 1 ? state.payments.shift() : state.payments[0] ?? "pending" });
   if (path.startsWith("/api/v1/orders/")) return json(response, 200, { public_id: path.split("/").at(-1), identity_status: "verified", payment_status: "paid", fulfillment_status: "shipped", fulfillment_method: "shipping", shipping_cost_status: "ready", customer_snapshot: {}, address_snapshot: { raw_address: "Av. Corrientes 1234, CABA" }, fiscal_snapshot: billing[0], coupon_code_snapshot: "", subtotal_snapshot: "12500.00", discount_snapshot: "0.00", shipping_amount_snapshot: "4500.00", total_snapshot: "17000.00", items: [{ product_name_snapshot: "Cuaderno A5", variant_name_snapshot: "Azul", sku_snapshot: "CUA-A5-AZ", quantity: 1, unit_price_snapshot: "12500.00", discount_snapshot: "0.00", line_total_snapshot: "12500.00" }], timeline: [{ status: "order_created", label: "Pedido creado", occurred_at: "2026-08-20T10:00:00Z" }, { status: "payment_paid", label: "Pago confirmado", occurred_at: "2026-08-20T10:05:00Z" }, { status: "fulfillment_shipped", label: "Pedido despachado", occurred_at: "2026-08-20T12:00:00Z" }], shipment: { carrier: "API MiCorreo", tracking_number: "CP123AR", status: "in_transit", updated_at: "2026-08-20T12:00:00Z" }, pickup_information: null, created_at: "2026-08-20T10:00:00Z" });
   return json(response, 404, { code: "not_found", detail: "Mock route not found" });
-}).listen(4010, globalThis.process?.env.MOCK_HOST ?? "127.0.0.1");
+}).listen(Number(globalThis.process?.env.MOCK_PORT ?? 4010), globalThis.process?.env.MOCK_HOST ?? "127.0.0.1");

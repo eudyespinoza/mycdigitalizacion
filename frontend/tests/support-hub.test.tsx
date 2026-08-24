@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { SupportHub } from "@/components/support/support-hub";
@@ -44,6 +44,26 @@ describe("mesa de ayuda pública", () => {
     expect(screen.getByRole("dialog", { name: "Nueva consulta" })).toBeVisible();
     expect(await screen.findByLabelText("Nombre")).toBeVisible();
     expect(screen.queryByRole("dialog", { name: "Recuperar consulta" })).not.toBeInTheDocument();
+  });
+
+  test("enfoca el asunto cuando el formulario termina de prepararse sin robar el foco después", async () => {
+    let resolveConfiguration: (value: typeof configuration) => void = () => undefined;
+    supportApi.configuration.mockReturnValue(new Promise<typeof configuration>((resolve) => { resolveConfiguration = resolve; }));
+    render(<SupportHub />);
+    await screen.findByText("Todavía no tenés consultas abiertas.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Nueva consulta" }));
+    expect(screen.getByRole("dialog", { name: "Nueva consulta" })).toBeVisible();
+    expect(screen.getByText("Preparando el formulario...")).toBeVisible();
+
+    resolveConfiguration(configuration);
+    const subject = await screen.findByLabelText("Asunto");
+    await waitFor(() => expect(subject).toHaveFocus());
+
+    const category = screen.getByLabelText("Categoría");
+    category.focus();
+    await Promise.resolve();
+    expect(category).toHaveFocus();
   });
 
   test("reportar un problema abre únicamente el formulario específico", async () => {

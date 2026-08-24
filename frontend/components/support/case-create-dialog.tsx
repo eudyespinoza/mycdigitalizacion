@@ -56,6 +56,8 @@ export function CaseCreateDialog({ kind, presentation, onClose, onCreated }: Cas
   const [attachments, setAttachments] = useState<File[]>([]);
   const title = titleFor(kind);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const subjectInputRef = useRef<HTMLInputElement>(null);
+  const focusedDialogSubject = useRef(false);
   const idempotencyKey = useRef("");
 
   useEffect(() => {
@@ -73,6 +75,17 @@ export function CaseCreateDialog({ kind, presentation, onClose, onCreated }: Cas
   useEffect(() => {
     if (presentation !== "panel" || !configuration) return;
     headingRef.current?.focus();
+  }, [configuration, presentation]);
+
+  useEffect(() => {
+    if (presentation !== "dialog" || !configuration || focusedDialogSubject.current) return;
+    const frame = requestAnimationFrame(() => {
+      if (!focusedDialogSubject.current) {
+        subjectInputRef.current?.focus();
+        focusedDialogSubject.current = true;
+      }
+    });
+    return () => cancelAnimationFrame(frame);
   }, [configuration, presentation]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -139,7 +152,7 @@ export function CaseCreateDialog({ kind, presentation, onClose, onCreated }: Cas
         <input autoComplete="tel" id="support-contact-phone" name="contact_phone" type="tel" />
       </> : null}
       <label htmlFor="support-subject">Asunto</label>
-      <input aria-describedby={fieldErrors.subject ? "support-subject-error" : undefined} aria-invalid={Boolean(fieldErrors.subject)} id="support-subject" name="subject" placeholder={subjectLabel(kind)} required />
+      <input aria-describedby={fieldErrors.subject ? "support-subject-error" : undefined} aria-invalid={Boolean(fieldErrors.subject)} id="support-subject" name="subject" placeholder={subjectLabel(kind)} ref={subjectInputRef} required />
       {fieldErrors.subject ? <span className="field-error" id="support-subject-error" role="alert">{fieldErrors.subject}</span> : null}
       <label htmlFor="support-category">Categoría</label>
       <select aria-describedby={fieldErrors.category ? "support-category-error" : undefined} aria-invalid={Boolean(fieldErrors.category)} defaultValue="" id="support-category" name="category" required>

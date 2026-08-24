@@ -279,6 +279,61 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
 
 
 @pytest.mark.django_db
+def test_openapi_documents_public_and_management_support_contracts(client):
+    schema = client.get("/api/v1/schema/?format=json").json()
+    paths = schema["paths"]
+
+    public_paths = {
+        "/api/v1/support/configuration/": {"get"},
+        "/api/v1/support/cases/": {"get", "post"},
+        "/api/v1/support/cases/{public_id}/": {"get"},
+        "/api/v1/support/cases/{public_id}/messages/": {"post"},
+        "/api/v1/support/cases/{public_id}/claim/": {"post"},
+        "/api/v1/support/access/": {"post"},
+        "/api/v1/support/attachments/{public_id}/": {"get"},
+    }
+    management_paths = {
+        "/api/v1/management/support/assignees/": {"get"},
+        "/api/v1/management/support/cases/": {"get"},
+        "/api/v1/management/support/cases/{public_id}/": {"get", "patch"},
+        "/api/v1/management/support/cases/{public_id}/messages/": {"post"},
+        "/api/v1/management/support/summary/": {"get"},
+        "/api/v1/management/support/attachments/{public_id}/": {"get"},
+    }
+    for path, methods in {**public_paths, **management_paths}.items():
+        assert path in paths
+        assert methods <= paths[path].keys()
+        for method in methods:
+            assert paths[path][method]["responses"]
+
+    for path in (
+        "/api/v1/support/cases/",
+        "/api/v1/support/cases/{public_id}/messages/",
+        "/api/v1/management/support/cases/{public_id}/messages/",
+    ):
+        operation = paths[path]["post"]
+        multipart_schema = operation["requestBody"]["content"]["multipart/form-data"]["schema"]
+        if "$ref" in multipart_schema:
+            multipart_schema = schema["components"]["schemas"][multipart_schema["$ref"].rsplit("/", 1)[-1]]
+        properties = multipart_schema["properties"]
+        assert "attachments" in properties
+        assert "idempotency_key" in properties
+
+    created = paths["/api/v1/support/cases/"]["post"]["responses"]["201"]
+    created_schema = created["content"]["application/json"]["schema"]
+    created_schema = schema["components"]["schemas"][created_schema["$ref"].rsplit("/", 1)[-1]]
+    assert "recovery_code" in created_schema["properties"]
+    assert "recovery_code" not in created_schema.get("required", [])
+
+    for path in (
+        "/api/v1/support/attachments/{public_id}/",
+        "/api/v1/management/support/attachments/{public_id}/",
+    ):
+        content = paths[path]["get"]["responses"]["200"].get("content", {})
+        assert "application/json" not in content
+
+
+@pytest.mark.django_db
 def test_runtime_payloads_match_their_documented_response_schemas(client):
     schema_response = client.get("/api/v1/schema/?format=json")
     schema = json.loads(schema_response.content)
