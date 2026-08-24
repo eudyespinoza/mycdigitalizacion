@@ -222,6 +222,7 @@ services:
       target: development
     command: pnpm dev --hostname 0.0.0.0
     environment:
+      NODE_OPTIONS: --dns-result-order=ipv4first
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
       API_INTERNAL_URL: http://backend:8000/api/v1
       API_PROXY_TARGET: http://backend:8000
@@ -230,6 +231,8 @@ services:
     volumes:
       - ./frontend:/app/frontend
       - frontend_node_modules:/app/frontend/node_modules
+      # Keep Turbopack's Linux cache away from the Windows bind mount and host E2E cache.
+      - frontend_next:/app/frontend/.next
 
   caddy:
     image: caddy:2.10-alpine
@@ -245,4 +248,5 @@ services:
 volumes:
   postgres_data:
   frontend_node_modules:
+  frontend_next:
   media_data:
