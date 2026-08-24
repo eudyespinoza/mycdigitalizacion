@@ -77,7 +77,7 @@ export type Customer = {
   profile: { first_name: string; last_name: string; phone: string };
   masked_dni: string; masked_cuit: string;
 };
-export type IdentityStatus = { status: string; can_validate?: boolean; detail?: string };
+export type IdentityStatus = { status: string; required?: boolean; can_validate?: boolean; detail?: string };
 export type AuthConfiguration = {
   email_verification_required: boolean;
   google_enabled: boolean;

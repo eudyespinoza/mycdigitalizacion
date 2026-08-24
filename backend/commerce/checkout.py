@@ -162,6 +162,9 @@ def confirm_checkout(
     consent=None,
     idempotency_key=None,
 ):
+    from commerce.identity import identity_verification_required
+
+    verification_required = identity_verification_required(sid_adapter)
     if cart.user_id != user.pk:
         raise CheckoutError("cart_owner_mismatch", "No encontramos ese carrito")
     try:
@@ -170,7 +173,7 @@ def confirm_checkout(
         raise CheckoutError("invalid_email", "Revisá tu correo electrónico") from exc
     if not user.email_verified_at:
         raise CheckoutError("email_not_verified", "Verificá tu correo electrónico")
-    if consent is not True:
+    if verification_required and consent is not True:
         raise CheckoutError(
             "identity_consent_required", "Necesitamos tu consentimiento para validar la identidad"
         )
@@ -200,7 +203,11 @@ def confirm_checkout(
         raise CheckoutError("identity_missing", "Completá tus datos de identidad")
     if billing_profile is None or billing_profile.customer_id != customer.pk:
         raise CheckoutError("billing_profile_invalid", "Elegí un perfil fiscal válido")
-    identity = validate_identity(customer=customer, adapter=sid_adapter, consent=consent)
+    identity = (
+        validate_identity(customer=customer, adapter=sid_adapter, consent=consent)
+        if verification_required
+        else None
+    )
     now = timezone.now()
 
     try:
@@ -264,7 +271,11 @@ def confirm_checkout(
                 cart=locked_cart,
                 customer_snapshot={
                     "email": user.email,
-                    "document": identity.masked_audit.get("document", ""),
+                    "document": (
+                        identity.masked_audit.get("document", "")
+                        if identity is not None
+                        else f"••••{customer.get_dni()[-4:]}"
+                    ),
                     "name": (
                         f"{locked_user.profile.first_name} {locked_user.profile.last_name}".strip()
                         if hasattr(locked_user, "profile")
@@ -293,10 +304,11 @@ def confirm_checkout(
                 public_id=identifiers["order_id"],
                 at=now,
             )
-            identity.order = order
-            identity.save(update_fields=("order",))
-            if identity.status == identity.Status.PENDING_REVIEW:
-                return CheckoutResult(order, None, "")
+            if identity is not None:
+                identity.order = order
+                identity.save(update_fields=("order",))
+                if identity.status == identity.Status.PENDING_REVIEW:
+                    return CheckoutResult(order, None, "")
             transition_order_status(
                 order=order, field="identity_status", value=order.IdentityStatus.VERIFIED
             )
@@ -339,7 +351,8 @@ def confirm_checkout(
             order.refresh_from_db()
             return CheckoutResult(order, payment_transaction, preference.checkout_url)
     except IntegrityError:
-        type(identity).objects.filter(pk=identity.pk, order__isnull=True).delete()
+        if identity is not None:
+            type(identity).objects.filter(pk=identity.pk, order__isnull=True).delete()
         existing_order = user.orders.filter(checkout_idempotency_key=idempotency_key).first()
         if existing_order:
             existing_transaction = existing_order.payment_transactions.order_by(
@@ -352,22 +365,26 @@ def confirm_checkout(
             )
         raise
     except PurchaseLimitExceeded as exc:
-        type(identity).objects.filter(pk=identity.pk, order__isnull=True).delete()
+        if identity is not None:
+            type(identity).objects.filter(pk=identity.pk, order__isnull=True).delete()
         raise CheckoutError("purchase_limit_exceeded", exc.messages[0]) from exc
     except InsufficientStock as exc:
-        type(identity).objects.filter(pk=identity.pk, order__isnull=True).delete()
+        if identity is not None:
+            type(identity).objects.filter(pk=identity.pk, order__isnull=True).delete()
         raise CheckoutError("insufficient_stock", "No hay stock suficiente") from exc
     except Exception:
-        type(identity).objects.filter(pk=identity.pk, order__isnull=True).delete()
+        if identity is not None:
+            type(identity).objects.filter(pk=identity.pk, order__isnull=True).delete()
         raise
 
 
 def resume_checkout(*, order, cart, user, payment_adapter):
-    identity = (
-        order.identity_verifications.filter(status="approved").order_by("-created_at").first()
-    )
-    if not identity:
-        raise CheckoutError("identity_pending_review", "La identidad todavía está en revisión")
+    if order.identity_status != order.IdentityStatus.VERIFIED:
+        identity = (
+            order.identity_verifications.filter(status="approved").order_by("-created_at").first()
+        )
+        if not identity:
+            raise CheckoutError("identity_pending_review", "La identidad todavía está en revisión")
     if order.user_id != user.pk or cart.user_id != user.pk:
         raise CheckoutError("cart_owner_mismatch", "No encontramos ese carrito")
     now = timezone.now()

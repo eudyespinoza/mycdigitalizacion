@@ -44,13 +44,19 @@ class UnconfiguredPaymentAdapter:
 def get_sid_adapter():
     stored = _stored("sid_renaper")
     if stored is not None:
-        if not stored["enabled"]:
+        base_url = stored["public_config"].get("base_url", "")
+        access_token = stored["secrets"].get("access_token", "")
+        if not stored["enabled"] or not base_url or not access_token:
             return DisabledSIDAdapter()
         return SIDAdapter(
-            base_url=stored["public_config"].get("base_url", ""),
-            token=stored["secrets"].get("access_token", ""),
+            base_url=base_url,
+            token=access_token,
         )
-    if settings.SID_MODE == "disabled":
+    if (
+        settings.SID_MODE == "disabled"
+        or not settings.SID_BASE_URL
+        or not settings.SID_ACCESS_TOKEN
+    ):
         return DisabledSIDAdapter()
     return SIDAdapter(base_url=settings.SID_BASE_URL, token=settings.SID_ACCESS_TOKEN)
 

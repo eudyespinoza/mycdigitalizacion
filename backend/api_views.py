@@ -312,6 +312,7 @@ class EmptySerializer(serializers.Serializer):
 
 class StatusSerializer(serializers.Serializer):
     status = serializers.CharField()
+    required = serializers.BooleanField(required=False)
 
 
 class CodeSerializer(serializers.Serializer):
@@ -1419,8 +1420,13 @@ class IdentityStatusView(generics.GenericAPIView):
         }
     )
     def get(self, request):
+        from commerce.identity import identity_verification_required
+
+        adapter = get_sid_adapter()
+        if not identity_verification_required(adapter):
+            return Response({"status": "not_required", "required": False})
         attempt = request.user.identity_verifications.order_by("-created_at").first()
-        return Response({"status": attempt.status if attempt else "not_started"})
+        return Response({"status": attempt.status if attempt else "not_started", "required": True})
 
 
 class IdentityValidateView(generics.GenericAPIView):
@@ -1438,12 +1444,17 @@ class IdentityValidateView(generics.GenericAPIView):
         }
     )
     def post(self, request):
+        from commerce.identity import identity_verification_required
+
         request_serializer = self.get_serializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
+        adapter = get_sid_adapter()
+        if not identity_verification_required(adapter):
+            return Response({"status": "not_required", "required": False})
         try:
             attempt = validate_identity(
                 customer=request.user.customer_profile,
-                adapter=get_sid_adapter(),
+                adapter=adapter,
                 consent=request_serializer.validated_data["consent"],
             )
         except IdentityRejected as exc:

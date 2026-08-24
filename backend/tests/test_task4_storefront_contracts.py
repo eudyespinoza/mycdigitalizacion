@@ -20,6 +20,7 @@ def test_registered_customer_can_reach_safe_checkout_through_real_cookie_and_csr
 ):
     del django_user_model
     from locations.providers import GeocodeResult
+    from tests.test_checkout_domain import PreferencePayment
 
     class Geocoder:
         def geocode(self, *, street, number, locality, province):
@@ -39,6 +40,7 @@ def test_registered_customer_can_reach_safe_checkout_through_real_cookie_and_csr
 
     monkeypatch.setattr("api_views.secrets.randbelow", lambda upper: 123456)
     monkeypatch.setattr("api_views.GeoRefAdapter", Geocoder)
+    monkeypatch.setattr("api_views.get_payment_adapter", PreferencePayment)
     IntegrationConfiguration.objects.create(
         provider="smtp",
         enabled=True,
@@ -153,15 +155,15 @@ def test_registered_customer_can_reach_safe_checkout_through_real_cookie_and_csr
         {
             "fulfillment_method": "pickup",
             "billing_profile_id": billing.json()["id"],
-            "consent": True,
+            "consent": False,
             "idempotency_key": "b0eb858b-5d5a-41f2-935d-dcf7fc79a42d",
         },
         content_type="application/json",
         HTTP_X_CSRFTOKEN=csrf,
     )
-    assert checkout.status_code == 202
-    assert checkout.json()["identity_status"] == "pending_identity"
-    assert checkout.json()["checkout_url"] == ""
+    assert checkout.status_code == 201
+    assert checkout.json()["identity_status"] == "verified"
+    assert checkout.json()["checkout_url"] == "https://pay.example.test/preference"
 
 
 def verified_user(django_user_model, email="storefront-contract@example.test"):

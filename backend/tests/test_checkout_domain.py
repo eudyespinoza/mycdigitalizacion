@@ -91,6 +91,40 @@ def test_pending_identity_checkout_has_no_payment_or_reservation(django_user_mod
 
 
 @pytest.mark.django_db
+def test_disabled_identity_provider_skips_verification_and_creates_payment(django_user_model):
+    from commerce.checkout import confirm_checkout
+    from commerce.identity import DisabledSIDAdapter
+    from commerce.models import Cart, CartLine, IdentityVerification
+
+    user = django_user_model.objects.create_user(
+        email="identity-not-required@example.test", email_verified_at=timezone.now()
+    )
+    make_customer(user)
+    billing_profile = make_billing_profile(user)
+    cart = Cart.objects.create(user=user)
+    CartLine.objects.create(
+        cart=cart,
+        variant=make_variant(sku="IDENTITY-NOT-REQUIRED", price="120.00"),
+        quantity=1,
+    )
+
+    result = confirm_checkout(
+        cart=cart,
+        user=user,
+        fulfillment_method="pickup",
+        sid_adapter=DisabledSIDAdapter(),
+        payment_adapter=PreferencePayment(),
+        billing_profile=billing_profile,
+        consent=False,
+        idempotency_key="d9527cc1-9396-41e7-a042-5ac15c6e27c0",
+    )
+
+    assert result.order.identity_status == "verified"
+    assert result.checkout_url == "https://pay.example.test/preference"
+    assert not IdentityVerification.objects.filter(user=user).exists()
+
+
+@pytest.mark.django_db
 def test_confirm_checkout_rechecks_stock_and_creates_twenty_minute_reservation(
     django_user_model,
 ):

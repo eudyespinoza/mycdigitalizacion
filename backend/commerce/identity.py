@@ -19,12 +19,16 @@ class SIDResult:
 
 
 class DisabledSIDAdapter:
+    verification_required = False
+
     def verify(self, *, dni, consent):
         del dni, consent
         raise ProviderNotConfigured("La validación de identidad no está configurada")
 
 
 class SIDAdapter:
+    verification_required = True
+
     def __init__(self, *, base_url, token, transport=None):
         if not base_url or not token:
             raise ProviderNotConfigured("La validación de identidad no está configurada")
@@ -58,3 +62,9 @@ class SIDAdapter:
                 if data.get(key) is not None
             },
         )
+
+
+def identity_verification_required(adapter) -> bool:
+    """Return whether checkout must obtain and verify identity consent."""
+
+    return bool(getattr(adapter, "verification_required", True))

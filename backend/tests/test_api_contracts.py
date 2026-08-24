@@ -103,7 +103,7 @@ def test_identity_and_checkout_boundaries_require_checkout_input(client, django_
     checkout = client.post("/api/v1/checkout/", {}, content_type="application/json")
 
     assert identity.status_code == 200
-    assert identity.json() == {"status": "not_started"}
+    assert identity.json() == {"status": "not_required", "required": False}
     assert checkout.status_code == 400
     assert checkout.json() == {
         "fulfillment_method": ["Este campo es requerido."],

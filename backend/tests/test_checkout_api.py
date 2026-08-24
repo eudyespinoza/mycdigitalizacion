@@ -45,8 +45,13 @@ def test_postal_lookup_returns_only_matching_cached_rows(client):
 
 @pytest.mark.django_db
 @override_settings(SID_MODE="disabled")
-def test_checkout_api_enters_review_without_payment_when_sid_disabled(client, django_user_model):
+def test_checkout_api_skips_identity_review_when_sid_disabled(
+    client, django_user_model, monkeypatch
+):
     from commerce.models import Cart, CartLine
+    from tests.test_checkout_domain import PreferencePayment
+
+    monkeypatch.setattr("api_views.get_payment_adapter", PreferencePayment)
 
     user = django_user_model.objects.create_user(
         email="api-checkout@example.test", email_verified_at=timezone.now()
@@ -62,15 +67,15 @@ def test_checkout_api_enters_review_without_payment_when_sid_disabled(client, dj
         {
             "fulfillment_method": "pickup",
             "billing_profile_id": billing_profile.pk,
-            "consent": True,
+            "consent": False,
             "idempotency_key": "3b88cc2a-3484-4d9e-892a-60fc8cb0949c",
         },
         content_type="application/json",
     )
 
-    assert response.status_code == 202
-    assert response.json()["identity_status"] == "pending_identity"
-    assert response.json()["checkout_url"] == ""
+    assert response.status_code == 201
+    assert response.json()["identity_status"] == "verified"
+    assert response.json()["checkout_url"] == "https://pay.example.test/preference"
 
 
 @pytest.mark.django_db
