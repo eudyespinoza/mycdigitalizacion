@@ -4,6 +4,7 @@ import type {
   SupportCaseDetail,
   SupportCaseSummary,
   SupportConfiguration,
+  SupportMessage,
 } from "./types";
 
 type CaseListResponse = { results?: SupportCaseSummary[] } | SupportCaseSummary[];
@@ -40,6 +41,14 @@ function createFormData(input: CreateSupportCaseInput) {
   return form;
 }
 
+function createMessageFormData(body: string, files: File[], idempotencyKey: string) {
+  const form = new FormData();
+  form.append("body", body.trim());
+  form.append("idempotency_key", idempotencyKey);
+  files.forEach((file) => form.append("attachments", file));
+  return form;
+}
+
 export const supportApi = {
   configuration: () => apiRequest<SupportConfiguration>("/support/configuration/"),
   listCases: async () => {
@@ -54,4 +63,10 @@ export const supportApi = {
     method: "POST",
     body: JSON.stringify({ case_number: caseNumber.trim(), code }),
   }),
+  getCase: (publicId: string) => apiRequest<SupportCaseDetail>(`/support/cases/${publicId}/`),
+  sendMessage: (publicId: string, body: string, files: File[], idempotencyKey: string) => apiRequest<SupportMessage>(`/support/cases/${publicId}/messages/`, {
+    method: "POST",
+    body: createMessageFormData(body, files, idempotencyKey),
+  }),
+  attachmentDownloadUrl: (publicId: string, preview = false) => `/api/v1/support/attachments/${publicId}/${preview ? "?preview=1" : ""}`,
 };
