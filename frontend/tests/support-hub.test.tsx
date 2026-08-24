@@ -68,6 +68,7 @@ describe("mesa de ayuda pública", () => {
   });
 
   test("muestra el código de recuperación una sola vez después de crear", async () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
     supportApi.createCase.mockResolvedValue({
       public_id: "case-1",
       case_number: "CON-2026-000123",
@@ -96,6 +97,57 @@ describe("mesa de ayuda pública", () => {
     expect(within(confirmation).getByText("codigo-privado")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Entendido" }));
     expect(screen.queryByText("codigo-privado")).not.toBeInTheDocument();
+    expect(setItem).not.toHaveBeenCalled();
+    setItem.mockRestore();
+  });
+
+  test("una cuenta autenticada crea una consulta sin pedir ni enviar datos de contacto", async () => {
+    supportApi.configuration.mockResolvedValue({ ...configuration, authenticated: true });
+    supportApi.createCase.mockResolvedValue({
+      public_id: "case-account-1",
+      case_number: "CON-2026-000124",
+      kind: "consultation",
+      subject: "Consulta desde mi cuenta",
+      category: "productos",
+      status: "new",
+      updated_at: "2026-08-23T10:00:00Z",
+      created_at: "2026-08-23T10:00:00Z",
+      messages: [],
+    });
+    render(<SupportHub />);
+    await screen.findByText("Todavía no tenés consultas abiertas.");
+    fireEvent.click(screen.getByRole("button", { name: "Nueva consulta" }));
+
+    expect(await screen.findByLabelText("Categoría")).toBeVisible();
+    expect(screen.queryByLabelText("Nombre")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Asunto"), { target: { value: "Consulta desde mi cuenta" } });
+    fireEvent.change(screen.getByLabelText("Categoría"), { target: { value: "productos" } });
+    fireEvent.change(screen.getByLabelText("Mensaje"), { target: { value: "Necesito ayuda con una compra." } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar consulta" }));
+
+    expect(within(await screen.findByRole("status")).getByText("CON-2026-000124")).toBeVisible();
+    expect(supportApi.createCase).toHaveBeenCalledWith(expect.objectContaining({
+      contact_name: undefined,
+      contact_email: undefined,
+    }));
+  });
+
+  test("una visitante debe completar nombre y email antes de enviar", async () => {
+    render(<SupportHub />);
+    await screen.findByText("Todavía no tenés consultas abiertas.");
+    fireEvent.click(screen.getByRole("button", { name: "Nueva consulta" }));
+
+    expect(await screen.findByLabelText("Nombre")).toBeVisible();
+    expect(screen.getByLabelText("Email")).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Asunto"), { target: { value: "Consulta de invitada" } });
+    fireEvent.change(screen.getByLabelText("Categoría"), { target: { value: "productos" } });
+    fireEvent.change(screen.getByLabelText("Mensaje"), { target: { value: "Necesito ayuda con una compra." } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar consulta" }));
+
+    expect(await screen.findByText("Ingresá tu nombre.")).toBeVisible();
+    expect(screen.getByText("Ingresá tu email.")).toBeVisible();
+    expect(supportApi.createCase).not.toHaveBeenCalled();
   });
 
   test("rechaza los adjuntos que exceden el límite configurado antes de enviarlos", async () => {
