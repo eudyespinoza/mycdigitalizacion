@@ -317,8 +317,8 @@ describe("gestión de catálogo e inventario", () => {
     expect(Array.from(onCreate.mock.calls[0][0] as FormData)).toEqual(expect.arrayContaining([
       ["variant_id", "21"],
     ]));
-    expect(await screen.findByAltText("Cuaderno azul - frente.png")).toBeVisible();
-    expect(screen.getByAltText("Cuaderno azul - interior.png")).toBeVisible();
+    expect(await screen.findByAltText("Cuaderno azul - frente.png")).toHaveAttribute("src", "/media/catalog/frente.png");
+    expect(screen.getByAltText("Cuaderno azul - interior.png")).toHaveAttribute("src", "/media/catalog/interior.png");
     fireEvent.click(screen.getAllByRole("button", { name: "Eliminar" })[0]);
     await waitFor(() => expect(onDelete).toHaveBeenCalledWith(31));
   });

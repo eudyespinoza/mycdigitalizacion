@@ -26,6 +26,7 @@ export function ProductDetail({ product }: { product: Product }) {
               priority={index === 0}
               loading={index === 0 ? "eager" : "lazy"}
               sizes="(max-width: 768px) 100vw, 50vw"
+              unoptimized
             />
           </div>
         )) : <div className="gallery-empty">Imagen no publicada</div>}

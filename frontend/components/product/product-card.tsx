@@ -26,7 +26,7 @@ export function ProductCard({ product, priority = false }: { product: Product; p
     <Link href={`/producto/${product.slug}`} aria-label={`Ver ${product.name}`}>
       <div className="product-card-media">
         {source
-          ? <Image src={source} alt={media.alt_text} fill sizes="(max-width: 640px) 92vw, (max-width: 1024px) 44vw, 24vw" priority={priority} />
+          ? <Image src={source} alt={media.alt_text} fill sizes="(max-width: 640px) 92vw, (max-width: 1024px) 44vw, 24vw" priority={priority} unoptimized />
           : <div className="product-media-empty" aria-hidden><span>{product.name.charAt(0)}</span></div>}
         {hasDiscount && <b className="offer-label">Oferta · {discount}% menos</b>}
       </div>

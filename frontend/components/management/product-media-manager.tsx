@@ -82,7 +82,7 @@ export function ProductMediaManager({
       <div className="management-media-grid">
         {media.map((item) => (
           <article className="management-media-card" key={item.id}>
-            <div className="management-media-preview"><Image alt={item.alt_text} fill sizes="240px" src={normalizeMediaUrl(item.file_url)} /></div>
+            <div className="management-media-preview"><Image alt={item.alt_text} fill sizes="240px" src={normalizeMediaUrl(item.file_url)} unoptimized /></div>
             <form className="compact-management-form" onSubmit={(event) => void update(event, item.id)}>
               <span className="management-media-assignment">{item.variant_name || "Imagen general"}</span>
               <label><span>Texto alternativo</span><input defaultValue={item.alt_text} name="alt_text" required /></label>

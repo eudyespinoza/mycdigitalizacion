@@ -41,8 +41,8 @@ describe("galería por variante", () => {
   test("combina imágenes generales con la variante elegida", async () => {
     render(await ProductPage({ params: Promise.resolve({ slug: product.slug }) }));
 
-    expect(screen.getByAltText("Vista general")).toBeVisible();
-    expect(screen.getByAltText("Mochila azul")).toBeVisible();
+    expect(screen.getByAltText("Vista general")).toHaveAttribute("src", "/media/catalog/general.png");
+    expect(screen.getByAltText("Mochila azul")).toHaveAttribute("src", "/media/catalog/azul.png");
     expect(screen.queryByAltText("Mochila rosa")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Opción"), { target: { value: "12" } });
     await waitFor(() => expect(screen.getByAltText("Mochila rosa")).toBeVisible());
@@ -57,7 +57,7 @@ describe("galería por variante", () => {
         { ...product.media[0], order: 5 },
       ],
     }} />);
-    expect(screen.getByAltText("Vista general")).toBeVisible();
+    expect(screen.getByAltText("Vista general")).toHaveAttribute("src", "/media/catalog/general.png");
     expect(screen.queryByAltText("Mochila azul")).not.toBeInTheDocument();
   });
 
