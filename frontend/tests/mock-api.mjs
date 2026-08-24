@@ -65,6 +65,8 @@ let state;
 const reset = () => { state = { csrf: "csrf-1", loggedIn: true, cmsError: false, pickupEnabled: true, checkoutRedirect: false, fastCampaigns: false, popupEnabled: false, popupFrequency: "once_session", popupDismissible: true, socialEnabled: true, multipleCollections: false, logoUrl: "/brand/mycdigitalizacion-logo.png", faviconUrl: "/brand/mycdigitalizacion-logo.png", collectionProductIds: [7], address: { ...addressBase }, customer: { id: 5, email: "cliente@example.com", email_verified_at: "2026-08-20T10:00:00Z", is_staff: false, profile: { first_name: "Ana", last_name: "Pérez", phone: "1155551234" }, masked_dni: "••••5678", masked_cuit: "" }, cart: { lines: [], subtotal: "0.00", discount: "0.00", total: "0.00", cart_token: "mock-cart-token", coupon: null }, payments: ["pending", "pending", "paid"], supportCases: [supportCase("11111111-1111-4111-8111-111111111111"), supportCase("22222222-2222-4222-8222-222222222222", "closed")], requests: [] }; };
 reset();
 const json = (response, status, body, headers = {}) => { response.writeHead(status, { "content-type": "application/json", ...headers }); response.end(body === undefined ? "" : JSON.stringify(body)); };
+const customerSessionCookie = "myc_sessionid=authorized; Path=/; SameSite=Lax";
+const supportGuestSessionCookie = "myc_support_session=authorized; Path=/; SameSite=Lax";
 const read = (request) => new Promise((resolve) => { let data = ""; request.on("data", (chunk) => { data += chunk; }); request.on("end", () => { try { resolve(data ? JSON.parse(data) : {}); } catch { resolve({ __raw: data }); } }); });
 const unsafe = (method) => !["GET", "HEAD", "OPTIONS"].includes(method ?? "GET");
 const validateCsrf = (request, response) => { if (unsafe(request.method) && request.headers["x-csrftoken"] !== state.csrf) { json(response, 403, { code: "csrf_failed", detail: "La sesión de seguridad venció. Actualizá la página e intentá nuevamente." }); return false; } return true; };
@@ -83,7 +85,7 @@ const supportFormValue = (body, name) => {
 const supportCaseFor = (publicId) => state.supportCases.find((item) => item.public_id === publicId);
 const supportAttachmentExists = (publicId) => state.supportCases.some((item) => item.messages.some((message) => message.attachments.some((attachment) => attachment.public_id === publicId)));
 const supportAttachmentIdFrom = (path) => path.split("/").filter(Boolean).at(-1);
-const hasPublicAttachmentAccess = (request) => request.headers["x-mock-support-session"] === "authorized" || (request.headers.cookie ?? "").includes("myc_support_session=authorized");
+const hasPublicAttachmentAccess = (request) => request.headers["x-mock-support-session"] === "authorized" || ["myc_support_session=authorized", "myc_sessionid=authorized"].some((cookie) => (request.headers.cookie ?? "").includes(cookie));
 const hasManagementAttachmentAccess = (request) => request.headers["x-mock-management-session"] === "authorized" || (request.headers.cookie ?? "").includes("myc_sessionid=authorized");
 const supportNextMessage = (item, role, body) => {
   const message = { id: item.messages.length + 1, author: role === "staff" ? supportStaff : null, author_role: role, body, created_at: new Date(Date.parse(item.updated_at) + 60_000).toISOString(), attachments: [] };
@@ -104,7 +106,7 @@ http.createServer(async (request, response) => {
   if (request.method === "OPTIONS") return json(response, 204);
   const body = unsafe(request.method) ? await read(request) : {};
   state.requests.push({ method: request.method, path, body, csrf: request.headers["x-csrftoken"] ?? null, cookie: request.headers.cookie ?? "" });
-  if (path === "/api/v1/management/session") return json(response, 200, { user: { id: 90, email: "visual-admin@example.test", first_name: "Ana", last_name: "Gestión", is_staff: true, is_superuser: true, permissions: [] } });
+  if (path === "/api/v1/management/session") return json(response, 200, { user: { id: 90, email: "visual-admin@example.test", first_name: "Ana", last_name: "Gestión", is_staff: true, is_superuser: true, permissions: [] } }, { "set-cookie": customerSessionCookie });
   if (path === "/api/v1/management/dashboard") return json(response, 200, { metrics: { active_products: 24, low_stock_variants: 3, orders_requiring_attention: 2, integration_incidents: 1 } });
   if (path === "/api/v1/management/support/assignees" && request.method === "GET") return json(response, 200, { results: [supportStaff] });
   if (path === "/api/v1/management/support/summary" && request.method === "GET") return json(response, 200, { pending: state.supportCases.filter((item) => ["new", "waiting_staff"].includes(item.status)).length, unread: state.supportCases.filter((item) => item.unread).length });
@@ -160,7 +162,7 @@ http.createServer(async (request, response) => {
     item.unread = false;
     return json(response, 200, supportManagementDetail(item));
   }
-  if (path === "/api/v1/support/configuration" && request.method === "GET") return json(response, 200, { authenticated: true, email_available: false, categories: { consultation: ["productos", "compra", "envios", "pagos", "facturacion", "otra"], problem: ["pedido", "pago", "envio", "producto", "cuenta", "sitio", "otro"] }, limits: { max_files: 5, max_file_size_bytes: 10485760, max_total_size_bytes: 31457280 } });
+  if (path === "/api/v1/support/configuration" && request.method === "GET") return json(response, 200, { authenticated: state.loggedIn, email_available: false, categories: { consultation: ["productos", "compra", "envios", "pagos", "facturacion", "otra"], problem: ["pedido", "pago", "envio", "producto", "cuenta", "sitio", "otro"] }, limits: { max_files: 5, max_file_size_bytes: 10485760, max_total_size_bytes: 31457280 } }, state.loggedIn ? { "set-cookie": customerSessionCookie } : {});
   if (path === "/api/v1/support/cases" && request.method === "GET") return json(response, 200, { results: state.supportCases.map(supportSummary) });
   if (path === "/api/v1/support/cases" && request.method === "POST") {
     if (!validateCsrf(request, response)) return;
@@ -177,7 +179,7 @@ http.createServer(async (request, response) => {
   if (path === "/api/v1/support/access" && request.method === "POST") {
     if (!validateCsrf(request, response)) return;
     const item = state.supportCases.find((candidate) => candidate.case_number === body.case_number);
-    return item && body.code === "REC-1234" ? json(response, 200, supportPublicDetail(item)) : json(response, 400, { code: ["El código privado no es válido."] });
+    return item && body.code === "REC-1234" ? json(response, 200, supportPublicDetail(item), { "set-cookie": supportGuestSessionCookie }) : json(response, 400, { code: ["El código privado no es válido."] });
   }
   if (path.startsWith("/api/v1/support/attachments/") && request.method === "GET") {
     const attachmentId = supportAttachmentIdFrom(path);

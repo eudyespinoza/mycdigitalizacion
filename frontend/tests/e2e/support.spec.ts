@@ -49,6 +49,9 @@ test("public support creation, recovery and thread stay within the viewport", as
 
   await page.goto(`/consultas/${caseId}`);
   await expect(page.getByRole("heading", { name: "Consulta de prueba" })).toBeVisible();
+  const publicPreview = page.getByAltText("Vista previa de captura.png");
+  await expect(publicPreview).toBeVisible();
+  await expect.poll(() => publicPreview.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
   await page.getByLabel("Adjuntar archivos").focus();
   await expect(page.locator(".support-message-composer input[type='file'] + label")).toHaveCSS("outline-style", "solid");
   await page.getByRole("textbox", { name: "Mensaje" }).fill("Necesito una actualización.");
@@ -89,6 +92,13 @@ test("problem report and management support flow stay usable without reload", as
 
   await page.goto(`/gestion/consultas/${caseId}`);
   await expect(page.getByRole("heading", { name: "Consulta de prueba" })).toBeVisible();
+  const managementDownload = page.getByRole("link", { name: "Descargar captura.png" });
+  await expect(managementDownload).toBeVisible();
+  const managementDownloadResult = await managementDownload.evaluate(async (link: HTMLAnchorElement) => {
+    const response = await fetch(link.href);
+    return { status: response.status, nosniff: response.headers.get("x-content-type-options") };
+  });
+  expect(managementDownloadResult).toEqual({ status: 200, nosniff: "nosniff" });
   const detailUrl = page.url();
   await page.getByRole("textbox", { name: "Mensaje" }).fill("Respuesta del equipo sin recarga.");
   const sendButton = page.getByRole("button", { name: "Enviar mensaje" });
@@ -100,7 +110,7 @@ test("problem report and management support flow stay usable without reload", as
   await expectDocumentFitsViewport(page);
 });
 
-test("support mock exposes claim and private attachment contracts", async ({ request }, testInfo) => {
+test("support mock exposes claim and private attachment contracts", async ({ page, request }, testInfo) => {
   test.skip(testInfo.project.name !== "360", "The API contract only needs one deterministic execution.");
 
   const claim = await request.post(`${mockBaseUrl}/api/v1/support/cases/${caseId}/claim`, {
@@ -130,4 +140,15 @@ test("support mock exposes claim and private attachment contracts", async ({ req
   });
   expect(managementAttachment.status()).toBe(200);
   expect(managementAttachment.headers()["x-content-type-options"]).toBe("nosniff");
+
+  await request.post(`${mockBaseUrl}/__control`, { data: { loggedIn: false } });
+  await page.goto("/consultas");
+  await page.getByRole("button", { name: "Recuperar consulta" }).click();
+  await page.getByLabel("Número de consulta").fill("CON-2026-000123");
+  await page.getByLabel("Código privado").fill("REC-1234");
+  await page.getByRole("button", { name: "Recuperar consulta", exact: true }).click();
+  await page.goto(`/consultas/${caseId}`);
+  const recoveredGuestPreview = page.getByAltText("Vista previa de captura.png");
+  await expect(recoveredGuestPreview).toBeVisible();
+  await expect.poll(() => recoveredGuestPreview.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
 });
