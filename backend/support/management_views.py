@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import Count, Prefetch, Q
+from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -65,6 +65,17 @@ def management_case_queryset():
     )
 
 
+def unread_case_queryset(queryset):
+    unread_messages = SupportMessage.objects.filter(
+        case_id=OuterRef("pk"),
+        author_role__in=(SupportMessage.AuthorRole.CUSTOMER, SupportMessage.AuthorRole.GUEST),
+    ).filter(
+        Q(created_at__gt=OuterRef("staff_last_read_at"))
+        | Q(case__staff_last_read_at__isnull=True)
+    )
+    return queryset.annotate(has_unread=Exists(unread_messages)).filter(has_unread=True)
+
+
 def management_case_detail_queryset():
     return management_case_queryset().prefetch_related(
         Prefetch(
@@ -110,9 +121,7 @@ class ManagementSupportCaseListView(generics.ListAPIView):
             )
         unread = params.get("unread", "").strip().lower()
         if unread in {"1", "true"}:
-            queryset = queryset.filter(
-                status__in=(SupportCase.Status.NEW, SupportCase.Status.WAITING_STAFF)
-            )
+            queryset = unread_case_queryset(queryset)
         search = params.get("search", "").strip()
         if search:
             queryset = queryset.filter(
@@ -148,8 +157,10 @@ class ManagementSupportCaseDetailView(APIView):
         return (permission_class(),)
 
     def get(self, request, public_id):
+        case = self.get_case()
+        SupportCase.objects.filter(pk=case.pk).update(staff_last_read_at=timezone.now())
         serializer = ManagementSupportCaseDetailSerializer(
-            self.get_case(), context={"request": request}
+            management_case_detail_queryset().get(pk=case.pk), context={"request": request}
         )
         return Response(serializer.data)
 
@@ -161,14 +172,25 @@ class ManagementSupportCaseDetailView(APIView):
         )
         serializer = ManagementSupportCaseUpdateSerializer(case, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        previous = {
-            "status": case.status,
-            "priority": case.priority,
-            "assigned_to_id": case.assigned_to_id,
-        }
+        changes = {}
+        for field in ("status", "priority"):
+            if (
+                field in serializer.validated_data
+                and serializer.validated_data[field] != getattr(case, field)
+            ):
+                changes[field] = serializer.validated_data[field]
+        if "assigned_to" in serializer.validated_data:
+            assigned_to = serializer.validated_data["assigned_to"]
+            if case.assigned_to_id != (assigned_to.pk if assigned_to else None):
+                changes["assigned_to_id"] = assigned_to.pk if assigned_to else None
+        if not changes:
+            case = management_case_detail_queryset().get(pk=case.pk)
+            serializer = ManagementSupportCaseDetailSerializer(case, context={"request": request})
+            return Response(serializer.data)
+        previous_status = case.status
         case = serializer.save()
         update_fields = [*serializer.validated_data.keys()]
-        if "status" in serializer.validated_data:
+        if "status" in changes:
             if case.status == SupportCase.Status.RESOLVED and not case.resolved_at:
                 case.resolved_at = timezone.now()
                 update_fields.append("resolved_at")
@@ -183,13 +205,8 @@ class ManagementSupportCaseDetailView(APIView):
                 update_fields.append("closed_at")
             if update_fields:
                 case.save(update_fields=tuple(set(update_fields + ["updated_at"])))
-        changes = {
-            key: getattr(case, key)
-            for key in ("status", "priority", "assigned_to_id")
-            if previous[key] != getattr(case, key)
-        }
         _audit(request.user, case, "support.case.updated", {"changes": changes})
-        if previous["status"] != case.status and case.status == SupportCase.Status.RESOLVED:
+        if previous_status != case.status and case.status == SupportCase.Status.RESOLVED:
             queue_support_notification(case, "resolved")
         case = management_case_detail_queryset().get(pk=case.pk)
         serializer = ManagementSupportCaseDetailSerializer(case, context={"request": request})
@@ -270,6 +287,6 @@ class ManagementSupportSummaryView(APIView):
         return Response(
             {
                 "pending": SupportCase.objects.filter(awaiting_staff).count(),
-                "unread": SupportCase.objects.filter(awaiting_staff).count(),
+                "unread": unread_case_queryset(SupportCase.objects.all()).count(),
             }
         )

@@ -7,6 +7,7 @@ PERMISSIONS = (
     ("supportmessage", "add_supportmessage"),
     ("supportattachment", "view_supportattachment"),
 )
+MARKER_CODENAME = "support_attention_role_migration_marker"
 
 
 def add_support_roles(apps, schema_editor):
@@ -28,33 +29,35 @@ def add_support_roles(apps, schema_editor):
             },
         )
         permissions.append(permission)
-    attention, _ = Group.objects.get_or_create(name="Atención")
+    attention, created = Group.objects.get_or_create(name="Atención")
     attention.permissions.add(*permissions)
-    owner, _ = Group.objects.get_or_create(name="Owner")
-    owner.permissions.add(*permissions)
+    if created:
+        content_type, _ = ContentType.objects.get_or_create(
+            app_label="support", model="supportcase"
+        )
+        marker, _ = Permission.objects.get_or_create(
+            content_type=content_type,
+            codename=MARKER_CODENAME,
+            defaults={"name": "Support Atención role migration marker"},
+        )
+        attention.permissions.add(marker)
 
 
 def remove_support_roles(apps, schema_editor):
     del schema_editor
-    ContentType = apps.get_model("contenttypes", "ContentType")
     Group = apps.get_model("auth", "Group")
     Permission = apps.get_model("auth", "Permission")
-    permission_ids = []
-    for model, codename in PERMISSIONS:
-        content_type = ContentType.objects.filter(app_label="support", model=model).first()
-        if content_type:
-            permission_ids.extend(
-                Permission.objects.filter(
-                    content_type=content_type, codename=codename
-                ).values_list("pk", flat=True)
-            )
-    for name in ("Atención", "Owner"):
-        group = Group.objects.filter(name=name).first()
-        if not group:
-            continue
-        group.permissions.remove(*permission_ids)
-        if name == "Atención" and not group.user_set.exists() and not group.permissions.exists():
-            group.delete()
+    attention = Group.objects.filter(name="Atención").first()
+    if not attention:
+        return
+    marker = Permission.objects.filter(
+        content_type__app_label="support", codename=MARKER_CODENAME
+    ).first()
+    if not marker or not attention.permissions.filter(pk=marker.pk).exists():
+        return
+    attention.delete()
+    if not Group.objects.filter(permissions=marker).exists():
+        marker.delete()
 
 
 class Migration(migrations.Migration):

@@ -1,6 +1,9 @@
+import importlib
 import io
+from datetime import timedelta
 
 import pytest
+from django.apps import apps as django_apps
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import Group, Permission
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -159,3 +162,94 @@ def test_staff_with_read_only_support_permission_cannot_mutate(django_user_model
         ).status_code
         == 403
     )
+
+
+def test_detail_marks_customer_message_read_without_changing_pending_or_updated_ordering(
+    owner_client, support_case
+):
+    before = support_case.updated_at
+    initial_list = owner_client.get("/api/v1/management/support/cases/?unread=1")
+    initial_summary = owner_client.get("/api/v1/management/support/summary/")
+
+    assert [row["public_id"] for row in initial_list.json()["results"]] == [
+        str(support_case.public_id)
+    ]
+    assert initial_summary.json() == {"pending": 1, "unread": 1}
+
+    detail = owner_client.get(f"/api/v1/management/support/cases/{support_case.public_id}/")
+    assert detail.status_code == 200
+    support_case.refresh_from_db()
+    assert support_case.staff_last_read_at is not None
+    assert support_case.updated_at == before
+    assert owner_client.get("/api/v1/management/support/cases/?pending=1").json()["count"] == 1
+    assert owner_client.get("/api/v1/management/support/cases/?unread=1").json()["count"] == 0
+    assert owner_client.get("/api/v1/management/support/summary/").json() == {
+        "pending": 1,
+        "unread": 0,
+    }
+
+    later = SupportMessage.objects.create(
+        case=support_case,
+        author_role=SupportMessage.AuthorRole.GUEST,
+        body="Nueva respuesta del cliente",
+        idempotency_key="later-customer-reply",
+    )
+    SupportMessage.objects.filter(pk=later.pk).update(
+        created_at=support_case.staff_last_read_at + timedelta(seconds=1)
+    )
+
+    assert owner_client.get("/api/v1/management/support/cases/?unread=1").json()["count"] == 1
+    assert owner_client.get("/api/v1/management/support/summary/").json() == {
+        "pending": 1,
+        "unread": 1,
+    }
+
+
+def test_noop_case_patch_does_not_create_a_management_audit_event(owner_client, support_case):
+    before = ManagementAuditEvent.objects.count()
+
+    response = owner_client.patch(
+        f"/api/v1/management/support/cases/{support_case.public_id}/",
+        {"priority": support_case.priority},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert ManagementAuditEvent.objects.count() == before
+
+
+def test_support_role_migration_preserves_preexisting_attention_and_owner_groups():
+    migration = importlib.import_module("support.migrations.0003_support_role")
+    migration.remove_support_roles(django_apps, None)
+    Group.objects.filter(name="Atención").delete()
+    attention = Group.objects.create(name="Atención")
+    owner, _ = Group.objects.get_or_create(name="Owner")
+    owner_permission_ids = set(owner.permissions.values_list("id", flat=True))
+
+    migration.add_support_roles(django_apps, None)
+    migration.remove_support_roles(django_apps, None)
+
+    attention.refresh_from_db()
+    owner.refresh_from_db()
+    assert attention.permissions.filter(codename="view_supportcase").exists()
+    assert set(owner.permissions.values_list("id", flat=True)) == owner_permission_ids
+
+
+def test_support_role_migration_reverses_group_created_by_the_migration():
+    migration = importlib.import_module("support.migrations.0003_support_role")
+    migration.remove_support_roles(django_apps, None)
+    Group.objects.filter(name="Atención").delete()
+
+    migration.add_support_roles(django_apps, None)
+    attention = Group.objects.get(name="Atención")
+    marker_present = attention.permissions.filter(
+        codename="support_attention_role_migration_marker"
+    ).exists()
+
+    migration.remove_support_roles(django_apps, None)
+
+    assert marker_present
+    assert not Group.objects.filter(name="Atención").exists()
+    assert not Permission.objects.filter(
+        codename="support_attention_role_migration_marker"
+    ).exists()
