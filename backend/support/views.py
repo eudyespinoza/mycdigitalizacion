@@ -2,7 +2,7 @@ from django.conf import settings
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import OpenApiResponse, OpenApiTypes, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import PageNumberPagination
@@ -268,11 +268,24 @@ class SupportAttachmentDownloadView(APIView):
 
     @extend_schema(
         operation_id="support_attachment_download",
-        parameters=[],
+        auth=({"sessionCookie": []}, {"supportGuestCookie": []}),
+        parameters=[
+            OpenApiParameter(
+                name="preview",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=("1",),
+                description="Usá 1 para obtener la vista previa WebP de una imagen.",
+            )
+        ],
         responses={
             (200, "application/octet-stream"): OpenApiResponse(
                 response=OpenApiTypes.BINARY,
-                description="Adjunto privado del caso; requiere una sesión de cliente o acceso privado de invitado.",
+                description=(
+                    "Adjunto privado del caso; requiere una sesión de cliente "
+                    "o acceso privado de invitado."
+                ),
             ),
             404: OpenApiResponse(description="No encontrado."),
         },

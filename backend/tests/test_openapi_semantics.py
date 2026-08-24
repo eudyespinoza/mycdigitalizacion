@@ -314,7 +314,8 @@ def test_openapi_documents_public_and_management_support_contracts(client):
         operation = paths[path]["post"]
         multipart_schema = operation["requestBody"]["content"]["multipart/form-data"]["schema"]
         if "$ref" in multipart_schema:
-            multipart_schema = schema["components"]["schemas"][multipart_schema["$ref"].rsplit("/", 1)[-1]]
+            component_name = multipart_schema["$ref"].rsplit("/", 1)[-1]
+            multipart_schema = schema["components"]["schemas"][component_name]
         properties = multipart_schema["properties"]
         assert "attachments" in properties
         assert "idempotency_key" in properties
@@ -333,7 +334,8 @@ def test_openapi_documents_public_and_management_support_contracts(client):
         ("/api/v1/support/access/", "post"),
         ("/api/v1/support/cases/{public_id}/claim/", "post"),
     ):
-        response_schema = paths[path][method]["responses"]["200"]["content"]["application/json"]["schema"]
+        response_content = paths[path][method]["responses"]["200"]["content"]
+        response_schema = response_content["application/json"]["schema"]
         component = schema["components"]["schemas"][response_schema["$ref"].rsplit("/", 1)[-1]]
         assert "recovery_code" not in component["properties"]
 
@@ -351,11 +353,27 @@ def test_openapi_documents_public_and_management_support_contracts(client):
         }
         assert "privad" in response["description"].lower()
         assert operation["security"]
+        assert {} not in operation["security"]
+        preview = next(
+            parameter
+            for parameter in operation["parameters"]
+            if parameter["name"] == "preview" and parameter["in"] == "query"
+        )
+        assert preview.get("required", False) is False
+        assert preview["schema"]["enum"] == ["1"]
 
-    management_attachment = paths[
-        "/api/v1/management/support/attachments/{public_id}/"
-    ]["get"]
-    assert {} not in management_attachment["security"]
+    public_attachment = paths["/api/v1/support/attachments/{public_id}/"]["get"]
+    assert {next(iter(alternative)) for alternative in public_attachment["security"]} == {
+        "sessionCookie",
+        "supportGuestCookie",
+    }
+    management_attachment = paths["/api/v1/management/support/attachments/{public_id}/"]["get"]
+    assert management_attachment["security"] == [{"sessionCookie": []}]
+    assert schema["components"]["securitySchemes"]["supportGuestCookie"] == {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "myc_support_session",
+    }
 
 
 @pytest.mark.django_db

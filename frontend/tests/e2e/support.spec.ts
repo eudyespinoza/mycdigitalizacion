@@ -26,6 +26,8 @@ test("public support creation, recovery and thread stay within the viewport", as
   await page.getByRole("button", { name: "Nueva consulta" }).click();
   await expect(page.getByRole("dialog", { name: "Nueva consulta" })).toBeVisible();
   await expect(page.getByLabel("Asunto")).toBeVisible();
+  await page.getByLabel("Adjuntos (opcional)").focus();
+  await expect(page.locator(".support-file-trigger")).toHaveCSS("outline-style", "solid");
   await expectDocumentFitsViewport(page);
   await page.getByLabel("Asunto").fill(`Consulta E2E ${testInfo.project.name}`);
   await page.getByLabel("Categoría", { exact: true }).selectOption("productos");
@@ -47,6 +49,8 @@ test("public support creation, recovery and thread stay within the viewport", as
 
   await page.goto(`/consultas/${caseId}`);
   await expect(page.getByRole("heading", { name: "Consulta de prueba" })).toBeVisible();
+  await page.getByLabel("Adjuntar archivos").focus();
+  await expect(page.locator(".support-message-composer input[type='file'] + label")).toHaveCSS("outline-style", "solid");
   await page.getByRole("textbox", { name: "Mensaje" }).fill("Necesito una actualización.");
   await page.getByRole("button", { name: "Enviar mensaje" }).click();
   await expect(page.getByText("Necesito una actualización.")).toBeVisible();
@@ -106,12 +110,24 @@ test("support mock exposes claim and private attachment contracts", async ({ req
   expect(claim.status()).toBe(200);
   expect((await claim.json()).recovery_code).toBeUndefined();
 
-  for (const path of [
-    "/api/v1/support/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa?preview=1",
-    "/api/v1/management/support/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-  ]) {
-    const attachment = await request.get(`${mockBaseUrl}${path}`);
-    expect(attachment.status()).toBe(200);
-    expect(attachment.headers()["x-content-type-options"]).toBe("nosniff");
-  }
+  const publicAttachmentPath = "/api/v1/support/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa?preview=1";
+  const managementAttachmentPath = "/api/v1/management/support/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+  expect((await request.get(`${mockBaseUrl}${publicAttachmentPath}`)).status()).toBe(404);
+  expect((await request.get(`${mockBaseUrl}${managementAttachmentPath}`)).status()).toBe(404);
+  expect((await request.get(`${mockBaseUrl}/api/v1/support/attachments/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`, {
+    headers: { "x-mock-support-session": "authorized" },
+  })).status()).toBe(404);
+
+  const publicAttachment = await request.get(`${mockBaseUrl}${publicAttachmentPath}`, {
+    headers: { "x-mock-support-session": "authorized" },
+  });
+  expect(publicAttachment.status()).toBe(200);
+  expect(publicAttachment.headers()["x-content-type-options"]).toBe("nosniff");
+
+  const managementAttachment = await request.get(`${mockBaseUrl}${managementAttachmentPath}`, {
+    headers: { "x-mock-management-session": "authorized" },
+  });
+  expect(managementAttachment.status()).toBe(200);
+  expect(managementAttachment.headers()["x-content-type-options"]).toBe("nosniff");
 });

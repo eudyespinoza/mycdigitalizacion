@@ -349,6 +349,15 @@ AUTH_PASSWORD_VALIDATORS = [
 SPECTACULAR_SETTINGS = {
     "TITLE": "mycdigitalizacion API",
     "VERSION": "1.0.0",
+    "APPEND_COMPONENTS": {
+        "securitySchemes": {
+            "supportGuestCookie": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": SUPPORT_GUEST_SESSION_COOKIE_NAME,
+            }
+        }
+    },
 }
 PERSONAL_DATA_ENCRYPTION_KEY = environ.get(
     "PERSONAL_DATA_ENCRYPTION_KEY", "development-only-personal-data-key"

@@ -81,6 +81,10 @@ const supportFormValue = (body, name) => {
   return raw.slice(valueStart + 4, valueEnd < 0 ? undefined : valueEnd);
 };
 const supportCaseFor = (publicId) => state.supportCases.find((item) => item.public_id === publicId);
+const supportAttachmentExists = (publicId) => state.supportCases.some((item) => item.messages.some((message) => message.attachments.some((attachment) => attachment.public_id === publicId)));
+const supportAttachmentIdFrom = (path) => path.split("/").filter(Boolean).at(-1);
+const hasPublicAttachmentAccess = (request) => request.headers["x-mock-support-session"] === "authorized" || (request.headers.cookie ?? "").includes("myc_support_session=authorized");
+const hasManagementAttachmentAccess = (request) => request.headers["x-mock-management-session"] === "authorized" || (request.headers.cookie ?? "").includes("myc_sessionid=authorized");
 const supportNextMessage = (item, role, body) => {
   const message = { id: item.messages.length + 1, author: role === "staff" ? supportStaff : null, author_role: role, body, created_at: new Date(Date.parse(item.updated_at) + 60_000).toISOString(), attachments: [] };
   item.messages.push(message);
@@ -124,6 +128,8 @@ http.createServer(async (request, response) => {
     return json(response, 200, { count: results.length, next: null, previous: null, results });
   }
   if (path.startsWith("/api/v1/management/support/attachments/") && request.method === "GET") {
+    const attachmentId = supportAttachmentIdFrom(path);
+    if (!attachmentId || !supportAttachmentExists(attachmentId) || !hasManagementAttachmentAccess(request)) return json(response, 404, { detail: "Adjunto no encontrado." });
     response.writeHead(200, {
       "content-type": url.searchParams.get("preview") === "1" ? "image/webp" : "image/png",
       "content-disposition": `${url.searchParams.get("preview") === "1" ? "inline" : "attachment"}; filename="adjunto.png"`,
@@ -174,6 +180,8 @@ http.createServer(async (request, response) => {
     return item && body.code === "REC-1234" ? json(response, 200, supportPublicDetail(item)) : json(response, 400, { code: ["El código privado no es válido."] });
   }
   if (path.startsWith("/api/v1/support/attachments/") && request.method === "GET") {
+    const attachmentId = supportAttachmentIdFrom(path);
+    if (!attachmentId || !supportAttachmentExists(attachmentId) || !hasPublicAttachmentAccess(request)) return json(response, 404, { detail: "Adjunto no encontrado." });
     response.writeHead(200, {
       "content-type": url.searchParams.get("preview") === "1" ? "image/webp" : "image/png",
       "content-disposition": `${url.searchParams.get("preview") === "1" ? "inline" : "attachment"}; filename="adjunto.png"`,

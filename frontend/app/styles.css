@@ -910,6 +910,7 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .support-case-form input[type="file"] { width: 1px; min-height: 1px; padding: 0; overflow: hidden; position: absolute; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .support-file-trigger { width: fit-content; min-height: 44px; display: inline-flex; align-items: center; padding: 8px 12px; border: 1px solid var(--blue); border-radius: 12px; background: var(--surface-elevated); color: var(--blue); cursor: pointer; font-weight: 800; }
 .support-file-trigger:hover { background: var(--surface-cyan); }
+.support-case-form input[type="file"]:focus + .support-file-trigger { outline: 3px solid var(--cyan-action); outline-offset: 3px; }
 .support-thread > header { display: grid; gap: 6px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
 .support-thread > header > p { margin: 0; color: var(--muted); }
 .support-thread > header > p:first-child { color: var(--blue); font-size: .86rem; font-weight: 850; font-variant-numeric: tabular-nums; }
@@ -925,6 +926,7 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .support-message-composer input[type="file"] { width: 1px; min-height: 1px; padding: 0; overflow: hidden; position: absolute; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .support-message-composer input[type="file"] + label { width: fit-content; min-height: 44px; display: inline-flex; align-items: center; padding: 8px 12px; border: 1px solid var(--blue); border-radius: 12px; background: var(--surface-elevated); color: var(--blue); cursor: pointer; font-weight: 800; }
 .support-message-composer input[type="file"] + label:hover { background: var(--surface-cyan); }
+.support-message-composer input[type="file"]:focus + label { outline: 3px solid var(--cyan-action); outline-offset: 3px; }
 .support-drop-hint { min-height: 1.5em; margin: 0; color: var(--muted); font-size: .88rem; }
 .support-attachment-queue { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .support-attachment-queue-item { min-width: 0; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }

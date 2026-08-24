@@ -3,7 +3,7 @@ from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from drf_spectacular.utils import OpenApiResponse, OpenApiTypes, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -282,11 +282,24 @@ class ManagementSupportAttachmentDownloadView(APIView):
 
     @extend_schema(
         operation_id="management_support_attachment_download",
-        parameters=[],
+        auth=({"sessionCookie": []},),
+        parameters=[
+            OpenApiParameter(
+                name="preview",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=("1",),
+                description="Usá 1 para obtener la vista previa WebP de una imagen.",
+            )
+        ],
         responses={
             (200, "application/octet-stream"): OpenApiResponse(
                 response=OpenApiTypes.BINARY,
-                description="Adjunto privado del caso; requiere una sesión autorizada de Administración.",
+                description=(
+                    "Adjunto privado del caso; requiere una sesión autorizada "
+                    "de Administración."
+                ),
             ),
             404: OpenApiResponse(description="No encontrado."),
         },
