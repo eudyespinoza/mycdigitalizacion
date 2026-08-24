@@ -336,7 +336,12 @@ services:
       ADMIN_ALLOWED_CIDRS: ${ADMIN_ALLOWED_CIDRS:-REPLACE_ME_ADMIN_CIDRS}
       BACKEND_UPSTREAM: backend:8000
       FRONTEND_UPSTREAM: frontend:3000
-    volumes: [caddy_data:/data, caddy_config:/config, media_data:/srv/media:ro, static_data:/srv/static:ro]
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      - media_data:/srv/media:ro
+      - static_data:/srv/static:ro
+      - ${CADDY_TLS_DIR:-/etc/ssl/mycdigitalizacion}:/etc/caddy/tls:ro
     depends_on:
       config-check: {condition: service_completed_successfully}
       frontend: {condition: service_healthy}

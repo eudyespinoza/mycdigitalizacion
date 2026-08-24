@@ -21,6 +21,10 @@ staticfiles/
 backend/celerybeat-schedule*
 infra/secrets/*
 !infra/secrets/README.md
+*.key
+*.pfx
+*.p12
+/mycdigitalizacion.com.crt
 .DS_Store
 .idea/
 .vscode/

@@ -131,4 +131,13 @@ describe("tema global y marcas sociales", () => {
       "/media/branding/logo-configurado.png",
     );
   });
+
+  test("muestra el sello Sectigo en un documento aislado del storefront", () => {
+    render(<SiteFooter />);
+
+    expect(screen.getByTitle("Certificado SSL Sectigo")).toHaveAttribute(
+      "src",
+      "/sectigo-trust-seal.html",
+    );
+  });
 });

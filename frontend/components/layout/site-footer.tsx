@@ -80,6 +80,12 @@ export function SiteFooter({
         <div className="shell footer-bottom">
           <p>© {new Date().getFullYear()} {publicName}</p>
           <p>Pagos en pesos argentinos con Mercado Pago.</p>
+          <iframe
+            className="footer-trust-seal"
+            loading="lazy"
+            src="/sectigo-trust-seal.html"
+            title="Certificado SSL Sectigo"
+          />
         </div>
       </footer>
       {resolvedWhatsapp.enabled && whatsappHref && <a aria-label="Consultar por WhatsApp" className="whatsapp-float" href={whatsappHref} rel="noreferrer noopener" target="_blank" title="Consultar por WhatsApp"><WhatsappLogo aria-hidden="true" size={31} weight="fill" /></a>}

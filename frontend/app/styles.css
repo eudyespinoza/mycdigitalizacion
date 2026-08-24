@@ -191,6 +191,7 @@ p { line-height: 1.6; }
 .footer-bottom { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 24px; border-top: 1px solid rgba(255,255,255,.14); color: #aebdde; font-size: .86rem; }
 .site-footer.has-whatsapp .footer-bottom { padding-right: 78px; }
 .footer-bottom p { margin: 0; }
+.footer-trust-seal { width: 210px; height: 82px; flex: 0 0 auto; border: 0; color-scheme: dark; }
 .social-links a { width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid currentColor; border-radius: 50%; background: white; text-decoration: none; transition: transform 160ms var(--ease-out), background-color 180ms var(--ease-out); }
 .social-links a:hover { transform: translateY(-2px); background: var(--surface-cold); }
 .social-link-instagram { color: #e4405f !important; }

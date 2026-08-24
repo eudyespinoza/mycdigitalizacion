@@ -55,10 +55,12 @@ http://:9080 {
 }
 
 {$SITE_WWW_ADDRESS} {
+	import /etc/caddy/tls/*.caddy
 	redir https://{$SITE_ADDRESS}{uri} permanent
 }
 
 {$SITE_ADDRESS} {
+	import /etc/caddy/tls/*.caddy
 	encode zstd gzip
 	request_body {
 		max_size 25MB
