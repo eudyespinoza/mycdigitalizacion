@@ -1,8 +1,30 @@
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 from rest_framework import serializers
 
 from support.models import SupportCase, SupportMessage
 from support.serializers import SupportAttachmentSerializer
+
+
+def support_assignee_queryset():
+    return (
+        get_user_model()
+        .objects.filter(is_active=True, is_staff=True)
+        .filter(
+            Q(is_superuser=True)
+            | Q(groups__name="Owner")
+            | Q(
+                user_permissions__content_type__app_label="support",
+                user_permissions__codename="change_supportcase",
+            )
+            | Q(
+                groups__permissions__content_type__app_label="support",
+                groups__permissions__codename="change_supportcase",
+            )
+        )
+        .distinct()
+        .order_by("first_name", "last_name", "email", "id")
+    )
 
 
 class ManagementSupportUserSerializer(serializers.ModelSerializer):
@@ -84,7 +106,7 @@ class ManagementSupportCaseDetailSerializer(ManagementSupportCaseListSerializer)
 
 class ManagementSupportCaseUpdateSerializer(serializers.ModelSerializer):
     assigned_to = serializers.PrimaryKeyRelatedField(
-        queryset=get_user_model().objects.filter(is_staff=True), required=False, allow_null=True
+        queryset=support_assignee_queryset(), required=False, allow_null=True
     )
 
     class Meta:

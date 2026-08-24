@@ -1,4 +1,3 @@
-from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.http import FileResponse, Http404
@@ -20,6 +19,7 @@ from support.management_serializers import (
     ManagementSupportMessageCreateSerializer,
     ManagementSupportMessageSerializer,
     ManagementSupportUserSerializer,
+    support_assignee_queryset,
 )
 from support.models import SupportAttachment, SupportCase, SupportMessage
 from support.services import append_message
@@ -55,16 +55,8 @@ class CanEditSupportCases(HasSupportManagementPermission):
     required_permission = "support.change_supportcase"
 
 
-class CanChooseSupportAssignees(HasSupportManagementPermission):
-    def has_permission(self, request, view):
-        user = request.user
-        if not (user and user.is_authenticated and user.is_active and user.is_staff):
-            return False
-        return bool(
-            _is_owner(user)
-            or user.has_perm("support.change_supportcase")
-            or user.has_perm("support.add_supportmessage")
-        )
+class CanChooseSupportAssignees(CanEditSupportCases):
+    pass
 
 
 class CanDownloadSupportAttachments(HasSupportManagementPermission):
@@ -92,23 +84,6 @@ def annotate_unread_cases(queryset):
 
 def unread_case_queryset(queryset):
     return annotate_unread_cases(queryset).filter(unread=True)
-
-
-def support_capable_staff_queryset():
-    permissions = Q(
-        user_permissions__content_type__app_label="support",
-        user_permissions__codename__in=("change_supportcase", "add_supportmessage"),
-    ) | Q(
-        groups__permissions__content_type__app_label="support",
-        groups__permissions__codename__in=("change_supportcase", "add_supportmessage"),
-    )
-    return (
-        get_user_model()
-        .objects.filter(is_active=True, is_staff=True)
-        .filter(Q(is_superuser=True) | Q(groups__name="Owner") | permissions)
-        .distinct()
-        .order_by("first_name", "last_name", "email", "id")
-    )
 
 
 def management_case_detail_queryset():
@@ -180,7 +155,7 @@ class ManagementSupportAssigneeListView(generics.ListAPIView):
     pagination_class = None
 
     def get_queryset(self):
-        return support_capable_staff_queryset()
+        return support_assignee_queryset()
 
     def list(self, request, *args, **kwargs):
         return Response({"results": self.get_serializer(self.get_queryset(), many=True).data})

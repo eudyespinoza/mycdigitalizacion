@@ -70,6 +70,7 @@ def test_attention_role_can_filter_reply_assign_and_list_without_message_bodies(
     assignee = django_user_model.objects.create_user(
         email="assignee@example.test", password="StrongPassword!2026", is_staff=True
     )
+    assignee.groups.add(Group.objects.get(name="Atención"))
 
     listed = attention_client.get("/api/v1/management/support/cases/?pending=1")
 
@@ -313,3 +314,44 @@ def test_staff_without_support_permission_cannot_list_assignees(django_user_mode
     client.force_login(staff)
 
     assert client.get("/api/v1/management/support/assignees/").status_code == 403
+
+
+def test_reply_only_and_view_only_staff_cannot_list_assignees(django_user_model):
+    for codename in ("add_supportmessage", "view_supportcase"):
+        staff = django_user_model.objects.create_user(
+            email=f"{codename}@example.test", password="StrongPassword!2026", is_staff=True
+        )
+        staff.user_permissions.add(Permission.objects.get(codename=codename))
+        client = APIClient()
+        client.force_login(staff)
+
+        assert client.get("/api/v1/management/support/assignees/").status_code == 403
+
+
+def test_case_patch_rejects_inactive_or_unqualified_assignees(
+    owner_client, django_user_model, support_case
+):
+    group = Group.objects.get(name="Atención")
+    inactive_support = django_user_model.objects.create_user(
+        email="inactive-assignee@example.test",
+        password="StrongPassword!2026",
+        is_staff=True,
+        is_active=False,
+    )
+    inactive_support.groups.add(group)
+    ordinary_staff = django_user_model.objects.create_user(
+        email="ordinary-staff@example.test", password="StrongPassword!2026", is_staff=True
+    )
+    customer = django_user_model.objects.create_user(
+        email="ordinary-customer@example.test", password="StrongPassword!2026"
+    )
+
+    for invalid_assignee in (inactive_support, ordinary_staff, customer):
+        response = owner_client.patch(
+            f"/api/v1/management/support/cases/{support_case.public_id}/",
+            {"assigned_to": invalid_assignee.pk},
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert "assigned_to" in response.json()
