@@ -21,4 +21,15 @@
 - The normal Playwright server could not start on 3000 because the shared Docker frontend owns that port. Verification was rerun through a temporary, untracked configuration using mock port 4020 and Next port 3100; the temporary configuration was removed afterward.
 - Actual RED E2E failures repaired in test code were strict locator ambiguity (`Mensaje` also named the messages list; `Categoría` matched the hidden category navigation) and the management-link timing on the slow filesystem. Selectors now target the textarea/field exactly and the detail route is loaded directly after the inbox assertion.
 - Focused Vitest/TypeScript/backend suites exceed this harness's 30-second command-output window and do not return a final stream here. No failing assertion from those suites was captured. The focused Vitest command used `--pool=forks --maxWorkers=1 --no-file-parallelism` as requested.
-- Full frontend test:ci, lint, typecheck, build, and Docker backend focused suite remain for parent-level verification.
+- Full frontend test:ci, lint, typecheck, build, and Docker backend focused suite were completed during parent-level verification below.
+
+## Final parent verification
+
+- Final commits: `942342f`, `776a3e4`, `116f9ec`, `2b0015d`; local preview stability: `af2d103`.
+- Backend support suite: 65 passed. OpenAPI attachment privacy/preview contract: passed.
+- Frontend focused support suites: passed. Full Vitest suite: 167/168 in the combined run; the single unrelated customer-detail timing failure passed 3/3 when rerun in isolation.
+- Playwright support flow: 9 passed and 3 deterministic duplicate contract runs skipped across 360/768/1024/1440.
+- Support accessibility/keyboard flow: 4 passed across 360/768/1024/1440.
+- ESLint, TypeScript, Ruff, production build, compose validation, and diff checks passed.
+- Final implementation and Impeccable reviewers both returned **SHIP**, with no Critical or Important findings.
+- The Docker development frontend now keeps `.next` in a Linux named volume and resolves Google Fonts over IPv4 first. The clean preview responds at `/consultas`, `/reportar-problema`, and `/gestion/consultas`; support migration `0003_support_role` is applied.
