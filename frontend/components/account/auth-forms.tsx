@@ -28,15 +28,44 @@ function googleError(cause: unknown) {
 }
 
 export function LoginForm({ authConfiguration = SECURE_AUTH_FALLBACK }: { authConfiguration?: AuthConfiguration }) {
-  const router = useRouter(); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
+  const router = useRouter(); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false); const [googleRegistration, setGoogleRegistration] = useState<{ credential: string; phone: string; consent: boolean } | null>(null);
   const submit = async (event: React.FormEvent) => { event.preventDefault(); const invalid = validateEmail(email); if (invalid) { setError(invalid); document.getElementById("login-email")?.focus(); return; } setBusy(true); setError(""); try { await apiRequest<Customer>("/auth/login/", { method: "POST", body: JSON.stringify({ email, password, cart_token: sessionStorage.getItem("myc-cart-token") || undefined }) }); sessionStorage.removeItem("myc-cart-token"); router.push("/cuenta"); router.refresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : "No pudimos ingresar."); } finally { setBusy(false); } };
   const submitGoogle = async (credential: string) => {
     setBusy(true); setError("");
     try {
       await apiRequest<Customer>("/auth/google/", { method: "POST", body: JSON.stringify({ credential, mode: "login", cart_token: sessionStorage.getItem("myc-cart-token") || undefined }) });
       sessionStorage.removeItem("myc-cart-token"); router.push("/cuenta"); router.refresh();
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.code === "google_registration_required") {
+        setGoogleRegistration({ credential, phone: "", consent: false });
+      } else {
+        setError(googleError(cause));
+      }
+    } finally { setBusy(false); }
+  };
+  const completeGoogleRegistration = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!googleRegistration) return;
+    const digitCount = googleRegistration.phone.match(/\d/g)?.length ?? 0;
+    if (!/^[+().\s\-/\d]{6,32}$/.test(googleRegistration.phone) || digitCount < 6) {
+      setError("Ingresá un teléfono válido.");
+      document.getElementById("google-register-phone")?.focus();
+      return;
+    }
+    if (!googleRegistration.consent) {
+      setError("Necesitamos tu aceptación para crear la cuenta.");
+      document.getElementById("google-register-consent")?.focus();
+      return;
+    }
+    setBusy(true); setError("");
+    try {
+      await apiRequest<Customer>("/auth/google/", { method: "POST", body: JSON.stringify({ credential: googleRegistration.credential, mode: "register", phone: googleRegistration.phone.trim(), consent_version: "privacy-v1", cart_token: sessionStorage.getItem("myc-cart-token") || undefined }) });
+      sessionStorage.removeItem("myc-cart-token"); router.push("/cuenta"); router.refresh();
     } catch (cause) { setError(googleError(cause)); } finally { setBusy(false); }
   };
+  if (googleRegistration) {
+    return <form className="form-stack google-registration-form" onSubmit={(event) => void completeGoogleRegistration(event)} noValidate><h2>Completá tu registro con Google</h2><p className="helper">Google ya confirmó tu identidad. Sólo falta un teléfono de contacto y aceptar la política de privacidad.</p><label htmlFor="google-register-phone">Teléfono</label><input id="google-register-phone" type="tel" autoComplete="tel" value={googleRegistration.phone} onChange={(event) => setGoogleRegistration({ ...googleRegistration, phone: event.target.value })} aria-invalid={Boolean(error)} aria-describedby={error ? "google-register-error" : undefined} /><label className="check-label"><input id="google-register-consent" type="checkbox" checked={googleRegistration.consent} onChange={(event) => setGoogleRegistration({ ...googleRegistration, consent: event.target.checked })} /> Acepto la política de privacidad vigente.</label><FieldError id="google-register-error" message={error} /><button className="button primary wide" disabled={busy}>{busy ? "Creando cuenta…" : "Crear cuenta con Google"}</button></form>;
+  }
   return <form className="form-stack" onSubmit={(event) => void submit(event)} noValidate><label htmlFor="login-email">Email</label><input id="login-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} aria-describedby={error ? "login-error" : undefined} required /><label htmlFor="login-password">Contraseña</label><input id="login-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /><FieldError id="login-error" message={error} /><button className="button primary wide" disabled={busy}>{busy ? "Ingresando…" : "Ingresar"}</button>{authConfiguration.google_enabled && authConfiguration.google_client_id ? <><div className="auth-separator"><span>o</span></div><GoogleIdentityButton clientId={authConfiguration.google_client_id} mode="login" onCredential={(credential) => void submitGoogle(credential)} /></> : null}<p>¿No tenés cuenta? <Link href="/cuenta/registro">Creala ahora</Link></p></form>;
 }
 

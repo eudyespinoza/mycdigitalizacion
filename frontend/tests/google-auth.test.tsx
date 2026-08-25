@@ -114,6 +114,63 @@ describe("acceso y registro con Google", () => {
     expect(sessionStorage.getItem("myc-cart-token")).toBeNull();
   });
 
+  test("completa el alta desde el ingreso cuando la cuenta de Google todavía no existe", async () => {
+    let googleCallback: ((response: { credential?: string }) => void) | undefined;
+    Object.defineProperty(window, "google", {
+      configurable: true,
+      value: {
+        accounts: {
+          id: {
+            initialize: vi.fn((options: { callback: typeof googleCallback }) => { googleCallback = options.callback; }),
+            renderButton: vi.fn(),
+          },
+        },
+      },
+    });
+    sessionStorage.setItem("myc-cart-token", "new-customer-cart");
+    const requests: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/auth/csrf/")) {
+        return new Response(JSON.stringify({ csrf_token: "csrf-google-register" }), { status: 200 });
+      }
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      requests.push(body);
+      if (body.mode === "login") {
+        return new Response(JSON.stringify({
+          code: "google_registration_required",
+          detail: "Completá el registro para crear tu cuenta con Google.",
+        }), { status: 409 });
+      }
+      return new Response(JSON.stringify(customer), { status: 201 });
+    }));
+
+    render(<LoginForm authConfiguration={authConfiguration} />);
+    await waitFor(() => expect(googleCallback).toBeTypeOf("function"));
+    await act(async () => { googleCallback?.({ credential: "new-google-token" }); });
+
+    expect(await screen.findByRole("heading", { name: "Completá tu registro con Google" })).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Teléfono"), { target: { value: "+54 11 4444 3333" } });
+    fireEvent.click(screen.getByLabelText(/Acepto la política/));
+    fireEvent.click(screen.getByRole("button", { name: "Crear cuenta con Google" }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/cuenta"));
+    expect(requests).toEqual([
+      {
+        credential: "new-google-token",
+        mode: "login",
+        cart_token: "new-customer-cart",
+      },
+      {
+        credential: "new-google-token",
+        mode: "register",
+        phone: "+54 11 4444 3333",
+        consent_version: "privacy-v1",
+        cart_token: "new-customer-cart",
+      },
+    ]);
+    expect(sessionStorage.getItem("myc-cart-token")).toBeNull();
+  });
+
   test("Administración permite habilitar Google con su Client ID web", () => {
     const integration: IntegrationConfiguration = {
       provider: "google_identity",
