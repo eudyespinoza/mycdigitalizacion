@@ -1,7 +1,9 @@
 from django.db.models import Prefetch, Q
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
@@ -162,10 +164,55 @@ class ProductDetailView(generics.GenericAPIView):
         return Response(self.get_serializer(product).data)
 
 
-class CategoryListCreateView(generics.ListCreateAPIView):
+class TaxonomyAuditMixin:
+    resource_name = ""
+    resource_label = "el registro"
+
+    def _audit(self, *, action, instance, metadata=None):
+        ManagementAuditEvent.objects.create(
+            actor=self.request.user,
+            action=f"{self.resource_name}.{action}",
+            resource=self.resource_name,
+            object_reference=str(instance.pk),
+            metadata=metadata or {},
+        )
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        self._audit(action="created", instance=instance, metadata={"slug": instance.slug})
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        self._audit(
+            action="updated",
+            instance=instance,
+            metadata={"changed_fields": sorted(serializer.validated_data)},
+        )
+
+    def perform_destroy(self, instance):
+        object_reference = instance.pk
+        slug = instance.slug
+        try:
+            instance.delete()
+        except ProtectedError as error:
+            raise DRFValidationError(
+                {"detail": f"No se puede eliminar {self.resource_label} porque está en uso."}
+            ) from error
+        ManagementAuditEvent.objects.create(
+            actor=self.request.user,
+            action=f"{self.resource_name}.deleted",
+            resource=self.resource_name,
+            object_reference=str(object_reference),
+            metadata={"slug": slug},
+        )
+
+
+class CategoryListCreateView(TaxonomyAuditMixin, generics.ListCreateAPIView):
     permission_classes = (IsManagementUser,)
     serializer_class = ManagementCategorySerializer
     pagination_class = None
+    resource_name = "category"
+    resource_label = "la categoría"
 
     def get_queryset(self):
         return Category.objects.select_related("parent").order_by("id")
@@ -174,10 +221,20 @@ class CategoryListCreateView(generics.ListCreateAPIView):
         return Response({"results": self.get_serializer(self.get_queryset(), many=True).data})
 
 
-class BrandListCreateView(generics.ListCreateAPIView):
+class CategoryDetailView(TaxonomyAuditMixin, generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = (IsManagementUser,)
+    serializer_class = ManagementCategorySerializer
+    queryset = Category.objects.select_related("parent")
+    resource_name = "category"
+    resource_label = "la categoría"
+
+
+class BrandListCreateView(TaxonomyAuditMixin, generics.ListCreateAPIView):
     permission_classes = (IsManagementUser,)
     serializer_class = ManagementBrandSerializer
     pagination_class = None
+    resource_name = "brand"
+    resource_label = "la marca"
 
     def get_queryset(self):
         return Brand.objects.order_by("name")
@@ -186,10 +243,20 @@ class BrandListCreateView(generics.ListCreateAPIView):
         return Response({"results": self.get_serializer(self.get_queryset(), many=True).data})
 
 
-class AttributeDefinitionListCreateView(generics.ListCreateAPIView):
+class BrandDetailView(TaxonomyAuditMixin, generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = (IsManagementUser,)
+    serializer_class = ManagementBrandSerializer
+    queryset = Brand.objects.all()
+    resource_name = "brand"
+    resource_label = "la marca"
+
+
+class AttributeDefinitionListCreateView(TaxonomyAuditMixin, generics.ListCreateAPIView):
     permission_classes = (IsManagementUser,)
     serializer_class = ManagementAttributeDefinitionSerializer
     pagination_class = None
+    resource_name = "attribute"
+    resource_label = "el atributo"
 
     def get_queryset(self):
         return AttributeDefinition.objects.prefetch_related("options").order_by("name")
@@ -198,10 +265,12 @@ class AttributeDefinitionListCreateView(generics.ListCreateAPIView):
         return Response({"results": self.get_serializer(self.get_queryset(), many=True).data})
 
 
-class AttributeDefinitionDetailView(generics.RetrieveUpdateDestroyAPIView):
+class AttributeDefinitionDetailView(TaxonomyAuditMixin, generics.RetrieveUpdateDestroyAPIView):
     permission_classes = (IsManagementUser,)
     serializer_class = ManagementAttributeDefinitionSerializer
     queryset = AttributeDefinition.objects.prefetch_related("options")
+    resource_name = "attribute"
+    resource_label = "el atributo"
 
 
 class ProductMediaListCreateView(generics.ListCreateAPIView):

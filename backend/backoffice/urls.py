@@ -9,7 +9,9 @@ from backoffice.access_views import (
 from backoffice.catalog_views import (
     AttributeDefinitionDetailView,
     AttributeDefinitionListCreateView,
+    BrandDetailView,
     BrandListCreateView,
+    CategoryDetailView,
     CategoryListCreateView,
     InventoryListView,
     ProductDetailView,
@@ -152,7 +154,17 @@ urlpatterns = [
         name="management-product-media-detail",
     ),
     path("categories/", CategoryListCreateView.as_view(), name="management-categories"),
+    path(
+        "categories/<int:pk>/",
+        CategoryDetailView.as_view(),
+        name="management-category-detail",
+    ),
     path("brands/", BrandListCreateView.as_view(), name="management-brands"),
+    path(
+        "brands/<int:pk>/",
+        BrandDetailView.as_view(),
+        name="management-brand-detail",
+    ),
     path(
         "attributes/",
         AttributeDefinitionListCreateView.as_view(),

@@ -1,6 +1,7 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Q
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -73,16 +74,33 @@ class ManagementAttributeDefinitionSerializer(serializers.ModelSerializer):
         return options
 
     def _sync_options(self, definition, options):
-        definition.options.all().delete()
-        AttributeOption.objects.bulk_create(
-            [
-                AttributeOption(
-                    definition=definition,
-                    **{key: value for key, value in option.items() if key != "id"},
-                )
-                for option in options
-            ]
-        )
+        existing = {option.pk: option for option in definition.options.all()}
+        retained_ids = {option.get("id") for option in options if option.get("id") is not None}
+        unknown_ids = retained_ids.difference(existing)
+        if unknown_ids:
+            raise serializers.ValidationError(
+                {"options": "Una de las opciones no pertenece a este atributo."}
+            )
+
+        removable = definition.options.exclude(pk__in=retained_ids)
+        try:
+            removable.delete()
+        except ProtectedError as error:
+            raise serializers.ValidationError(
+                {"options": "No se pueden quitar opciones que están en uso."}
+            ) from error
+
+        for option_data in options:
+            option_id = option_data.get("id")
+            values = {key: value for key, value in option_data.items() if key != "id"}
+            if option_id is None:
+                AttributeOption.objects.create(definition=definition, **values)
+                continue
+            option = existing[option_id]
+            for field, value in values.items():
+                setattr(option, field, value)
+            option.full_clean()
+            option.save(update_fields=values)
 
     @transaction.atomic
     def create(self, validated_data):

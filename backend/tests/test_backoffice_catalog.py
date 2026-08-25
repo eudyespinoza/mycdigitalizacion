@@ -6,11 +6,13 @@ from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APIClient
 
+from backoffice.models import ManagementAuditEvent
 from catalog.models import (
     AttributeDefinition,
     AttributeOption,
     Brand,
     Category,
+    Product,
     ProductMedia,
     ProductVariant,
 )
@@ -252,6 +254,91 @@ def test_management_category_and_brand_endpoints_are_not_django_admin(django_use
     assert child.json()["parent_id"] == parent.json()["id"]
     assert brand.status_code == 201
     assert client.get("/api/v1/management/categories/").json()["results"][1]["name"] == "Cuadernos"
+
+
+def test_management_category_brand_and_attribute_support_update_and_delete(
+    django_user_model,
+):
+    client = management_client(django_user_model)
+    category = Category.objects.create(name="Librería", slug="libreria")
+    brand = Brand.objects.create(name="myc", slug="myc")
+    attribute = AttributeDefinition.objects.create(
+        name="Color",
+        slug="color",
+        value_type=AttributeDefinition.ValueType.OPTION,
+        is_filterable=True,
+    )
+    option = AttributeOption.objects.create(
+        definition=attribute,
+        label="Azul",
+        value="azul",
+    )
+
+    category_update = client.patch(
+        f"/api/v1/management/categories/{category.pk}/",
+        {"name": "Papelería", "slug": "papeleria", "is_active": False},
+        format="json",
+    )
+    brand_update = client.patch(
+        f"/api/v1/management/brands/{brand.pk}/",
+        {"name": "myc Studio", "slug": "myc-studio"},
+        format="json",
+    )
+    attribute_update = client.patch(
+        f"/api/v1/management/attributes/{attribute.pk}/",
+        {
+            "name": "Tono",
+            "slug": "tono",
+            "options": [
+                {"id": option.pk, "label": "Azul cielo", "value": "azul-cielo"},
+                {"label": "Rosa", "value": "rosa"},
+            ],
+        },
+        format="json",
+    )
+
+    assert category_update.status_code == 200
+    assert category_update.json()["is_active"] is False
+    assert brand_update.status_code == 200
+    assert brand_update.json()["name"] == "myc Studio"
+    assert attribute_update.status_code == 200
+    assert attribute_update.json()["options"][0]["id"] == option.pk
+    assert [row["label"] for row in attribute_update.json()["options"]] == [
+        "Azul cielo",
+        "Rosa",
+    ]
+
+    assert client.delete(f"/api/v1/management/categories/{category.pk}/").status_code == 204
+    assert client.delete(f"/api/v1/management/brands/{brand.pk}/").status_code == 204
+    assert client.delete(f"/api/v1/management/attributes/{attribute.pk}/").status_code == 204
+    assert ManagementAuditEvent.objects.filter(action="category.updated").exists()
+    assert ManagementAuditEvent.objects.filter(action="category.deleted").exists()
+    assert ManagementAuditEvent.objects.filter(action="brand.updated").exists()
+    assert ManagementAuditEvent.objects.filter(action="brand.deleted").exists()
+    assert ManagementAuditEvent.objects.filter(action="attribute.updated").exists()
+    assert ManagementAuditEvent.objects.filter(action="attribute.deleted").exists()
+
+
+def test_management_taxonomy_delete_returns_a_clear_error_when_record_is_in_use(
+    django_user_model,
+):
+    client = management_client(django_user_model)
+    category = Category.objects.create(name="Librería", slug="libreria")
+    brand = Brand.objects.create(name="myc", slug="myc")
+    Product.objects.create(
+        category=category,
+        brand=brand,
+        name="Cuaderno",
+        slug="cuaderno",
+    )
+
+    category_delete = client.delete(f"/api/v1/management/categories/{category.pk}/")
+    brand_delete = client.delete(f"/api/v1/management/brands/{brand.pk}/")
+
+    assert category_delete.status_code == 400
+    assert "uso" in str(category_delete.json()).lower()
+    assert brand_delete.status_code == 400
+    assert "uso" in str(brand_delete.json()).lower()
 
 
 def test_customer_cannot_access_management_catalog(django_user_model):

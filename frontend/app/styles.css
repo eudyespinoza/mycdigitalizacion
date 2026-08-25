@@ -642,6 +642,10 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .management-content-actions { display: flex; align-items: center; gap: 8px; }
 .management-content-actions > a { min-height: 44px; display: inline-flex; align-items: center; padding-inline: 8px; }
 .management-content-actions > .button { min-height: 44px; padding-inline: 14px; }
+.taxonomy-row-main { flex: 1 1 220px; }
+.taxonomy-row-actions { flex: 0 0 auto; padding: 0; border: 0; }
+.taxonomy-row-actions .text-button { min-height: 36px; display: inline-flex; align-items: center; padding-inline: 5px; }
+.taxonomy-row-actions .text-button.danger { color: var(--danger); }
 .management-list-section { display: grid; gap: 14px; }
 .support-category-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .support-category-list { list-style: none; display: grid; gap: 0; margin: 14px 0 0; padding: 0; }
