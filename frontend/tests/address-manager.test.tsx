@@ -52,4 +52,62 @@ describe("AddressManager", () => {
       );
     });
   });
+
+  test("a locality center cannot be presented as the exact written address", async () => {
+    const approximateAddress = {
+      id: 12,
+      label: "Casa",
+      raw_address: "1 de mayo 2168, PARANA, ENTRE RIOS",
+      normalized_address: "1 de mayo 2168, Paraná, Entre Ríos",
+      street: "1 de mayo",
+      number: "2168",
+      postal_code: "3100",
+      cpa: "",
+      locality: "PARANA",
+      province: "ENTRE RIOS",
+      latitude: "-31.7401602",
+      longitude: "-60.5274260",
+      floor: "",
+      apartment: "",
+      reference: "",
+      notes: "",
+      geocode_source: "georef",
+      geocode_confidence: null,
+      geocode_summary: { precision: "locality" },
+      needs_review: true,
+      reviewed_at: null,
+      created_at: "2026-08-25T00:00:00Z",
+      updated_at: "2026-08-25T00:00:00Z",
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/addresses/")) {
+        return new Response(JSON.stringify([approximateAddress]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.endsWith("/locations/map-config/")) {
+        return new Response(JSON.stringify({
+          provider: "openstreetmap",
+          google_maps_browser_key: "",
+          google_maps_map_id: "",
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    render(<AddressManager />);
+    const addressText = await screen.findByText("1 de mayo 2168, PARANA, ENTRE RIOS");
+    const addressRow = addressText.closest("button");
+    expect(addressRow).not.toBeNull();
+    fireEvent.click(addressRow!);
+
+    expect(screen.getByRole("heading", { name: "No encontramos la altura exacta" })).toBeVisible();
+    expect(screen.getByText(/pin marca por ahora el centro de PARANA/i)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Confirmar esta dirección" })).not.toBeInTheDocument();
+  });
 });

@@ -445,6 +445,42 @@ def test_address_confirm_rejects_coordinates_not_created_by_a_geocode_flow(
 
 
 @pytest.mark.django_db
+def test_address_confirm_rejects_a_locality_center_as_an_exact_delivery_point(
+    client, django_user_model
+):
+    user = verified_user(django_user_model, "locality-center@example.test")
+    address = make_address(
+        user,
+        raw_address="1 de mayo 2168, PARANA, ENTRE RIOS",
+        street="1 de mayo",
+        number="2168",
+        postal_code="3100",
+        locality="PARANA",
+        province="ENTRE RIOS",
+        latitude=Decimal("-31.7401602"),
+        longitude=Decimal("-60.5274260"),
+        geocode_summary={"precision": "locality"},
+    )
+    client.force_login(user)
+
+    response = client.post(
+        f"/api/v1/addresses/{address.pk}/confirm/",
+        {
+            "latitude": "-31.7401602",
+            "longitude": "-60.5274260",
+            "address_choice": "written",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "address_requires_pin_adjustment"
+    address.refresh_from_db()
+    assert address.needs_review is True
+    assert address.reviewed_at is None
+
+
+@pytest.mark.django_db
 def test_public_catalog_and_landing_media_urls_are_same_origin_relative(
     client, settings, tmp_path
 ):

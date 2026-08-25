@@ -1077,6 +1077,9 @@ class AddressViewSet(viewsets.ModelViewSet):
                     "La dirección todavía no pasó por una búsqueda de ubicación."
                 ),
                 "address_coordinates_missing": "La dirección todavía no tiene coordenadas.",
+                "address_requires_pin_adjustment": (
+                    "La ubicación es aproximada. Mové el punto hasta la entrada exacta."
+                ),
                 "address_coordinates_changed": (
                     "Las coordenadas no coinciden con el último resultado guardado."
                 ),

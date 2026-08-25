@@ -148,6 +148,11 @@ def confirm_address(*, address, latitude, longitude, address_choice, tolerance_m
         raise ValueError("address_not_geocoded")
     if locked.latitude is None or locked.longitude is None:
         raise ValueError("address_coordinates_missing")
+    if (
+        locked.geocode_source == locked.GeocodeSource.GEOREF
+        and (locked.geocode_summary or {}).get("precision") == "locality"
+    ):
+        raise ValueError("address_requires_pin_adjustment")
     if not is_within_distance(
         locked.latitude,
         locked.longitude,
