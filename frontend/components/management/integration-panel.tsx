@@ -32,6 +32,11 @@ export function IntegrationPanel({
             "/integrations/mercadopago/oauth/disconnect/",
             { method: "POST" },
           )}
+        onSyncPublicName={() =>
+          managementRequest<IntegrationConfiguration>(
+            "/integrations/mercadopago/sync-public-name/",
+            { method: "POST" },
+          )}
         result={result}
       />
     );

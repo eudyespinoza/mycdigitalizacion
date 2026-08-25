@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
@@ -32,6 +34,7 @@ class MercadoPagoAdapter:
         back_url_base,
         transport=None,
         live_mode=False,
+        merchant_name="",
     ):
         if not access_token or not webhook_secret:
             raise ProviderNotConfigured("Mercado Pago no está configurado")
@@ -42,7 +45,14 @@ class MercadoPagoAdapter:
         self.webhook_secret = webhook_secret
         self.back_url_base = back_url_base.rstrip("/")
         self.live_mode = bool(live_mode)
+        self.statement_descriptor = self._statement_descriptor(merchant_name)
         self.http = ProviderHttpClient(transport or UrllibJsonTransport())
+
+    @staticmethod
+    def _statement_descriptor(value):
+        normalized = unicodedata.normalize("NFKD", str(value or ""))
+        ascii_value = normalized.encode("ascii", "ignore").decode("ascii").upper()
+        return re.sub(r"[^A-Z0-9 ]+", "", ascii_value).strip()[:13].strip()
 
     def _headers(self, *, idempotency_key=None):
         headers = {"Authorization": f"Bearer {self.access_token}"}
@@ -89,6 +99,8 @@ class MercadoPagoAdapter:
             "expires": True,
             "expiration_date_to": expires_at.isoformat(),
         }
+        if self.statement_descriptor:
+            payload["statement_descriptor"] = self.statement_descriptor
         data = self.http.request_json(
             "POST",
             f"{self.base_url}/checkout/preferences",

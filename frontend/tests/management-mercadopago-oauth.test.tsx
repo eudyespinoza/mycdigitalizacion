@@ -44,6 +44,7 @@ describe("conexión simple con Mercado Pago", () => {
         onConnect={onConnect}
         onDisconnect={vi.fn()}
         onSave={vi.fn()}
+        onSyncPublicName={vi.fn()}
       />,
     );
 
@@ -71,6 +72,7 @@ describe("conexión simple con Mercado Pago", () => {
         onConnect={vi.fn()}
         onDisconnect={onDisconnect}
         onSave={vi.fn()}
+        onSyncPublicName={vi.fn()}
       />,
     );
 
@@ -87,6 +89,7 @@ describe("conexión simple con Mercado Pago", () => {
         onConnect={vi.fn()}
         onDisconnect={vi.fn()}
         onSave={vi.fn()}
+        onSyncPublicName={vi.fn()}
       />,
     );
 
@@ -101,6 +104,7 @@ describe("conexión simple con Mercado Pago", () => {
         onConnect={vi.fn()}
         onDisconnect={vi.fn()}
         onSave={vi.fn()}
+        onSyncPublicName={vi.fn()}
         result="connected"
       />,
     );
@@ -129,6 +133,7 @@ describe("conexión simple con Mercado Pago", () => {
         onConnect={vi.fn()}
         onDisconnect={vi.fn()}
         onSave={onSave}
+        onSyncPublicName={vi.fn()}
       />,
     );
 
@@ -159,11 +164,50 @@ describe("conexión simple con Mercado Pago", () => {
         onConnect={vi.fn()}
         onDisconnect={vi.fn()}
         onSave={vi.fn()}
+        onSyncPublicName={vi.fn()}
       />,
     );
 
     expect(screen.queryByLabelText("URL de retorno de OAuth")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copiar URL" })).not.toBeInTheDocument();
     expect(screen.getByText(/cuenta propia de la tienda/i)).toBeVisible();
+  });
+
+  test("sincroniza el nombre público con la cuenta conectada", async () => {
+    const onSyncPublicName = vi.fn().mockResolvedValue({
+      ...disconnected,
+      enabled: true,
+      status: "configured",
+      oauth_status: "connected",
+      connected_account_id: "99887766",
+      public_config: { connected_brand_name: "mycdigitalizacion" },
+      last_test_status: "success",
+      last_test_message: (
+        "El checkout de Mercado Pago ahora muestra “mycdigitalizacion”."
+      ),
+    });
+
+    render(
+      <MercadoPagoConnectPanel
+        integration={{
+          ...disconnected,
+          enabled: true,
+          status: "configured",
+          oauth_status: "connected",
+          connected_account_id: "99887766",
+          public_config: { connected_brand_name: "La Torre" },
+        }}
+        onConnect={vi.fn()}
+        onDisconnect={vi.fn()}
+        onSave={vi.fn()}
+        onSyncPublicName={onSyncPublicName}
+      />,
+    );
+
+    expect(screen.getByText(/el checkout muestra “la torre”/i)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Usar nombre público" }));
+
+    await waitFor(() => expect(onSyncPublicName).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/ahora muestra “mycdigitalizacion”/i)).toBeVisible();
   });
 });

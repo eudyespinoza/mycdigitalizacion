@@ -20,6 +20,7 @@ from django.utils.dateparse import parse_datetime
 
 from backoffice.models import IntegrationConfiguration, ManagementAuditEvent
 from backoffice.secrets import seal_secret_map, unseal_secret_map
+from landing.models import SiteSettings
 from providers import ProviderInvalidResponse, ProviderNotConfigured, ProviderUnavailable
 
 OAUTH_STATE_TTL_SECONDS = 600
@@ -53,6 +54,7 @@ class OAuthApplicationConfiguration:
 
 TokenRequest = Callable[[dict[str, str]], dict[str, Any]]
 AccountRequest = Callable[[str], dict[str, Any]]
+AccountUpdateRequest = Callable[[str, str, str], dict[str, Any]]
 
 
 def oauth_callback_url() -> str:
@@ -232,6 +234,40 @@ def _default_account_request(access_token: str) -> dict[str, Any]:
     return decoded
 
 
+def _default_account_update_request(
+    access_token: str,
+    account_id: str,
+    public_name: str,
+) -> dict[str, Any]:
+    if not account_id.isdigit():
+        raise ProviderInvalidResponse("La cuenta conectada de Mercado Pago no es válida.")
+    account_url = f"https://api.mercadolibre.com/users/{account_id}"
+    request = Request(
+        account_url,
+        data=json.dumps(
+            {"company": {"brand_name": public_name}},
+            ensure_ascii=False,
+        ).encode("utf-8"),
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        method="PUT",
+    )
+    try:
+        with urlopen(request, timeout=15):  # noqa: S310 - fixed HTTPS URL
+            pass
+    except HTTPError as exc:
+        raise ProviderUnavailable(
+            "Mercado Pago rechazó el cambio de nombre comercial.",
+            diagnostics=f"http_status={exc.code}",
+        ) from exc
+    except (TimeoutError, URLError, OSError) as exc:
+        raise ProviderUnavailable("Mercado Pago no está disponible.") from exc
+    return _default_account_request(access_token)
+
+
 def _client_credentials_payload(
     configuration: IntegrationConfiguration | None = None,
 ) -> dict[str, str]:
@@ -255,6 +291,7 @@ def _normalize_own_account_payload(
 ) -> dict[str, Any]:
     access_token = str(token_payload.get("access_token") or "").strip()
     collector_id = str(account_payload.get("id") or "").strip()
+    company = account_payload.get("company")
     try:
         expires_in = int(token_payload.get("expires_in") or 0)
     except (TypeError, ValueError) as exc:
@@ -284,6 +321,9 @@ def _normalize_own_account_payload(
         "site_id": str(account_payload.get("site_id") or "").strip(),
         "live_mode": live_mode,
         "expires_in": expires_in,
+        "brand_name": str(
+            company.get("brand_name") if isinstance(company, dict) else ""
+        ).strip(),
     }
 
 
@@ -317,6 +357,7 @@ def _store_own_account_credentials(
         "oauth_connected_at": connected_at,
         "oauth_reconnect_required": False,
         "token_expires_at": (now + timedelta(seconds=normalized["expires_in"])).isoformat(),
+        "connected_brand_name": normalized.get("brand_name", ""),
     }
     existing_secrets.pop("refresh_token", None)
     existing_secrets["access_token"] = normalized["access_token"]
@@ -369,6 +410,70 @@ def connect_own_mercadopago_account(
         actor=actor,
         audit_action=audit_action,
     )
+
+
+def synchronize_mercadopago_public_name(
+    *,
+    actor,
+    account_update_request: AccountUpdateRequest | None = None,
+) -> IntegrationConfiguration:
+    configuration = IntegrationConfiguration.objects.filter(provider="mercadopago").first()
+    if configuration is None or not configuration.enabled:
+        raise ProviderNotConfigured("Mercado Pago no está conectado.")
+    account_id = str(configuration.public_config.get("collector_id") or "").strip()
+    public_name = str(
+        SiteSettings.objects.values_list("public_name", flat=True).first() or ""
+    ).strip()
+    if not account_id or not public_name:
+        raise ProviderNotConfigured(
+            "Configurá el nombre público y conectá Mercado Pago antes de sincronizar."
+        )
+
+    access_token = resolve_oauth_access_token()
+    account_payload = (account_update_request or _default_account_update_request)(
+        access_token,
+        account_id,
+        public_name,
+    )
+    company = account_payload.get("company") if isinstance(account_payload, dict) else None
+    synchronized_name = str(
+        company.get("brand_name") if isinstance(company, dict) else ""
+    ).strip()
+    if synchronized_name.casefold() != public_name.casefold():
+        raise ProviderInvalidResponse(
+            "Mercado Pago no confirmó el nuevo nombre comercial."
+        )
+
+    with transaction.atomic():
+        configuration = IntegrationConfiguration.objects.select_for_update().get(
+            provider="mercadopago"
+        )
+        previous_name = str(
+            configuration.public_config.get("connected_brand_name") or ""
+        )
+        configuration.public_config = {
+            **configuration.public_config,
+            "connected_brand_name": synchronized_name,
+        }
+        configuration.updated_by = actor
+        configuration.version += 1
+        configuration.last_test_status = "success"
+        configuration.last_tested_at = timezone.now()
+        configuration.last_test_message = (
+            f'El checkout de Mercado Pago ahora muestra “{synchronized_name}”.'
+        )
+        configuration.save()
+        ManagementAuditEvent.objects.create(
+            actor=actor,
+            action="integration.mercadopago_public_name_synced",
+            resource="integration",
+            object_reference="mercadopago",
+            metadata={
+                "previous_brand_name": previous_name,
+                "brand_name": synchronized_name,
+            },
+        )
+    return configuration
 
 
 def exchange_authorization_code(

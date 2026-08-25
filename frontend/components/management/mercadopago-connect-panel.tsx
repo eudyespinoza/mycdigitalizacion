@@ -9,6 +9,7 @@ type PanelState =
   | "saving"
   | "connecting"
   | "disconnecting"
+  | "syncing"
   | "error";
 
 
@@ -17,12 +18,14 @@ export function MercadoPagoConnectPanel({
   onSave,
   onConnect,
   onDisconnect,
+  onSyncPublicName,
   result,
 }: {
   integration: IntegrationConfiguration;
   onSave: (payload: IntegrationUpdate) => Promise<IntegrationConfiguration>;
   onConnect: () => Promise<IntegrationConfiguration>;
   onDisconnect: () => Promise<IntegrationConfiguration>;
+  onSyncPublicName: () => Promise<IntegrationConfiguration>;
   result?: string;
 }) {
   const [current, setCurrent] = useState(integration);
@@ -40,6 +43,9 @@ export function MercadoPagoConnectPanel({
   const reconnect = oauthStatus === "reconnect_required";
   const ready = Boolean(current.oauth_ready);
   const webhookReady = Boolean(current.webhook_ready);
+  const connectedBrandName = String(
+    current.public_config.connected_brand_name ?? "",
+  );
 
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -82,6 +88,16 @@ export function MercadoPagoConnectPanel({
     }
   };
 
+  const syncPublicName = async () => {
+    setState("syncing");
+    try {
+      setCurrent(await onSyncPublicName());
+      setState("idle");
+    } catch {
+      setState("error");
+    }
+  };
+
   return (
     <div className="mercadopago-connect-layout">
       {result === "connected" && (
@@ -105,6 +121,9 @@ export function MercadoPagoConnectPanel({
                 ? "La cuenta y las notificaciones de pago están preparadas."
                 : "La cuenta está conectada; todavía falta configurar la firma del webhook."}
               {current.connected_account_id ? ` Cuenta ${current.connected_account_id}.` : ""}
+              {connectedBrandName
+                ? ` El checkout muestra “${connectedBrandName}”.`
+                : ""}
             </p>
           ) : reconnect ? (
             <p>La autorización venció. Conectala otra vez para seguir cobrando.</p>
@@ -128,14 +147,24 @@ export function MercadoPagoConnectPanel({
             </button>
           )}
           {connected && (
-            <button
-              className="button secondary"
-              disabled={state === "disconnecting"}
-              onClick={() => void disconnect()}
-              type="button"
-            >
-              {state === "disconnecting" ? "Desconectando…" : "Desconectar"}
-            </button>
+            <>
+              <button
+                className="button primary"
+                disabled={state === "syncing"}
+                onClick={() => void syncPublicName()}
+                type="button"
+              >
+                {state === "syncing" ? "Sincronizando…" : "Usar nombre público"}
+              </button>
+              <button
+                className="button secondary"
+                disabled={state === "disconnecting"}
+                onClick={() => void disconnect()}
+                type="button"
+              >
+                {state === "disconnecting" ? "Desconectando…" : "Desconectar"}
+              </button>
+            </>
           )}
         </div>
       </section>

@@ -13,6 +13,7 @@ from rest_framework.test import APIClient
 from backoffice.integrations import serialize_configuration
 from backoffice.models import IntegrationConfiguration, ManagementAuditEvent
 from backoffice.secrets import unseal_secret_map
+from landing.models import SiteSettings
 
 pytestmark = pytest.mark.django_db
 
@@ -431,6 +432,67 @@ def test_owner_connects_own_account_without_external_authorization(
 
 
 @override_settings(**OAUTH_SETTINGS)
+def test_owner_syncs_public_store_name_to_connected_mercadopago_account(
+    monkeypatch,
+    django_user_model,
+):
+    from commerce.mercadopago_oauth import connect_own_mercadopago_account
+
+    client, owner = owner_client(django_user_model)
+    SiteSettings.objects.create(public_name="mycdigitalización")
+    connect_own_mercadopago_account(
+        actor=owner,
+        token_request=lambda payload: {
+            "access_token": "management-own-access",
+            "expires_in": 21_600,
+        },
+        account_request=lambda access_token: {
+            "id": 778899,
+            "site_id": "MLA",
+            "status": "active",
+            "company": {"brand_name": "La Torre"},
+        },
+    )
+    observed = {}
+
+    def account_update(access_token, account_id, public_name):
+        observed.update(
+            access_token=access_token,
+            account_id=account_id,
+            public_name=public_name,
+        )
+        return {
+            "id": 778899,
+            "company": {"brand_name": "mycdigitalización"},
+        }
+
+    monkeypatch.setattr(
+        "commerce.mercadopago_oauth._default_account_update_request",
+        account_update,
+    )
+
+    response = client.post(
+        "/api/v1/management/integrations/mercadopago/sync-public-name/",
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert observed == {
+        "access_token": "management-own-access",
+        "account_id": "778899",
+        "public_name": "mycdigitalización",
+    }
+    assert response.json()["public_config"]["connected_brand_name"] == (
+        "mycdigitalización"
+    )
+    assert ManagementAuditEvent.objects.filter(
+        actor=owner,
+        action="integration.mercadopago_public_name_synced",
+        object_reference="mercadopago",
+    ).exists()
+
+
+@override_settings(**OAUTH_SETTINGS)
 def test_owner_can_start_callback_and_disconnect_oauth(monkeypatch, django_user_model):
     client, owner = owner_client(django_user_model)
     cache.clear()
@@ -499,6 +561,9 @@ def test_non_owner_cannot_start_or_disconnect_mercadopago(django_user_model):
     ).status_code == 403
     assert client.post(
         "/api/v1/management/integrations/mercadopago/oauth/disconnect/", format="json"
+    ).status_code == 403
+    assert client.post(
+        "/api/v1/management/integrations/mercadopago/sync-public-name/", format="json"
     ).status_code == 403
 
 

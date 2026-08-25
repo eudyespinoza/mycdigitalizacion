@@ -62,6 +62,11 @@ def get_sid_adapter():
 
 
 def get_payment_adapter():
+    from landing.models import SiteSettings
+
+    public_name = (
+        SiteSettings.objects.values_list("public_name", flat=True).first() or ""
+    )
     stored = _stored("mercadopago")
     if stored is not None:
         public = stored["public_config"]
@@ -81,6 +86,7 @@ def get_payment_adapter():
             webhook_secret=secrets["webhook_secret"],
             back_url_base=settings.PUBLIC_BACKEND_URL,
             live_mode=bool(public.get("live_mode", stored["environment"] == "production")),
+            merchant_name=public_name,
         )
         adapter.collector_id = str(public.get("collector_id", ""))
         return adapter
@@ -91,6 +97,7 @@ def get_payment_adapter():
         webhook_secret=settings.MERCADOPAGO_WEBHOOK_SECRET,
         back_url_base=settings.PUBLIC_BACKEND_URL,
         live_mode=settings.MERCADOPAGO_LIVE_MODE,
+        merchant_name=public_name,
     )
     adapter.collector_id = settings.MERCADOPAGO_COLLECTOR_ID
     return adapter

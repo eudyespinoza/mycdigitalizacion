@@ -341,6 +341,7 @@ def test_mercadopago_preference_is_ars_expiring_and_idempotent():
         back_url_base="https://shop.example.test",
         transport=transport,
         live_mode=True,
+        merchant_name="mycdigitalización tienda",
     ).create_preference(
         external_reference="8c28ebaf-3b83-47be-9ddb-ec1c054f46df",
         order_id="27539126-0d2d-4a7e-af10-dc959160328c",
@@ -358,6 +359,7 @@ def test_mercadopago_preference_is_ars_expiring_and_idempotent():
     assert payload["items"] == [
         {"title": "Pedido 123", "quantity": 1, "currency_id": "ARS", "unit_price": 123.45}
     ]
+    assert payload["statement_descriptor"] == "MYCDIGITALIZA"
     assert payload["expiration_date_to"] == (now + timezone.timedelta(minutes=20)).isoformat()
     assert all(url.startswith("https://") for url in payload["back_urls"].values())
     assert preference.preference_id == "pref-1"
