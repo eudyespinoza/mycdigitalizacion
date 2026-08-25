@@ -136,7 +136,12 @@ from landing.serializers import (
 )
 from locations.map_config import resolve_map_configuration
 from locations.models import Address
-from locations.providers import AndreaniLocalitiesAdapter, GeoRefAdapter
+from locations.providers import (
+    AndreaniLocalitiesAdapter,
+    FallbackGeocoder,
+    GeoRefAdapter,
+    OpenStreetMapAdapter,
+)
 from locations.serializers import (
     AddressConfirmRequestSerializer,
     AddressSerializer,
@@ -1378,7 +1383,10 @@ class GeocodeView(generics.GenericAPIView):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
         try:
-            geocode_address(address=address, adapter=GeoRefAdapter())
+            geocode_address(
+                address=address,
+                adapter=FallbackGeocoder(GeoRefAdapter(), OpenStreetMapAdapter()),
+            )
         except ProviderError as exc:
             raise provider_domain_error(exc) from exc
         return Response(AddressSerializer(address).data)

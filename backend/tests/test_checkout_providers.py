@@ -90,6 +90,92 @@ def test_georef_geocode_falls_back_to_locality_center_when_address_has_no_match(
     }
 
 
+def test_openstreetmap_geocode_finds_an_exact_house_without_private_address_details():
+    from django.core.cache import cache
+
+    from locations.providers import OpenStreetMapAdapter
+
+    cache.clear()
+    transport = RecordingTransport(
+        [
+            {
+                "lat": "-31.7377825",
+                "lon": "-60.5494782",
+                "display_name": "2168, 1 de Mayo, Parana, Entre Rios, Argentina",
+                "type": "house",
+                "address": {
+                    "house_number": "2168",
+                    "road": "1 de Mayo",
+                    "city": "Parana",
+                    "state": "Entre Rios",
+                },
+            }
+        ]
+    )
+
+    result = OpenStreetMapAdapter(
+        transport=transport,
+        user_agent="mycdigitalizacion/1.0 (+https://mycdigitalizacion.com)",
+    ).geocode(
+        street="1 de Mayo",
+        number="2168",
+        locality="PARANA",
+        province="ENTRE RIOS",
+        floor="9",
+        apartment="B",
+        notes="timbre secreto",
+    )
+
+    method, url, headers, params, _timeout = transport.calls[0]
+    assert method == "GET"
+    assert url == "https://nominatim.openstreetmap.org/search"
+    assert headers == {
+        "User-Agent": "mycdigitalizacion/1.0 (+https://mycdigitalizacion.com)"
+    }
+    assert params == {
+        "format": "jsonv2",
+        "q": "1 de Mayo 2168, PARANA, ENTRE RIOS, Argentina",
+        "countrycodes": "ar",
+        "addressdetails": 1,
+        "limit": 1,
+    }
+    assert "9" not in str(params)
+    assert "timbre secreto" not in str(params)
+    assert result.latitude == Decimal("-31.7377825")
+    assert result.longitude == Decimal("-60.5494782")
+    assert result.source == "openstreetmap"
+    assert result.summary["precision"] == "address"
+
+
+def test_fallback_geocoder_replaces_a_locality_center_with_openstreetmap_exact_result():
+    from locations.providers import FallbackGeocoder, GeocodeResult
+
+    approximate = GeocodeResult(
+        normalized_address="1 de Mayo 2168, Parana, Entre Rios",
+        latitude=Decimal("-31.7401602"),
+        longitude=Decimal("-60.5274260"),
+        confidence=None,
+        summary={"precision": "locality"},
+    )
+    exact = GeocodeResult(
+        normalized_address="2168, 1 de Mayo, Parana, Entre Rios, Argentina",
+        latitude=Decimal("-31.7377825"),
+        longitude=Decimal("-60.5494782"),
+        confidence=None,
+        summary={"precision": "address"},
+        source="openstreetmap",
+    )
+
+    result = FallbackGeocoder(StaticGeocoder(approximate), StaticGeocoder(exact)).geocode(
+        street="1 de Mayo",
+        number="2168",
+        locality="PARANA",
+        province="ENTRE RIOS",
+    )
+
+    assert result == exact
+
+
 def test_distance_helper_uses_150_meter_boundary():
     from locations.services import is_within_distance
 
@@ -162,6 +248,15 @@ class RecordingTransport:
     def request(self, method, url, headers=None, json=None, params=None, timeout=None):
         self.calls.append((method, url, headers, params or json, timeout))
         return 200, self.response
+
+
+class StaticGeocoder:
+    def __init__(self, result):
+        self.result = result
+
+    def geocode(self, **kwargs):
+        del kwargs
+        return self.result
 
 
 def test_sid_disabled_unavailable_and_rejected_are_typed():

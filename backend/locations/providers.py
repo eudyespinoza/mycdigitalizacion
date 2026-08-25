@@ -4,7 +4,16 @@ import hashlib
 from dataclasses import dataclass
 from decimal import Decimal
 
-from providers import ProviderHttpClient, ProviderInvalidResponse, UrllibJsonTransport
+from django.conf import settings
+from django.core.cache import cache
+
+from providers import (
+    ProviderError,
+    ProviderHttpClient,
+    ProviderInvalidResponse,
+    ProviderUnavailable,
+    UrllibJsonTransport,
+)
 
 
 @dataclass(frozen=True)
@@ -14,6 +23,100 @@ class GeocodeResult:
     longitude: Decimal
     confidence: Decimal | None
     summary: dict[str, str]
+    source: str = "georef"
+
+
+class FallbackGeocoder:
+    def __init__(self, primary, fallback):
+        self.primary = primary
+        self.fallback = fallback
+
+    def geocode(self, **address):
+        primary_result = self.primary.geocode(**address)
+        if primary_result.summary.get("precision") != "locality":
+            return primary_result
+        try:
+            return self.fallback.geocode(**address)
+        except ProviderError:
+            return primary_result
+
+
+class OpenStreetMapAdapter:
+    def __init__(
+        self,
+        *,
+        transport=None,
+        base_url=None,
+        user_agent=None,
+        cache_backend=cache,
+    ):
+        self.base_url = (base_url or settings.NOMINATIM_BASE_URL).rstrip("/")
+        self.user_agent = user_agent or (
+            f"mycdigitalizacion/1.0 (+{settings.PUBLIC_BACKEND_URL})"
+        )
+        self.cache = cache_backend
+        self.http = ProviderHttpClient(transport or UrllibJsonTransport(), retries=0)
+
+    def geocode(
+        self,
+        *,
+        street,
+        number,
+        locality,
+        province,
+        floor="",
+        apartment="",
+        notes="",
+    ):
+        del floor, apartment, notes
+        query = f"{street} {number}, {locality}, {province}, Argentina"
+        cache_key = f"locations:nominatim:{hashlib.sha256(query.casefold().encode()).hexdigest()}"
+        cached = self.cache.get(cache_key)
+        if cached:
+            return self._parse(cached, expected_number=str(number))
+        if not self.cache.add("locations:nominatim:request-rate", True, timeout=1):
+            raise ProviderUnavailable("OpenStreetMap está temporalmente ocupado")
+        data = self.http.request_json(
+            "GET",
+            f"{self.base_url}/search",
+            headers={"User-Agent": self.user_agent},
+            params={
+                "format": "jsonv2",
+                "q": query,
+                "countrycodes": "ar",
+                "addressdetails": 1,
+                "limit": 1,
+            },
+        )
+        if not isinstance(data, list) or not data:
+            raise ProviderInvalidResponse("OpenStreetMap no encontró la dirección")
+        result = self._parse(data[0], expected_number=str(number))
+        self.cache.set(cache_key, data[0], timeout=30 * 24 * 60 * 60)
+        return result
+
+    @staticmethod
+    def _parse(match, *, expected_number):
+        try:
+            details = match.get("address") or {}
+            returned_number = str(details.get("house_number") or "").strip()
+            if returned_number.casefold() != expected_number.strip().casefold():
+                raise ValueError
+            return GeocodeResult(
+                normalized_address=str(match["display_name"]),
+                latitude=Decimal(str(match["lat"])),
+                longitude=Decimal(str(match["lon"])),
+                confidence=None,
+                summary={
+                    "precision": "address",
+                    "road": str(details.get("road") or ""),
+                    "house_number": returned_number,
+                },
+                source="openstreetmap",
+            )
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            raise ProviderInvalidResponse(
+                "OpenStreetMap no devolvió la altura exacta"
+            ) from exc
 
 
 class GeoRefAdapter:

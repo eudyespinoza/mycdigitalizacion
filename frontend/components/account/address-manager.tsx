@@ -1,6 +1,9 @@
 "use client";
 
+import { PencilSimple, Trash } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { ManagementFormDialog } from "@/components/ui/management-form-dialog";
 import { apiRequest } from "@/lib/api";
 import { buildAddressConfirmation } from "@/lib/address-confirmation";
 import { requiresReverseLookup } from "@/lib/geo";
@@ -27,6 +30,9 @@ export function AddressManager() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [mapConfiguration, setMapConfiguration] = useState<MapConfiguration>();
+  const [editingAddress, setEditingAddress] = useState<Address | null>(null);
+  const [editValues, setEditValues] = useState(empty);
+  const [deletingAddress, setDeletingAddress] = useState<Address | null>(null);
   const messageRef = useRef<HTMLParagraphElement>(null);
 
   const load = () => apiRequest<Address[]>("/addresses/").then(setAddresses).catch((cause) => setError(cause instanceof Error ? cause.message : "No pudimos cargar las direcciones."));
@@ -73,6 +79,63 @@ export function AddressManager() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "No pudimos guardar o ubicar la dirección."); }
     finally { setBusy(false); }
   };
+  const openEdit = (address: Address) => {
+    setError("");
+    setEditingAddress(address);
+    setEditValues({
+      label: address.label,
+      raw_address: address.raw_address,
+      street: address.street,
+      number: address.number,
+      postal_code: address.postal_code,
+      cpa: address.cpa,
+      locality: address.locality,
+      province: address.province,
+      floor: address.floor,
+      apartment: address.apartment,
+      reference: address.reference,
+      notes: address.notes,
+    });
+  };
+  const updateAddress = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editingAddress) return;
+    setBusy(true); setError(""); setMessage("");
+    try {
+      const raw_address = `${editValues.street} ${editValues.number}, ${editValues.locality}, ${editValues.province}`;
+      await apiRequest<Address>(`/addresses/${editingAddress.id}/`, {
+        method: "PATCH",
+        body: JSON.stringify({ ...editValues, raw_address }),
+      });
+      const geocoded = await apiRequest<Address>("/locations/geocode/", {
+        method: "POST",
+        body: JSON.stringify({ address_id: editingAddress.id }),
+      });
+      selectAddress(geocoded);
+      setEditingAddress(null);
+      setMessage(geocoded.geocode_summary?.precision === "locality"
+        ? "Dirección actualizada. No encontramos la altura exacta; ajustá el punto en el mapa."
+        : "Dirección actualizada. Confirmá el punto sugerido antes de usarla.");
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No pudimos actualizar la dirección.");
+    } finally { setBusy(false); }
+  };
+  const deleteAddress = async () => {
+    if (!deletingAddress) return;
+    setBusy(true); setError(""); setMessage("");
+    try {
+      await apiRequest<void>(`/addresses/${deletingAddress.id}/`, { method: "DELETE" });
+      setAddresses((currentAddresses) => currentAddresses.filter((address) => address.id !== deletingAddress.id));
+      if (current?.id === deletingAddress.id) {
+        setCurrent(null); setOrigin(null); setPoint(null); setWrittenAddress(""); setReverseAddress("");
+      }
+      setMessage("Dirección eliminada.");
+      setDeletingAddress(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No pudimos eliminar la dirección.");
+    } finally { setBusy(false); }
+  };
   const reverse = async () => {
     if (!current || !point) return;
     setBusy(true); setError("");
@@ -98,7 +161,7 @@ export function AddressManager() {
   const canSave = Boolean(values.postal_code.trim() && values.locality.trim() && values.province.trim() && values.street.trim() && values.number.trim());
 
   return <div className="address-layout">
-    <section><h2>Direcciones guardadas</h2>{addresses.length ? addresses.map((address) => <button type="button" className="address-row" key={address.id} onClick={() => selectAddress(address)}><strong>{address.label}</strong><span>{address.raw_address}</span><small>{address.needs_review ? "Requiere confirmación" : "Confirmada"}</small></button>) : <p>No hay direcciones guardadas.</p>}</section>
+    <section><h2>Direcciones guardadas</h2>{addresses.length ? addresses.map((address) => <article className="address-card" key={address.id}><button type="button" className="address-row" onClick={() => selectAddress(address)}><strong>{address.label}</strong><span>{address.raw_address}</span><small>{address.needs_review ? "Requiere confirmación" : "Confirmada"}</small></button><div className="address-row-actions"><button aria-label={`Editar dirección ${address.label}`} type="button" onClick={() => openEdit(address)}><PencilSimple aria-hidden="true" size={17} weight="bold" />Editar</button><button aria-label={`Eliminar dirección ${address.label}`} type="button" onClick={() => { setError(""); setDeletingAddress(address); }}><Trash aria-hidden="true" size={17} weight="bold" />Eliminar</button></div></article>) : <p>No hay direcciones guardadas.</p>}</section>
     <form className="form-stack address-form" onSubmit={(event) => void save(event)}>
       <h2>Nueva dirección</h2>
       <div className="postal-row">
@@ -148,7 +211,20 @@ export function AddressManager() {
       <textarea id="notes" value={values.notes} onChange={(event) => setValues({ ...values, notes: event.target.value })} />
       <button className="button primary" disabled={busy || !canSave}>{busy ? "Guardando…" : "Guardar y ubicar"}</button>
     </form>
-    {error && <p className="inline-error" role="alert">{error}</p>}{message && <p ref={messageRef} tabIndex={-1} className="success-message" role="status">{message}</p>}
+    {error && !editingAddress && !deletingAddress && <p className="inline-error" role="alert">{error}</p>}{message && <p ref={messageRef} tabIndex={-1} className="success-message" role="status">{message}</p>}
     {current && point && <section className="map-confirmation" aria-labelledby="map-confirmation-title"><div><h2 id="map-confirmation-title">Confirmá el punto de entrega</h2><p><strong>Dirección escrita:</strong> {writtenAddress}</p>{reverseAddress && <p><strong>Dirección encontrada:</strong> {reverseAddress}</p>}</div><AddressMap configuration={mapConfiguration} latitude={point.latitude} longitude={point.longitude} onMove={(latitude, longitude) => { setPoint({ latitude, longitude }); setLatitudeInput(String(latitude)); setLongitudeInput(String(longitude)); setReverseAddress(""); }} /><details className="coordinate-editor"><summary>Ajustar manualmente (opcional)</summary><div className="field-pair"><div><label htmlFor="latitude">Ubicación norte/sur</label><input id="latitude" type="text" inputMode="decimal" value={latitudeInput} onChange={(event) => { const value = event.target.value; setLatitudeInput(value); const latitude = Number(value); if (value && Number.isFinite(latitude)) setPoint({ ...point, latitude }); }} /></div><div><label htmlFor="longitude">Ubicación este/oeste</label><input id="longitude" type="text" inputMode="decimal" value={longitudeInput} onChange={(event) => { const value = event.target.value; setLongitudeInput(value); const longitude = Number(value); if (value && Number.isFinite(longitude)) setPoint({ ...point, longitude }); }} /></div></div></details>{current.needs_review ? far && !reverseAddress ? <div className="map-warning"><strong>El punto quedó lejos de la dirección escrita.</strong><p>Buscá la dirección de ese punto y después elegí cuál conservar.</p><button className="button primary" disabled={busy} onClick={() => void reverse()}>Buscar dirección del punto</button></div> : reverseAddress ? <div className="confirmation-choices"><button className="button secondary" disabled={busy} onClick={() => void confirm("written")}>Usar dirección escrita</button><button className="button primary" disabled={busy} onClick={() => void confirm("reverse")}>Usar dirección encontrada</button></div> : localityCenter ? <div className="map-warning"><h3>No encontramos la altura exacta</h3><p>El pin marca por ahora el centro de {current.locality}. Movelo hasta la entrada correcta para continuar.</p></div> : <div className="inline-notice"><p>El punto coincide con la dirección. Confirmalo para continuar.</p><button className="button primary" disabled={busy} onClick={() => void confirm("written")}>Confirmar esta dirección</button></div> : <p className="success-message">Esta dirección ya está confirmada{current.reviewed_at ? ` desde el ${new Date(current.reviewed_at).toLocaleString("es-AR")}` : ""}.</p>}</section>}
+    <ManagementFormDialog description="Corregí los datos y volveremos a ubicar la dirección en el mapa." onClose={() => { if (!busy) setEditingAddress(null); }} open={Boolean(editingAddress)} size="wide" title="Editar dirección">
+      <form className="form-stack" onSubmit={(event) => void updateAddress(event)}>
+        <div className="field-pair"><div><label htmlFor="edit-label">Nombre de la dirección</label><input id="edit-label" value={editValues.label} onChange={(event) => setEditValues({ ...editValues, label: event.target.value })} required /></div><div><label htmlFor="edit-postal">CP o CPA</label><input id="edit-postal" autoComplete="postal-code" value={editValues.postal_code} onChange={(event) => setEditValues({ ...editValues, postal_code: event.target.value.toUpperCase() })} required /></div></div>
+        <div className="field-pair"><div><label htmlFor="edit-locality">Localidad</label><input id="edit-locality" value={editValues.locality} onChange={(event) => setEditValues({ ...editValues, locality: event.target.value })} required /></div><div><label htmlFor="edit-province">Provincia</label><input id="edit-province" value={editValues.province} onChange={(event) => setEditValues({ ...editValues, province: event.target.value })} required /></div></div>
+        <div className="field-pair"><div><label htmlFor="edit-street">Calle</label><input id="edit-street" value={editValues.street} onChange={(event) => setEditValues({ ...editValues, street: event.target.value })} required /></div><div><label htmlFor="edit-number">Número</label><input id="edit-number" inputMode="numeric" value={editValues.number} onChange={(event) => setEditValues({ ...editValues, number: event.target.value })} required /></div></div>
+        <div className="field-pair"><div><label htmlFor="edit-floor">Piso (opcional)</label><input id="edit-floor" value={editValues.floor} onChange={(event) => setEditValues({ ...editValues, floor: event.target.value })} /></div><div><label htmlFor="edit-apartment">Departamento o unidad (opcional)</label><input id="edit-apartment" value={editValues.apartment} onChange={(event) => setEditValues({ ...editValues, apartment: event.target.value })} /></div></div>
+        <label htmlFor="edit-reference">Referencia (opcional)</label><input id="edit-reference" value={editValues.reference} onChange={(event) => setEditValues({ ...editValues, reference: event.target.value })} />
+        <label htmlFor="edit-notes">Notas para la entrega</label><textarea id="edit-notes" value={editValues.notes} onChange={(event) => setEditValues({ ...editValues, notes: event.target.value })} />
+        {error && <p className="inline-error" role="alert">{error}</p>}
+        <div className="management-form-actions"><button className="button primary" disabled={busy} type="submit">{busy ? "Guardando…" : "Guardar dirección"}</button><button className="button secondary" disabled={busy} onClick={() => setEditingAddress(null)} type="button">Cancelar</button></div>
+      </form>
+    </ManagementFormDialog>
+    <ConfirmationDialog open={Boolean(deletingAddress)} title={`¿Eliminar la dirección ${deletingAddress?.label ?? ""}?`} description="Esta acción no se puede deshacer. La dirección dejará de estar disponible para futuros envíos." confirmLabel="Eliminar dirección" busyLabel="Eliminando…" busy={busy} error={error} onCancel={() => { if (!busy) setDeletingAddress(null); }} onConfirm={deleteAddress} />
   </div>;
 }

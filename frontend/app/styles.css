@@ -387,8 +387,13 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .fiscal-row { display: flex; flex-direction: column; gap: 5px; padding: 18px 0; border-bottom: 1px solid var(--line); }
 .fiscal-row b { width: fit-content; color: var(--success); font-size: .85rem; }
 .address-layout { display: grid; grid-template-columns: .8fr 1.2fr; gap: 30px; }
-.address-row { width: 100%; min-height: 74px; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; margin-bottom: 10px; padding: 16px; border: 0; border-radius: 12px; background: var(--surface-cold); text-align: left; cursor: pointer; }
+.address-card { margin-bottom: 10px; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-cold); }
+.address-row { width: 100%; min-height: 74px; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 16px; border: 0; background: transparent; text-align: left; cursor: pointer; }
 .address-row small { color: var(--muted); }
+.address-row-actions { display: flex; gap: 6px; padding: 0 10px 10px; }
+.address-row-actions button { min-height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 0; border-radius: 9px; background: transparent; color: var(--blue); font: inherit; font-size: .88rem; font-weight: 750; cursor: pointer; }
+.address-row-actions button:hover { background: var(--surface); }
+.address-row-actions button:last-child { color: var(--danger); }
 .postal-row { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 12px; }
 .field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .map-confirmation { grid-column: 1 / -1; margin-top: 30px; }

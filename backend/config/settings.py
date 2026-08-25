@@ -394,6 +394,9 @@ LOGGING = {
 PUBLIC_BACKEND_URL = environ.get(
     "PUBLIC_BACKEND_URL", f"https://{environ.get('SITE_ADDRESS', 'localhost')}"
 ).rstrip("/")
+NOMINATIM_BASE_URL = environ.get(
+    "NOMINATIM_BASE_URL", "https://nominatim.openstreetmap.org"
+).rstrip("/")
 SID_MODE = environ.get("SID_MODE", "disabled").lower()
 SID_BASE_URL = environ.get("SID_BASE_URL", "")
 SID_ACCESS_TOKEN = environ.get("SID_ACCESS_TOKEN", "")

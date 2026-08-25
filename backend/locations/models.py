@@ -7,6 +7,7 @@ class Address(models.Model):
         NONE = "", "None"
         MANUAL = "manual", "Manual"
         GEOREF = "georef", "GeoRef"
+        OPENSTREETMAP = "openstreetmap", "OpenStreetMap"
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, related_name="addresses", on_delete=models.CASCADE
