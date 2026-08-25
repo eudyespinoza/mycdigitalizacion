@@ -46,6 +46,50 @@ def test_georef_geocode_payload_excludes_private_address_details():
     assert result.normalized_address == "AV RIVADAVIA 1234, CABA"
 
 
+def test_georef_geocode_falls_back_to_locality_center_when_address_has_no_match():
+    from locations.providers import GeoRefAdapter
+
+    transport = SequenceTransport(
+        [
+            (200, {"cantidad": 0, "direcciones": []}),
+            (
+                200,
+                {
+                    "cantidad": 1,
+                    "localidades": [
+                        {
+                            "id": "30084160",
+                            "nombre": "Paraná",
+                            "centroide": {
+                                "lat": -31.7401601621031,
+                                "lon": -60.5274260494443,
+                            },
+                            "provincia": {"id": "30", "nombre": "Entre Ríos"},
+                        }
+                    ],
+                },
+            ),
+        ]
+    )
+
+    result = GeoRefAdapter(transport=transport).geocode(
+        street="Ayacucho",
+        number="982",
+        locality="Paraná",
+        province="Entre Ríos",
+    )
+
+    assert result.normalized_address == "Ayacucho 982, Paraná, Entre Ríos"
+    assert result.latitude == Decimal("-31.7401601621031")
+    assert result.longitude == Decimal("-60.5274260494443")
+    assert result.confidence is None
+    assert result.summary == {
+        "province_id": "30",
+        "locality_id": "30084160",
+        "precision": "locality",
+    }
+
+
 def test_distance_helper_uses_150_meter_boundary():
     from locations.services import is_within_distance
 

@@ -15,6 +15,7 @@ export function AddressManager() {
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [values, setValues] = useState(empty);
   const [localities, setLocalities] = useState<Locality[]>([]);
+  const [postalSearched, setPostalSearched] = useState(false);
   const [current, setCurrent] = useState<Address | null>(null);
   const [origin, setOrigin] = useState<Point | null>(null);
   const [point, setPoint] = useState<Point | null>(null);
@@ -42,12 +43,21 @@ export function AddressManager() {
     setCurrent(address); setOrigin(next); setPoint(next); setLatitudeInput(next ? String(next.latitude) : ""); setLongitudeInput(next ? String(next.longitude) : ""); setWrittenAddress(address.raw_address); setReverseAddress("");
   };
   const postalLookup = async () => {
-    setError("");
+    setError(""); setLocalities([]);
     try {
       const rows = await apiRequest<Locality[]>(`/locations/postal-lookup/?postal_code=${encodeURIComponent(values.postal_code)}`);
       setLocalities(rows);
-      if (rows[0]) setValues((previous) => ({ ...previous, cpa: rows[0].cpa, locality: rows[0].locality, province: rows[0].province }));
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "No encontramos ese código postal."); }
+      if (rows[0]) {
+        setValues((previous) => ({ ...previous, cpa: rows[0].cpa, locality: rows[0].locality, province: rows[0].province }));
+      } else {
+        setValues((previous) => ({ ...previous, cpa: "", locality: "", province: "" }));
+        setError("No encontramos localidades para ese código postal. Completá localidad y provincia manualmente.");
+      }
+    } catch (cause) {
+      setValues((previous) => ({ ...previous, cpa: "", locality: "", province: "" }));
+      const detail = cause instanceof Error ? cause.message : "No pudimos consultar el código postal.";
+      setError(`${detail} Completá localidad y provincia manualmente.`);
+    } finally { setPostalSearched(true); }
   };
   const save = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy(true); setError(""); setMessage("");
@@ -55,7 +65,11 @@ export function AddressManager() {
       const raw_address = `${values.street} ${values.number}, ${values.locality}, ${values.province}`;
       const address = await apiRequest<Address>("/addresses/", { method: "POST", body: JSON.stringify({ ...values, raw_address }) });
       const geocoded = await apiRequest<Address>("/locations/geocode/", { method: "POST", body: JSON.stringify({ address_id: address.id }) });
-      selectAddress(geocoded); setMessage("Dirección guardada. Confirmá el punto sugerido antes de usarla."); await load();
+      selectAddress(geocoded);
+      setMessage(geocoded.geocode_summary?.precision === "locality"
+        ? "No encontramos la altura exacta. Mové el punto del mapa hasta la dirección y confirmalo."
+        : "Dirección guardada. Confirmá el punto sugerido antes de usarla.");
+      await load();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "No pudimos guardar o ubicar la dirección."); }
     finally { setBusy(false); }
   };
@@ -80,10 +94,59 @@ export function AddressManager() {
     finally { setBusy(false); }
   };
   const far = Boolean(origin && point && requiresReverseLookup(origin.latitude, origin.longitude, point.latitude, point.longitude));
+  const canSave = Boolean(values.postal_code.trim() && values.locality.trim() && values.province.trim() && values.street.trim() && values.number.trim());
 
   return <div className="address-layout">
     <section><h2>Direcciones guardadas</h2>{addresses.length ? addresses.map((address) => <button type="button" className="address-row" key={address.id} onClick={() => selectAddress(address)}><strong>{address.label}</strong><span>{address.raw_address}</span><small>{address.needs_review ? "Requiere confirmación" : "Confirmada"}</small></button>) : <p>No hay direcciones guardadas.</p>}</section>
-    <form className="form-stack address-form" onSubmit={(event) => void save(event)}><h2>Nueva dirección</h2><div className="postal-row"><div><label htmlFor="postal">CP o CPA</label><input id="postal" value={values.postal_code} onChange={(event) => setValues({ ...values, postal_code: event.target.value.toUpperCase() })} required /></div><button className="button secondary" type="button" onClick={() => void postalLookup()}>Buscar localidad</button></div>{localities.length > 0 && <><label htmlFor="locality">Localidad y provincia</label><select id="locality" value={`${values.locality}|${values.province}`} onChange={(event) => { const [locality, province] = event.target.value.split("|"); const row = localities.find((item) => item.locality === locality && item.province === province); setValues({ ...values, locality, province, cpa: row?.cpa ?? "" }); }}>{localities.map((row) => <option key={`${row.locality}-${row.province}`} value={`${row.locality}|${row.province}`}>{row.locality}, {row.province}</option>)}</select></>}<div className="field-pair"><div><label htmlFor="street">Calle</label><input id="street" value={values.street} onChange={(event) => setValues({ ...values, street: event.target.value })} required /></div><div><label htmlFor="number">Número</label><input id="number" value={values.number} onChange={(event) => setValues({ ...values, number: event.target.value })} required /></div></div><div className="field-pair"><div><label htmlFor="floor">Piso</label><input id="floor" value={values.floor} onChange={(event) => setValues({ ...values, floor: event.target.value })} /></div><div><label htmlFor="apartment">Departamento</label><input id="apartment" value={values.apartment} onChange={(event) => setValues({ ...values, apartment: event.target.value })} /></div></div><label htmlFor="notes">Notas para la entrega</label><textarea id="notes" value={values.notes} onChange={(event) => setValues({ ...values, notes: event.target.value })} /><button className="button primary" disabled={busy}>{busy ? "Guardando…" : "Guardar y ubicar"}</button></form>
+    <form className="form-stack address-form" onSubmit={(event) => void save(event)}>
+      <h2>Nueva dirección</h2>
+      <div className="postal-row">
+        <div>
+          <label htmlFor="postal">CP o CPA</label>
+          <input
+            id="postal"
+            autoComplete="postal-code"
+            value={values.postal_code}
+            onChange={(event) => {
+              setValues({ ...values, postal_code: event.target.value.toUpperCase(), cpa: "", locality: "", province: "" });
+              setLocalities([]); setPostalSearched(false); setError("");
+            }}
+            required
+          />
+        </div>
+        <button className="button secondary" type="button" onClick={() => void postalLookup()}>Buscar localidad</button>
+      </div>
+      {localities.length > 0 ? <>
+        <label htmlFor="locality">Localidad y provincia</label>
+        <select id="locality" value={`${values.locality}|${values.province}`} onChange={(event) => {
+          const [locality, province] = event.target.value.split("|");
+          const row = localities.find((item) => item.locality === locality && item.province === province);
+          setValues({ ...values, locality, province, cpa: row?.cpa ?? "" });
+        }}>
+          {localities.map((row) => <option key={`${row.locality}-${row.province}`} value={`${row.locality}|${row.province}`}>{row.locality}, {row.province}</option>)}
+        </select>
+      </> : postalSearched && <div className="field-pair">
+        <div>
+          <label htmlFor="manual-locality">Localidad</label>
+          <input id="manual-locality" autoComplete="address-level2" value={values.locality} onChange={(event) => setValues({ ...values, locality: event.target.value })} required />
+        </div>
+        <div>
+          <label htmlFor="manual-province">Provincia</label>
+          <input id="manual-province" autoComplete="address-level1" value={values.province} onChange={(event) => setValues({ ...values, province: event.target.value })} required />
+        </div>
+      </div>}
+      <div className="field-pair">
+        <div><label htmlFor="street">Calle</label><input id="street" value={values.street} onChange={(event) => setValues({ ...values, street: event.target.value })} required /></div>
+        <div><label htmlFor="number">Número</label><input id="number" inputMode="numeric" value={values.number} onChange={(event) => setValues({ ...values, number: event.target.value })} required /></div>
+      </div>
+      <div className="field-pair">
+        <div><label htmlFor="floor">Piso (opcional)</label><input id="floor" value={values.floor} onChange={(event) => setValues({ ...values, floor: event.target.value })} /></div>
+        <div><label htmlFor="apartment">Departamento o unidad (opcional)</label><input id="apartment" autoComplete="address-line2" value={values.apartment} onChange={(event) => setValues({ ...values, apartment: event.target.value })} /></div>
+      </div>
+      <label htmlFor="notes">Notas para la entrega</label>
+      <textarea id="notes" value={values.notes} onChange={(event) => setValues({ ...values, notes: event.target.value })} />
+      <button className="button primary" disabled={busy || !canSave}>{busy ? "Guardando…" : "Guardar y ubicar"}</button>
+    </form>
     {error && <p className="inline-error" role="alert">{error}</p>}{message && <p ref={messageRef} tabIndex={-1} className="success-message" role="status">{message}</p>}
     {current && point && <section className="map-confirmation" aria-labelledby="map-confirmation-title"><div><h2 id="map-confirmation-title">Confirmá el punto de entrega</h2><p><strong>Dirección escrita:</strong> {writtenAddress}</p>{reverseAddress && <p><strong>Dirección encontrada:</strong> {reverseAddress}</p>}</div><AddressMap configuration={mapConfiguration} latitude={point.latitude} longitude={point.longitude} onMove={(latitude, longitude) => { setPoint({ latitude, longitude }); setLatitudeInput(String(latitude)); setLongitudeInput(String(longitude)); setReverseAddress(""); }} /><details className="coordinate-editor"><summary>Ajustar manualmente (opcional)</summary><div className="field-pair"><div><label htmlFor="latitude">Ubicación norte/sur</label><input id="latitude" type="text" inputMode="decimal" value={latitudeInput} onChange={(event) => { const value = event.target.value; setLatitudeInput(value); const latitude = Number(value); if (value && Number.isFinite(latitude)) setPoint({ ...point, latitude }); }} /></div><div><label htmlFor="longitude">Ubicación este/oeste</label><input id="longitude" type="text" inputMode="decimal" value={longitudeInput} onChange={(event) => { const value = event.target.value; setLongitudeInput(value); const longitude = Number(value); if (value && Number.isFinite(longitude)) setPoint({ ...point, longitude }); }} /></div></div></details>{current.needs_review ? far && !reverseAddress ? <div className="map-warning"><strong>El punto quedó lejos de la dirección escrita.</strong><p>Buscá la dirección de ese punto y después elegí cuál conservar.</p><button className="button primary" disabled={busy} onClick={() => void reverse()}>Buscar dirección del punto</button></div> : reverseAddress ? <div className="confirmation-choices"><button className="button secondary" disabled={busy} onClick={() => void confirm("written")}>Usar dirección escrita</button><button className="button primary" disabled={busy} onClick={() => void confirm("reverse")}>Usar dirección encontrada</button></div> : <div className="inline-notice"><p>El punto coincide con la dirección. Confirmalo para continuar.</p><button className="button primary" disabled={busy} onClick={() => void confirm("written")}>Confirmar esta dirección</button></div> : <p className="success-message">Esta dirección ya está confirmada{current.reviewed_at ? ` desde el ${new Date(current.reviewed_at).toLocaleString("es-AR")}` : ""}.</p>}</section>}
   </div>;

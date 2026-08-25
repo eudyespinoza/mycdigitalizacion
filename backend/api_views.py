@@ -136,7 +136,7 @@ from landing.serializers import (
 )
 from locations.map_config import resolve_map_configuration
 from locations.models import Address
-from locations.providers import GeoRefAdapter
+from locations.providers import AndreaniLocalitiesAdapter, GeoRefAdapter
 from locations.serializers import (
     AddressConfirmRequestSerializer,
     AddressSerializer,
@@ -151,7 +151,9 @@ from locations.services import (
     confirm_address,
     geocode_address,
     lookup_localities,
+    postal_code_cp4,
     reverse_geocode_pin,
+    sync_localities,
 )
 from providers import ProviderError
 
@@ -1329,13 +1331,20 @@ class PostalLookupView(generics.GenericAPIView):
         query = self.get_serializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         try:
-            rows = lookup_localities(query.validated_data["postal_code"])
+            postal_code = query.validated_data["postal_code"]
+            rows = lookup_localities(postal_code)
         except ValueError as exc:
             raise DomainError(
                 code="invalid_postal_code",
                 detail="Ingresá un código postal CP4 o CPA8 válido.",
                 status_code=status.HTTP_400_BAD_REQUEST,
             ) from exc
+        if not rows:
+            try:
+                sync_localities(adapter=AndreaniLocalitiesAdapter(), postal_code=postal_code)
+            except ProviderError as exc:
+                raise provider_domain_error(exc) from exc
+            rows = lookup_localities(postal_code_cp4(postal_code))
         return Response(PostalLocalitySerializer(rows, many=True).data)
 
 

@@ -377,6 +377,40 @@ def test_andreani_sync_maps_cp_and_cpa_without_exposing_full_dataset():
 
 
 @pytest.mark.django_db
+def test_andreani_sync_accepts_current_postal_code_list_schema():
+    from locations.providers import AndreaniLocalitiesAdapter
+    from locations.services import lookup_localities, sync_localities
+
+    adapter = AndreaniLocalitiesAdapter(
+        transport=OneResponseTransport(
+            200,
+            [
+                {
+                    "idDeProvLocalidad": "0",
+                    "localidad": "PARANA",
+                    "partido": "",
+                    "provincia": "ENTRE RIOS",
+                    "codigosPostales": ["3100"],
+                },
+                {
+                    "idDeProvLocalidad": "0",
+                    "localidad": "ORO VERDE",
+                    "partido": "",
+                    "provincia": "ENTRE RIOS",
+                    "codigosPostales": ["3100"],
+                },
+            ],
+        )
+    )
+
+    assert sync_localities(adapter=adapter, postal_code="3100") == 2
+    assert [(row.locality, row.province) for row in lookup_localities("3100")] == [
+        ("ORO VERDE", "ENTRE RIOS"),
+        ("PARANA", "ENTRE RIOS"),
+    ]
+
+
+@pytest.mark.django_db
 def test_refund_restores_stock_before_fulfillment_but_requires_return_after_shipment(
     django_user_model,
 ):

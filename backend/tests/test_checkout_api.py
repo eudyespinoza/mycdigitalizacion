@@ -44,6 +44,41 @@ def test_postal_lookup_returns_only_matching_cached_rows(client):
 
 
 @pytest.mark.django_db
+def test_postal_lookup_populates_missing_postal_code_from_andreani(client, monkeypatch):
+    from locations.providers import LocalityResult
+
+    class MissingPostalCodeAdapter:
+        def fetch_localities(self, *, postal_code=None):
+            assert postal_code == "3100"
+            return [
+                LocalityResult(
+                    provider_id="andreani-parana-3100",
+                    postal_code="3100",
+                    cpa="",
+                    locality="PARANA",
+                    province="ENTRE RIOS",
+                    summary={"provider_id": "0"},
+                )
+            ]
+
+    monkeypatch.setattr(
+        "api_views.AndreaniLocalitiesAdapter", lambda: MissingPostalCodeAdapter()
+    )
+
+    response = client.get("/api/v1/locations/postal-lookup/?postal_code=3100")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "postal_code": "3100",
+            "cpa": "",
+            "locality": "PARANA",
+            "province": "ENTRE RIOS",
+        }
+    ]
+
+
+@pytest.mark.django_db
 @override_settings(SID_MODE="disabled")
 def test_checkout_api_skips_identity_review_when_sid_disabled(
     client, django_user_model, monkeypatch

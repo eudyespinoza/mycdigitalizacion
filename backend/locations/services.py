@@ -37,21 +37,36 @@ def is_within_distance(lat1, lon1, lat2, lon2, maximum_meters=150) -> bool:
 
 
 @transaction.atomic
-def sync_localities(*, adapter):
-    rows = adapter.fetch_localities()
+def sync_localities(*, adapter, postal_code=None):
+    provider_postal_code = postal_code_cp4(postal_code) if postal_code else None
+    rows = adapter.fetch_localities(postal_code=provider_postal_code)
     now = timezone.now()
-    for row in rows:
-        PostalLocality.objects.update_or_create(
+    records = [
+        PostalLocality(
             provider_id=row.provider_id,
-            defaults={
-                "postal_code": row.postal_code,
-                "cpa": row.cpa,
-                "locality": row.locality,
-                "province": row.province,
-                "provider_summary": row.summary,
-                "synced_at": now,
-            },
+            postal_code=row.postal_code,
+            cpa=row.cpa,
+            locality=row.locality,
+            province=row.province,
+            provider_summary=row.summary,
+            synced_at=now,
         )
+        for row in rows
+    ]
+    PostalLocality.objects.bulk_create(
+        records,
+        batch_size=1000,
+        update_conflicts=True,
+        unique_fields=("provider_id",),
+        update_fields=(
+            "postal_code",
+            "cpa",
+            "locality",
+            "province",
+            "provider_summary",
+            "synced_at",
+        ),
+    )
     return len(rows)
 
 
