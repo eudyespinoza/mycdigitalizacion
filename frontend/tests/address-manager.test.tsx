@@ -63,15 +63,30 @@ describe("AddressManager", () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
+  test("keeps the new address form hidden until the customer requests it", async () => {
+    render(<AddressManager />);
+
+    expect(screen.queryByLabelText("CP o CPA")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Agregar dirección" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Agregar dirección" });
+    expect(within(dialog).getByLabelText("CP o CPA")).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "Guardar y ubicar" })).toBeDisabled();
+  });
+
   test("an unknown postal code keeps locality visible and blocks an incomplete address", async () => {
     render(<AddressManager />);
 
-    fireEvent.change(screen.getByLabelText("CP o CPA"), { target: { value: "3100" } });
-    fireEvent.click(screen.getByRole("button", { name: "Buscar localidad" }));
+    fireEvent.click(screen.getByRole("button", { name: "Agregar dirección" }));
+    const dialog = screen.getByRole("dialog", { name: "Agregar dirección" });
 
-    expect(await screen.findByLabelText("Localidad")).toBeVisible();
-    expect(screen.getByLabelText("Provincia")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Guardar y ubicar" })).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText("CP o CPA"), { target: { value: "3100" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Buscar localidad" }));
+
+    expect(await within(dialog).findByLabelText("Localidad")).toBeVisible();
+    expect(within(dialog).getByLabelText("Provincia")).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "Guardar y ubicar" })).toBeDisabled();
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
         "No encontramos localidades para ese código postal",
@@ -205,6 +220,7 @@ describe("AddressManager", () => {
     fireEvent.click(within(confirmation).getByRole("button", { name: "Eliminar dirección" }));
 
     await waitFor(() => expect(screen.queryByText("1 de mayo 2168, PARANA, ENTRE RIOS")).not.toBeInTheDocument());
-    expect(screen.getByText("No hay direcciones guardadas.")).toBeVisible();
+    expect(screen.getByText("Todavía no guardaste direcciones.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Agregar dirección" })).toBeEnabled();
   });
 });

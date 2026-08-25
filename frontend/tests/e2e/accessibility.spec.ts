@@ -34,7 +34,13 @@ test("checkout and textual address path have no serious or critical axe violatio
   await expectNoSeriousOrCriticalViolations(page, "checkout account step");
 
   await page.goto("/cuenta/direcciones");
-  await page.getByRole("button", { name: /Casa Av\. Corrientes/ }).click();
+  await page.getByRole("button", { name: "Agregar dirección" }).click();
+  const dialog = page.getByRole("dialog", { name: "Agregar dirección" });
+  await dialog.getByLabel("CP o CPA").fill("1043");
+  await dialog.getByRole("button", { name: "Buscar localidad" }).click();
+  await dialog.getByLabel("Calle").fill("Av. Corrientes");
+  await dialog.getByLabel("Número").fill("1234");
+  await dialog.getByRole("button", { name: "Guardar y ubicar" }).click();
   await expect(page.getByRole("group", { name: "Alternativa por texto y teclado" })).toBeVisible();
   await expectNoSeriousOrCriticalViolations(page, "textual address confirmation");
 });

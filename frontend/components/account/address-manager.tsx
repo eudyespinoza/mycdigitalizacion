@@ -1,6 +1,6 @@
 "use client";
 
-import { PencilSimple, Trash } from "@phosphor-icons/react";
+import { PencilSimple, Plus, Trash } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { ManagementFormDialog } from "@/components/ui/management-form-dialog";
@@ -30,6 +30,7 @@ export function AddressManager() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [mapConfiguration, setMapConfiguration] = useState<MapConfiguration>();
+  const [creatingAddress, setCreatingAddress] = useState(false);
   const [editingAddress, setEditingAddress] = useState<Address | null>(null);
   const [editValues, setEditValues] = useState(empty);
   const [deletingAddress, setDeletingAddress] = useState<Address | null>(null);
@@ -76,6 +77,10 @@ export function AddressManager() {
         ? "No encontramos la altura exacta. Mové el punto del mapa hasta la dirección y confirmalo."
         : "Dirección guardada. Confirmá el punto sugerido antes de usarla.");
       await load();
+      setCreatingAddress(false);
+      setValues(empty);
+      setLocalities([]);
+      setPostalSearched(false);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "No pudimos guardar o ubicar la dirección."); }
     finally { setBusy(false); }
   };
@@ -161,58 +166,68 @@ export function AddressManager() {
   const canSave = Boolean(values.postal_code.trim() && values.locality.trim() && values.province.trim() && values.street.trim() && values.number.trim());
 
   return <div className="address-layout">
-    <section><h2>Direcciones guardadas</h2>{addresses.length ? addresses.map((address) => <article className="address-card" key={address.id}><button type="button" className="address-row" onClick={() => selectAddress(address)}><strong>{address.label}</strong><span>{address.raw_address}</span><small>{address.needs_review ? "Requiere confirmación" : "Confirmada"}</small></button><div className="address-row-actions"><button aria-label={`Editar dirección ${address.label}`} type="button" onClick={() => openEdit(address)}><PencilSimple aria-hidden="true" size={17} weight="bold" />Editar</button><button aria-label={`Eliminar dirección ${address.label}`} type="button" onClick={() => { setError(""); setDeletingAddress(address); }}><Trash aria-hidden="true" size={17} weight="bold" />Eliminar</button></div></article>) : <p>No hay direcciones guardadas.</p>}</section>
-    <form className="form-stack address-form" onSubmit={(event) => void save(event)}>
-      <h2>Nueva dirección</h2>
-      <div className="postal-row">
+    <section className="address-book" aria-labelledby="saved-addresses-title">
+      <div className="address-section-heading">
         <div>
-          <label htmlFor="postal">CP o CPA</label>
-          <input
-            id="postal"
-            autoComplete="postal-code"
-            value={values.postal_code}
-            onChange={(event) => {
-              setValues({ ...values, postal_code: event.target.value.toUpperCase(), cpa: "", locality: "", province: "" });
-              setLocalities([]); setPostalSearched(false); setError("");
-            }}
-            required
-          />
+          <h2 id="saved-addresses-title">Mis direcciones</h2>
+          <p>{addresses.length ? `${addresses.length} ${addresses.length === 1 ? "dirección guardada" : "direcciones guardadas"}` : "Guardá una dirección para agilizar tus compras."}</p>
         </div>
-        <button className="button secondary" type="button" onClick={() => void postalLookup()}>Buscar localidad</button>
+        <button className="button primary address-add-button" type="button" onClick={() => { setError(""); setMessage(""); setCreatingAddress(true); }}>
+          <Plus aria-hidden="true" size={18} weight="bold" />
+          Agregar dirección
+        </button>
       </div>
-      {localities.length > 0 ? <>
-        <label htmlFor="locality">Localidad y provincia</label>
-        <select id="locality" value={`${values.locality}|${values.province}`} onChange={(event) => {
-          const [locality, province] = event.target.value.split("|");
-          const row = localities.find((item) => item.locality === locality && item.province === province);
-          setValues({ ...values, locality, province, cpa: row?.cpa ?? "" });
-        }}>
-          {localities.map((row) => <option key={`${row.locality}-${row.province}`} value={`${row.locality}|${row.province}`}>{row.locality}, {row.province}</option>)}
-        </select>
-      </> : postalSearched && <div className="field-pair">
-        <div>
-          <label htmlFor="manual-locality">Localidad</label>
-          <input id="manual-locality" autoComplete="address-level2" value={values.locality} onChange={(event) => setValues({ ...values, locality: event.target.value })} required />
+      {addresses.length ? <div className="address-list">{addresses.map((address) => <article className={`address-card${current?.id === address.id ? " is-selected" : ""}`} key={address.id}>
+        <button aria-current={current?.id === address.id ? "true" : undefined} type="button" className="address-row" onClick={() => selectAddress(address)}>
+          <span className="address-row-copy"><strong>{address.label}</strong><span>{address.raw_address}</span></span>
+          <small className={address.needs_review ? "is-pending" : "is-confirmed"}>{address.needs_review ? "Requiere confirmación" : "Confirmada"}</small>
+        </button>
+        <div className="address-row-actions">
+          <button aria-label={`Editar dirección ${address.label}`} type="button" onClick={() => openEdit(address)}><PencilSimple aria-hidden="true" size={17} weight="bold" />Editar</button>
+          <button aria-label={`Eliminar dirección ${address.label}`} type="button" onClick={() => { setError(""); setDeletingAddress(address); }}><Trash aria-hidden="true" size={17} weight="bold" />Eliminar</button>
         </div>
-        <div>
-          <label htmlFor="manual-province">Provincia</label>
-          <input id="manual-province" autoComplete="address-level1" value={values.province} onChange={(event) => setValues({ ...values, province: event.target.value })} required />
+      </article>)}</div> : <div className="address-empty"><strong>Todavía no guardaste direcciones.</strong><span>Agregá la primera cuando la necesites.</span></div>}
+    </section>
+    {error && !creatingAddress && !editingAddress && !deletingAddress && <p className="inline-error address-feedback" role="alert">{error}</p>}
+    {message && <p ref={messageRef} tabIndex={-1} className="success-message address-feedback" role="status">{message}</p>}
+    {current && point && current.needs_review && <section className="map-confirmation" aria-labelledby="map-confirmation-title">
+      <div className="map-confirmation-heading"><div><h2 id="map-confirmation-title">Confirmá el punto de entrega</h2><p><strong>Dirección escrita:</strong> {writtenAddress}</p>{reverseAddress && <p><strong>Dirección encontrada:</strong> {reverseAddress}</p>}</div></div>
+      <AddressMap configuration={mapConfiguration} latitude={point.latitude} longitude={point.longitude} onMove={(latitude, longitude) => { setPoint({ latitude, longitude }); setLatitudeInput(String(latitude)); setLongitudeInput(String(longitude)); setReverseAddress(""); }} />
+      <details className="coordinate-editor"><summary>Ajustar manualmente (opcional)</summary><div className="field-pair"><div><label htmlFor="latitude">Ubicación norte/sur</label><input id="latitude" type="text" inputMode="decimal" value={latitudeInput} onChange={(event) => { const value = event.target.value; setLatitudeInput(value); const latitude = Number(value); if (value && Number.isFinite(latitude)) setPoint({ ...point, latitude }); }} /></div><div><label htmlFor="longitude">Ubicación este/oeste</label><input id="longitude" type="text" inputMode="decimal" value={longitudeInput} onChange={(event) => { const value = event.target.value; setLongitudeInput(value); const longitude = Number(value); if (value && Number.isFinite(longitude)) setPoint({ ...point, longitude }); }} /></div></div></details>
+      {far && !reverseAddress ? <div className="map-warning"><strong>El punto quedó lejos de la dirección escrita.</strong><p>Buscá la dirección de ese punto y después elegí cuál conservar.</p><button className="button primary" disabled={busy} onClick={() => void reverse()}>Buscar dirección del punto</button></div> : reverseAddress ? <div className="confirmation-choices"><button className="button secondary" disabled={busy} onClick={() => void confirm("written")}>Usar dirección escrita</button><button className="button primary" disabled={busy} onClick={() => void confirm("reverse")}>Usar dirección encontrada</button></div> : localityCenter ? <div className="map-warning"><h3>No encontramos la altura exacta</h3><p>El pin marca por ahora el centro de {current.locality}. Movelo hasta la entrada correcta para continuar.</p></div> : <div className="inline-notice"><p>El punto coincide con la dirección. Confirmalo para continuar.</p><button className="button primary" disabled={busy} onClick={() => void confirm("written")}>Confirmar esta dirección</button></div>}
+    </section>}
+    <ManagementFormDialog description="Completá los datos y ubicaremos el punto de entrega en el mapa." onClose={() => { if (!busy) { setCreatingAddress(false); setValues(empty); setLocalities([]); setPostalSearched(false); setError(""); } }} open={creatingAddress} size="wide" title="Agregar dirección">
+      <form className="form-stack address-form" onSubmit={(event) => void save(event)}>
+        <div className="postal-row">
+          <div>
+            <label htmlFor="postal">CP o CPA</label>
+            <input id="postal" autoComplete="postal-code" value={values.postal_code} onChange={(event) => { setValues({ ...values, postal_code: event.target.value.toUpperCase(), cpa: "", locality: "", province: "" }); setLocalities([]); setPostalSearched(false); setError(""); }} required />
+          </div>
+          <button className="button secondary" type="button" onClick={() => void postalLookup()}>Buscar localidad</button>
         </div>
-      </div>}
-      <div className="field-pair">
-        <div><label htmlFor="street">Calle</label><input id="street" value={values.street} onChange={(event) => setValues({ ...values, street: event.target.value })} required /></div>
-        <div><label htmlFor="number">Número</label><input id="number" inputMode="numeric" value={values.number} onChange={(event) => setValues({ ...values, number: event.target.value })} required /></div>
-      </div>
-      <div className="field-pair">
-        <div><label htmlFor="floor">Piso (opcional)</label><input id="floor" value={values.floor} onChange={(event) => setValues({ ...values, floor: event.target.value })} /></div>
-        <div><label htmlFor="apartment">Departamento o unidad (opcional)</label><input id="apartment" autoComplete="address-line2" value={values.apartment} onChange={(event) => setValues({ ...values, apartment: event.target.value })} /></div>
-      </div>
-      <label htmlFor="notes">Notas para la entrega</label>
-      <textarea id="notes" value={values.notes} onChange={(event) => setValues({ ...values, notes: event.target.value })} />
-      <button className="button primary" disabled={busy || !canSave}>{busy ? "Guardando…" : "Guardar y ubicar"}</button>
-    </form>
-    {error && !editingAddress && !deletingAddress && <p className="inline-error" role="alert">{error}</p>}{message && <p ref={messageRef} tabIndex={-1} className="success-message" role="status">{message}</p>}
-    {current && point && <section className="map-confirmation" aria-labelledby="map-confirmation-title"><div><h2 id="map-confirmation-title">Confirmá el punto de entrega</h2><p><strong>Dirección escrita:</strong> {writtenAddress}</p>{reverseAddress && <p><strong>Dirección encontrada:</strong> {reverseAddress}</p>}</div><AddressMap configuration={mapConfiguration} latitude={point.latitude} longitude={point.longitude} onMove={(latitude, longitude) => { setPoint({ latitude, longitude }); setLatitudeInput(String(latitude)); setLongitudeInput(String(longitude)); setReverseAddress(""); }} /><details className="coordinate-editor"><summary>Ajustar manualmente (opcional)</summary><div className="field-pair"><div><label htmlFor="latitude">Ubicación norte/sur</label><input id="latitude" type="text" inputMode="decimal" value={latitudeInput} onChange={(event) => { const value = event.target.value; setLatitudeInput(value); const latitude = Number(value); if (value && Number.isFinite(latitude)) setPoint({ ...point, latitude }); }} /></div><div><label htmlFor="longitude">Ubicación este/oeste</label><input id="longitude" type="text" inputMode="decimal" value={longitudeInput} onChange={(event) => { const value = event.target.value; setLongitudeInput(value); const longitude = Number(value); if (value && Number.isFinite(longitude)) setPoint({ ...point, longitude }); }} /></div></div></details>{current.needs_review ? far && !reverseAddress ? <div className="map-warning"><strong>El punto quedó lejos de la dirección escrita.</strong><p>Buscá la dirección de ese punto y después elegí cuál conservar.</p><button className="button primary" disabled={busy} onClick={() => void reverse()}>Buscar dirección del punto</button></div> : reverseAddress ? <div className="confirmation-choices"><button className="button secondary" disabled={busy} onClick={() => void confirm("written")}>Usar dirección escrita</button><button className="button primary" disabled={busy} onClick={() => void confirm("reverse")}>Usar dirección encontrada</button></div> : localityCenter ? <div className="map-warning"><h3>No encontramos la altura exacta</h3><p>El pin marca por ahora el centro de {current.locality}. Movelo hasta la entrada correcta para continuar.</p></div> : <div className="inline-notice"><p>El punto coincide con la dirección. Confirmalo para continuar.</p><button className="button primary" disabled={busy} onClick={() => void confirm("written")}>Confirmar esta dirección</button></div> : <p className="success-message">Esta dirección ya está confirmada{current.reviewed_at ? ` desde el ${new Date(current.reviewed_at).toLocaleString("es-AR")}` : ""}.</p>}</section>}
+        {localities.length > 0 ? <>
+          <label htmlFor="locality">Localidad y provincia</label>
+          <select id="locality" value={`${values.locality}|${values.province}`} onChange={(event) => { const [locality, province] = event.target.value.split("|"); const row = localities.find((item) => item.locality === locality && item.province === province); setValues({ ...values, locality, province, cpa: row?.cpa ?? "" }); }}>
+            {localities.map((row) => <option key={`${row.locality}-${row.province}`} value={`${row.locality}|${row.province}`}>{row.locality}, {row.province}</option>)}
+          </select>
+        </> : postalSearched && <div className="field-pair">
+          <div><label htmlFor="manual-locality">Localidad</label><input id="manual-locality" autoComplete="address-level2" value={values.locality} onChange={(event) => setValues({ ...values, locality: event.target.value })} required /></div>
+          <div><label htmlFor="manual-province">Provincia</label><input id="manual-province" autoComplete="address-level1" value={values.province} onChange={(event) => setValues({ ...values, province: event.target.value })} required /></div>
+        </div>}
+        <div className="field-pair">
+          <div><label htmlFor="street">Calle</label><input id="street" value={values.street} onChange={(event) => setValues({ ...values, street: event.target.value })} required /></div>
+          <div><label htmlFor="number">Número</label><input id="number" inputMode="numeric" value={values.number} onChange={(event) => setValues({ ...values, number: event.target.value })} required /></div>
+        </div>
+        <div className="field-pair">
+          <div><label htmlFor="floor">Piso (opcional)</label><input id="floor" value={values.floor} onChange={(event) => setValues({ ...values, floor: event.target.value })} /></div>
+          <div><label htmlFor="apartment">Departamento o unidad (opcional)</label><input id="apartment" autoComplete="address-line2" value={values.apartment} onChange={(event) => setValues({ ...values, apartment: event.target.value })} /></div>
+        </div>
+        <label htmlFor="notes">Notas para la entrega</label>
+        <textarea id="notes" value={values.notes} onChange={(event) => setValues({ ...values, notes: event.target.value })} />
+        {error && <p className="inline-error" role="alert">{error}</p>}
+        <div className="management-form-actions"><button className="button primary" disabled={busy || !canSave} type="submit">{busy ? "Guardando…" : "Guardar y ubicar"}</button><button className="button secondary" disabled={busy} onClick={() => { setCreatingAddress(false); setValues(empty); setLocalities([]); setPostalSearched(false); setError(""); }} type="button">Cancelar</button></div>
+      </form>
+    </ManagementFormDialog>
     <ManagementFormDialog description="Corregí los datos y volveremos a ubicar la dirección en el mapa." onClose={() => { if (!busy) setEditingAddress(null); }} open={Boolean(editingAddress)} size="wide" title="Editar dirección">
       <form className="form-stack" onSubmit={(event) => void updateAddress(event)}>
         <div className="field-pair"><div><label htmlFor="edit-label">Nombre de la dirección</label><input id="edit-label" value={editValues.label} onChange={(event) => setEditValues({ ...editValues, label: event.target.value })} required /></div><div><label htmlFor="edit-postal">CP o CPA</label><input id="edit-postal" autoComplete="postal-code" value={editValues.postal_code} onChange={(event) => setEditValues({ ...editValues, postal_code: event.target.value.toUpperCase() })} required /></div></div>

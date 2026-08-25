@@ -386,25 +386,54 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .split-form { display: grid; grid-template-columns: 1fr 1fr; gap: 52px; }
 .fiscal-row { display: flex; flex-direction: column; gap: 5px; padding: 18px 0; border-bottom: 1px solid var(--line); }
 .fiscal-row b { width: fit-content; color: var(--success); font-size: .85rem; }
-.address-layout { display: grid; grid-template-columns: .8fr 1.2fr; gap: 30px; }
-.address-card { margin-bottom: 10px; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-cold); }
-.address-row { width: 100%; min-height: 74px; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 16px; border: 0; background: transparent; text-align: left; cursor: pointer; }
-.address-row small { color: var(--muted); }
-.address-row-actions { display: flex; gap: 6px; padding: 0 10px 10px; }
-.address-row-actions button { min-height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 0; border-radius: 9px; background: transparent; color: var(--blue); font: inherit; font-size: .88rem; font-weight: 750; cursor: pointer; }
-.address-row-actions button:hover { background: var(--surface); }
+.address-page-title { margin-bottom: 20px; }
+.address-page-title h1 { max-width: none; font-size: clamp(2rem, 3.5vw, 3rem); }
+.address-page-title p { max-width: 62ch; margin-top: 6px; }
+.address-layout { display: grid; gap: 16px; }
+.address-section-heading { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 12px; }
+.address-section-heading h2 { margin: 0; font-size: 1.3rem; }
+.address-section-heading p { margin: 3px 0 0; color: var(--muted); font-size: .9rem; }
+.address-add-button { min-height: 42px; display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; padding: 9px 17px; }
+.address-list { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-elevated); }
+.address-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; border-bottom: 1px solid var(--line); background: var(--surface-elevated); transition: background-color 180ms var(--ease-out); }
+.address-card:last-child { border-bottom: 0; }
+.address-card.is-selected { background: var(--surface-cyan); }
+.address-row { width: 100%; min-width: 0; min-height: 62px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 10px 14px; border: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.address-row-copy { min-width: 0; display: grid; gap: 2px; }
+.address-row-copy strong, .address-row-copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.address-row-copy > span { color: var(--muted); font-size: .9rem; }
+.address-row small { padding: 4px 9px; border-radius: 999px; font-size: .76rem; font-weight: 850; white-space: nowrap; }
+.address-row small.is-pending { background: #fff3f7; color: var(--danger); }
+.address-row small.is-confirmed { background: var(--surface-cyan); color: var(--success); }
+.address-row-actions { display: flex; align-items: center; gap: 2px; padding: 8px 10px; border-left: 1px solid var(--line); }
+.address-row-actions button { min-height: 40px; display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 0; border-radius: 9px; background: transparent; color: var(--blue); font: inherit; font-size: .84rem; font-weight: 800; cursor: pointer; }
+.address-row-actions button:hover { background: var(--surface-cold); }
 .address-row-actions button:last-child { color: var(--danger); }
+.address-empty { display: grid; gap: 2px; padding: 18px; border: 1px dashed var(--line); border-radius: 14px; color: var(--muted); }
+.address-empty strong { color: var(--ink); }
+.address-feedback { margin: 0; }
 .postal-row { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 12px; }
 .field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.map-confirmation { grid-column: 1 / -1; margin-top: 30px; }
-.address-map, .map-loading { height: 430px; margin: 20px 0; border-radius: 16px; overflow: hidden; }
+.management-form-dialog-body .address-form { padding: 0; background: transparent; }
+.management-form-dialog-body .address-form label { margin-top: 11px; margin-bottom: 5px; }
+.management-form-dialog-body .address-form textarea { min-height: 82px; }
+.management-form-dialog-body .address-form .management-form-actions { margin-top: 16px; }
+.map-confirmation { margin-top: 4px; padding-top: 18px; border-top: 1px solid var(--line); }
+.map-confirmation-heading h2 { margin: 0; font-size: 1.3rem; }
+.map-confirmation-heading p { margin: 4px 0 0; color: var(--muted); }
+.map-confirmation-heading strong { color: var(--ink); }
+.address-map, .map-loading { height: 300px; margin: 12px 0; border-radius: 14px; overflow: hidden; }
 .map-loading { display: grid; place-items: center; background: var(--surface-cold); }
-.map-provider-notice { margin: 20px 0 -8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-cold); color: var(--muted); }
+.map-provider-notice { margin: 12px 0 -4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-cold); color: var(--muted); }
 .myc-map-pin { border: 4px solid white; border-radius: 50%; background: var(--magenta); box-shadow: 0 5px 18px rgba(2,5,48,.28); }
 .myc-map-pin span { display: block; width: 100%; height: 100%; border: 3px solid var(--ink); border-radius: inherit; }
 .coordinates { font-variant-numeric: tabular-nums; color: var(--blue); }
-.map-warning { padding: 22px; border-radius: 12px; background: #fff3f7; }
-.confirmation-choices { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+.map-confirmation .coordinate-editor { margin-top: 12px; }
+.map-warning { margin-top: 12px; padding: 14px; border-radius: 12px; background: #fff3f7; }
+.map-warning p { margin: 4px 0 12px; }
+.confirmation-choices { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.map-confirmation .inline-notice { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; padding: 12px 14px; }
+.map-confirmation .inline-notice p { margin: 0; }
 .order-detail { display: grid; grid-template-columns: 1fr 360px; gap: 34px; }
 .order-status { grid-column: 1 / -1; padding: 30px; border-radius: 16px; background: var(--ink); color: white; }
 .order-status span { color: #8feafa; }
@@ -541,7 +570,7 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
   .field-pair { grid-template-columns: 1fr; gap: 0; }
   .price-filter .field-pair { grid-template-columns: 1fr 1fr; gap: 12px; }
   .map-confirmation { grid-column: auto; }
-  .address-map, .map-loading { height: 350px; }
+  .address-map, .map-loading { height: 300px; }
   .order-status { grid-column: auto; }
   .order-item { grid-template-columns: 1fr auto; }
   .order-item > strong { grid-column: 1 / -1; text-align: left; }
@@ -737,6 +766,19 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
   .checkout-stepper li { font-size: .62rem; }
   .checkout-stepper li span { width: 28px; height: 28px; }
   .form-stack { padding: 20px; }
+  .address-page-title { margin-bottom: 16px; }
+  .address-section-heading { align-items: stretch; flex-direction: column; gap: 10px; }
+  .address-add-button { width: 100%; justify-content: center; }
+  .address-card { grid-template-columns: 1fr; }
+  .address-row { grid-template-columns: 1fr; gap: 7px; padding: 11px 12px; }
+  .address-row small { width: fit-content; }
+  .address-row-actions { justify-content: flex-end; padding: 4px 8px 8px; border-top: 1px solid var(--line); border-left: 0; }
+  .address-row-actions button { flex: 1; justify-content: center; }
+  .address-form .postal-row { grid-template-columns: 1fr; align-items: stretch; gap: 10px; }
+  .address-form .postal-row .button { width: 100%; }
+  .address-map, .map-loading { height: 260px; }
+  .map-confirmation .inline-notice { align-items: stretch; flex-direction: column; }
+  .map-confirmation .inline-notice .button { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
