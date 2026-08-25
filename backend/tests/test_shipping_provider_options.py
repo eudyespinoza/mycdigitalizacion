@@ -338,6 +338,19 @@ def test_manual_shipping_waits_for_admin_cost_then_resumes_one_combined_payment(
     assert resolved.shipping_amount_snapshot == Decimal("2500.00")
     assert resolved.total_snapshot == Decimal("14500.00")
 
+    from commerce.serializers import CartSerializer
+
+    active_checkout = CartSerializer(cart).data["active_checkout"]
+    assert active_checkout == {
+        "order_id": str(resolved.public_id),
+        "identity_status": "verified",
+        "payment_status": "not_started",
+        "shipping_cost_status": "ready",
+        "shipping_amount": "2500.00",
+        "total": "14500.00",
+        "can_resume": True,
+    }
+
     resumed = resume_checkout(
         order=resolved,
         cart=cart,

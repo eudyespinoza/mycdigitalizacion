@@ -76,7 +76,10 @@ class MercadoPagoAdapter:
         except ValueError as exc:
             raise ValueError("external_reference must be a UUID") from exc
         expires_at = now + timedelta(minutes=20)
-        return_url = f"{self.back_url_base}/checkout/payment-status/{external_reference}"
+        return_url = (
+            f"{self.back_url_base}/pedido/resultado"
+            f"?external_reference={external_reference}"
+        )
         payload = {
             "items": [
                 {

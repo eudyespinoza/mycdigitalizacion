@@ -10,6 +10,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from accounts.models import BillingProfile
 from commerce.identity_service import validate_identity
@@ -54,6 +55,41 @@ def _checkout_identifiers(*, user_id, idempotency_key):
         "external_reference": uuid.uuid5(namespace, "payment-external-reference"),
         "payment_idempotency_key": uuid.uuid5(namespace, "mercadopago-preference"),
     }
+
+
+def _payment_attempt_identifiers(*, identifiers, attempt_number):
+    if attempt_number == 1:
+        return identifiers
+    return {
+        **identifiers,
+        "external_reference": uuid.uuid5(
+            identifiers["external_reference"], f"attempt:{attempt_number}"
+        ),
+        "payment_idempotency_key": uuid.uuid5(
+            identifiers["payment_idempotency_key"], f"attempt:{attempt_number}"
+        ),
+    }
+
+
+def _preference_summary(preference):
+    expires_at = getattr(preference, "expires_at", None)
+    return {
+        "checkout_expires_at": expires_at.isoformat()
+        if hasattr(expires_at, "isoformat")
+        else ""
+    }
+
+
+def _checkout_url_is_active(payment_transaction, *, now):
+    raw_expiry = payment_transaction.provider_summary.get("checkout_expires_at")
+    expires_at = parse_datetime(str(raw_expiry or ""))
+    if expires_at is None:
+        expires_at = payment_transaction.created_at + timezone.timedelta(minutes=20)
+    return bool(
+        payment_transaction.checkout_url
+        and payment_transaction.status == payment_transaction.Status.PENDING
+        and expires_at > now
+    )
 
 
 def _fiscal_snapshot(profile):
@@ -344,7 +380,15 @@ def confirm_checkout(
             )
             payment_transaction.preference_id = preference.preference_id
             payment_transaction.checkout_url = preference.checkout_url
-            payment_transaction.save(update_fields=("preference_id", "checkout_url", "updated_at"))
+            payment_transaction.provider_summary = _preference_summary(preference)
+            payment_transaction.save(
+                update_fields=(
+                    "preference_id",
+                    "checkout_url",
+                    "provider_summary",
+                    "updated_at",
+                )
+            )
             transition_order_status(
                 order=order, field="payment_status", value=order.PaymentStatus.PENDING
             )
@@ -402,8 +446,8 @@ def resume_checkout(*, order, cart, user, payment_adapter):
                 "shipping_cost_pending",
                 "Estamos esperando confirmar el costo de envío.",
             )
-        existing = locked_order.payment_transactions.order_by("created_at").first()
-        if existing:
+        existing = locked_order.payment_transactions.order_by("-created_at", "-pk").first()
+        if existing and _checkout_url_is_active(existing, now=now):
             return CheckoutResult(locked_order, existing, existing.checkout_url)
         current_profile = (
             BillingProfile.objects.select_for_update()
@@ -472,10 +516,14 @@ def resume_checkout(*, order, cart, user, payment_adapter):
             except InsufficientStock as exc:
                 raise CheckoutError("insufficient_stock", "No hay stock suficiente") from exc
             locked_order.reservations.add(reservation)
+        attempt_identifiers = _payment_attempt_identifiers(
+            identifiers=identifiers,
+            attempt_number=locked_order.payment_transactions.count() + 1,
+        )
         payment_transaction = PaymentTransaction.objects.create(
             order=locked_order,
-            external_reference=identifiers["external_reference"],
-            idempotency_key=identifiers["payment_idempotency_key"],
+            external_reference=attempt_identifiers["external_reference"],
+            idempotency_key=attempt_identifiers["payment_idempotency_key"],
             amount=locked_order.total_snapshot,
             currency="ARS",
             expected_collector_id=getattr(payment_adapter, "collector_id", ""),
@@ -492,7 +540,15 @@ def resume_checkout(*, order, cart, user, payment_adapter):
         )
         payment_transaction.preference_id = preference.preference_id
         payment_transaction.checkout_url = preference.checkout_url
-        payment_transaction.save(update_fields=("preference_id", "checkout_url", "updated_at"))
+        payment_transaction.provider_summary = _preference_summary(preference)
+        payment_transaction.save(
+            update_fields=(
+                "preference_id",
+                "checkout_url",
+                "provider_summary",
+                "updated_at",
+            )
+        )
         transition_order_status(
             order=locked_order,
             field="payment_status",

@@ -182,6 +182,70 @@ def test_confirm_checkout_rechecks_stock_and_creates_twenty_minute_reservation(
 
 
 @pytest.mark.django_db
+def test_resume_creates_a_new_preference_after_the_previous_one_expires(
+    django_user_model,
+    monkeypatch,
+):
+    from commerce.checkout import confirm_checkout, resume_checkout
+    from commerce.mercadopago import CheckoutPreference
+    from commerce.models import Cart, CartLine, PaymentTransaction
+
+    class SequentialPreferencePayment:
+        live_mode = False
+
+        def __init__(self):
+            self.calls = 0
+
+        def create_preference(self, **kwargs):
+            self.calls += 1
+            return CheckoutPreference(
+                f"pref-{self.calls}",
+                f"https://pay.example.test/preference/{self.calls}",
+                kwargs["now"] + timezone.timedelta(minutes=20),
+            )
+
+    user = django_user_model.objects.create_user(
+        email="expired-preference@example.test",
+        email_verified_at=timezone.now(),
+    )
+    make_customer(user)
+    billing_profile = make_billing_profile(user)
+    cart = Cart.objects.create(user=user)
+    CartLine.objects.create(
+        cart=cart,
+        variant=make_variant(sku="EXPIRED-PREFERENCE", price="120.00", on_hand=4),
+        quantity=1,
+    )
+    payment = SequentialPreferencePayment()
+
+    confirmed = confirm_checkout(
+        cart=cart,
+        user=user,
+        fulfillment_method="pickup",
+        sid_adapter=ApprovedSID(),
+        payment_adapter=payment,
+        billing_profile=billing_profile,
+        consent=True,
+        idempotency_key="c953a12b-d26f-48c5-8485-cf97f00bb879",
+    )
+    first_transaction = confirmed.transaction
+    future = first_transaction.created_at + timezone.timedelta(minutes=21)
+    monkeypatch.setattr("commerce.checkout.timezone.now", lambda: future)
+
+    resumed = resume_checkout(
+        order=confirmed.order,
+        cart=cart,
+        user=user,
+        payment_adapter=payment,
+    )
+
+    assert resumed.checkout_url == "https://pay.example.test/preference/2"
+    assert resumed.transaction.pk != first_transaction.pk
+    assert resumed.transaction.external_reference != first_transaction.external_reference
+    assert PaymentTransaction.objects.filter(order=confirmed.order).count() == 2
+
+
+@pytest.mark.django_db
 def test_webhook_is_stored_before_validation_and_deduplicated(django_user_model):
     from commerce.models import PaymentWebhookEvent
     from commerce.payments import WebhookRejected, ingest_webhook

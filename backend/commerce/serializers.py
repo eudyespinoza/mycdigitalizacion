@@ -70,6 +70,16 @@ class CartLineSerializer(serializers.Serializer):
     notices = CartLineNoticeSerializer(many=True)
 
 
+class ActiveCheckoutSerializer(serializers.Serializer):
+    order_id = serializers.UUIDField()
+    identity_status = serializers.CharField()
+    payment_status = serializers.CharField()
+    shipping_cost_status = serializers.CharField()
+    shipping_amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    total = serializers.DecimalField(max_digits=12, decimal_places=2)
+    can_resume = serializers.BooleanField()
+
+
 class CartSerializer(serializers.Serializer):
     lines = serializers.SerializerMethodField()
     subtotal = serializers.SerializerMethodField()
@@ -77,6 +87,7 @@ class CartSerializer(serializers.Serializer):
     total = serializers.SerializerMethodField()
     cart_token = serializers.SerializerMethodField()
     coupon = serializers.CharField(source="coupon.code", allow_null=True, read_only=True)
+    active_checkout = serializers.SerializerMethodField()
 
     def _priced(self, cart):
         if not hasattr(self, "_priced_lines"):
@@ -149,6 +160,58 @@ class CartSerializer(serializers.Serializer):
                 }
             )
         return payload
+
+    @extend_schema_field(ActiveCheckoutSerializer(allow_null=True))
+    def get_active_checkout(self, cart):
+        if not cart.user_id:
+            return None
+        priced_lines = self._priced(cart)
+        cart_signature = {
+            priced.cart_line.variant_id: priced.cart_line.quantity for priced in priced_lines
+        }
+        if not cart_signature:
+            return None
+        subtotal = money(sum((priced.subtotal for priced in priced_lines), 0))
+        discount = money(sum((priced.discount for priced in priced_lines), 0))
+        candidates = (
+            Order.objects.filter(
+                user_id=cart.user_id,
+                payment_status__in=(
+                    Order.PaymentStatus.NOT_STARTED,
+                    Order.PaymentStatus.PENDING,
+                    Order.PaymentStatus.FAILED,
+                ),
+            )
+            .exclude(fulfillment_status=Order.FulfillmentStatus.CANCELLED)
+            .prefetch_related("items")
+            .order_by("-created_at", "-pk")[:10]
+        )
+        for order in candidates:
+            order_items = list(order.items.all())
+            if any(item.variant_id is None for item in order_items):
+                continue
+            order_signature = {item.variant_id: item.quantity for item in order_items}
+            if (
+                order_signature != cart_signature
+                or order.subtotal_snapshot != subtotal
+                or order.discount_snapshot != discount
+                or order.coupon_code_snapshot != (cart.coupon.code if cart.coupon_id else "")
+            ):
+                continue
+            return {
+                "order_id": str(order.public_id),
+                "identity_status": order.identity_status,
+                "payment_status": order.payment_status,
+                "shipping_cost_status": order.shipping_cost_status,
+                "shipping_amount": f"{order.shipping_amount_snapshot:.2f}",
+                "total": f"{order.total_snapshot:.2f}",
+                "can_resume": (
+                    order.identity_status == Order.IdentityStatus.VERIFIED
+                    and order.shipping_cost_status
+                    != Order.ShippingCostStatus.PENDING_AGREEMENT
+                ),
+            }
+        return None
 
     def _totals(self, cart):
         priced = self._priced(cart)

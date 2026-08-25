@@ -71,6 +71,10 @@ export type CartLine = {
 export type Cart = {
   lines: CartLine[]; subtotal: string; discount: string; total: string;
   cart_token: string | null; coupon: string | null;
+  active_checkout: {
+    order_id: string; identity_status: string; payment_status: string;
+    shipping_cost_status: string; shipping_amount: string; total: string; can_resume: boolean;
+  } | null;
 };
 export type Customer = {
   id: number; email: string; email_verified_at: string | null; is_staff: boolean;

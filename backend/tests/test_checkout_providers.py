@@ -361,7 +361,10 @@ def test_mercadopago_preference_is_ars_expiring_and_idempotent():
     ]
     assert payload["statement_descriptor"] == "MYCDIGITALIZA"
     assert payload["expiration_date_to"] == (now + timezone.timedelta(minutes=20)).isoformat()
-    assert all(url.startswith("https://") for url in payload["back_urls"].values())
+    assert set(payload["back_urls"].values()) == {
+        "https://shop.example.test/pedido/resultado?external_reference="
+        "8c28ebaf-3b83-47be-9ddb-ec1c054f46df"
+    }
     assert preference.preference_id == "pref-1"
 
 

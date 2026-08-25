@@ -145,4 +145,65 @@ describe("reglas públicas de stock y cantidad", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "¿Vaciar todo el carrito?" })).not.toBeInTheDocument());
     nativeConfirm.mockRestore();
   });
+
+  test.each([
+    ["el carrito lateral", <CartDrawer />],
+    ["la página del carrito", <CartPage />],
+  ])("continúa el pedido existente con el envío ya configurado en %s", (_surface, component) => {
+    cartState.current = {
+      open: true,
+      loading: false,
+      error: "",
+      setOpen: vi.fn(),
+      restoreFocus: vi.fn(),
+      setQuantity: vi.fn(),
+      remove: vi.fn(),
+      clear: vi.fn(),
+      applyCoupon: vi.fn(),
+      refresh: vi.fn(),
+      cart: {
+        cart_token: "cart-token",
+        coupon: null,
+        subtotal: "2499.00",
+        discount: "0.00",
+        total: "2499.00",
+        active_checkout: {
+          order_id: "10c0a7e6-d036-5318-b277-5ada30453bde",
+          identity_status: "verified",
+          payment_status: "pending",
+          shipping_cost_status: "ready",
+          shipping_amount: "24565.00",
+          total: "27064.00",
+          can_resume: true,
+        },
+        lines: [{
+          id: 1,
+          variant_id: 5,
+          sku: "VOLIGOMA",
+          product_name: "Adhesivo Voligoma",
+          variant_name: "Voligoma adhesivo",
+          quantity: 1,
+          unit_price: "2499.00",
+          line_subtotal: "2499.00",
+          line_discount: "0.00",
+          line_total: "2499.00",
+          availability: "available",
+          available_stock: 25,
+          stock_is_infinite: false,
+          purchase_limit: 25,
+          notices: [],
+        }],
+      },
+    };
+
+    render(component);
+
+    expect(screen.getByText("Compra en curso")).toBeVisible();
+    expect(screen.getByText(/Envío.*24\.565,00/)).toBeVisible();
+    expect(screen.getByText(/Total.*27\.064,00/)).toBeVisible();
+    expect(screen.getByRole("link", { name: "Continuar pedido" })).toHaveAttribute(
+      "href",
+      "/pedidos/10c0a7e6-d036-5318-b277-5ada30453bde",
+    );
+  });
 });

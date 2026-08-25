@@ -6,6 +6,7 @@ import { ApiError, apiRequest } from "@/lib/api";
 import { checkoutRecoveryFor } from "@/lib/checkout-recovery";
 import { formatMoney } from "@/lib/format";
 import { useCart } from "@/components/cart/cart-provider";
+import { ActiveCheckoutCard } from "@/components/cart/active-checkout-card";
 import { ShippingOptionSelector } from "@/components/checkout/shipping-option-selector";
 import type { Address, BillingProfile, CheckoutResponse, Customer, IdentityStatus, ShippingQuote, ShippingQuoteOptions, StorefrontHome } from "@/lib/types";
 
@@ -62,6 +63,10 @@ export function CheckoutFlow() {
   const pickupLabel = settings?.pickup_label?.trim() || "Retiro en tienda";
   const pickupAddress = settings?.pickup_address?.trim() || "El punto de retiro se coordinará con la tienda.";
   const pickupHours = settings?.pickup_hours?.trim() || "El horario se confirmará con tu pedido.";
+
+  if (cartContext?.cart?.active_checkout) {
+    return <div className="checkout-resume"><ActiveCheckoutCard checkout={cartContext.cart.active_checkout} /><Link className="text-button" href="/carrito">Modificar productos</Link></div>;
+  }
 
   const recover = (cause: unknown, fallback: string, currentStep: number) => {
     if (cause instanceof ApiError) {
