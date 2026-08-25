@@ -148,7 +148,7 @@ def test_andreani_uses_v2_login_v1_rates_and_normalizes_order_tracking():
 
 @pytest.mark.django_db
 def test_no_configured_carrier_creates_explicit_manual_quote(django_user_model):
-    from commerce.models import Cart, CartLine, PackageBox
+    from commerce.models import Cart, CartLine
     from commerce.shipping import create_shipping_quote_options
     from locations.models import Address
 
@@ -156,14 +156,6 @@ def test_no_configured_carrier_creates_explicit_manual_quote(django_user_model):
     cart = Cart.objects.create(user=user)
     variant = make_variant(sku="MANUAL-QUOTE", price="12000", on_hand=4)
     CartLine.objects.create(cart=cart, variant=variant, quantity=1)
-    PackageBox.objects.create(
-        code="manual-box",
-        inner_length_cm="30",
-        inner_width_cm="20",
-        inner_height_cm="10",
-        tare_weight_grams=100,
-        max_weight_grams=5000,
-    )
     address = Address.objects.create(
         user=user,
         label="Casa",
@@ -189,6 +181,7 @@ def test_no_configured_carrier_creates_explicit_manual_quote(django_user_model):
     assert options.quotes[0].service == "a_convenir"
     assert options.quotes[0].amount_pending is True
     assert options.quotes[0].total_amount == Decimal("0.00")
+    assert options.quotes[0].parcels == []
 
 
 @pytest.mark.django_db
@@ -376,7 +369,7 @@ def test_plural_shipping_quotes_api_returns_manual_option_only_when_none_configu
 ):
     from rest_framework.test import APIClient
 
-    from commerce.models import Cart, CartLine, PackageBox
+    from commerce.models import Cart, CartLine
     from locations.models import Address
 
     user = django_user_model.objects.create_user(
@@ -387,14 +380,6 @@ def test_plural_shipping_quotes_api_returns_manual_option_only_when_none_configu
         cart=cart,
         variant=make_variant(sku="OPTIONS-API", price="18000", on_hand=3),
         quantity=1,
-    )
-    PackageBox.objects.create(
-        code="options-api-box",
-        inner_length_cm="30",
-        inner_width_cm="20",
-        inner_height_cm="10",
-        tare_weight_grams=100,
-        max_weight_grams=5000,
     )
     address = Address.objects.create(
         user=user,
@@ -420,6 +405,7 @@ def test_plural_shipping_quotes_api_returns_manual_option_only_when_none_configu
     assert response.data["results"][0]["provider"] == "manual"
     assert response.data["results"][0]["provider_label"] == "Envío a acordar"
     assert response.data["results"][0]["amount_pending"] is True
+    assert response.data["results"][0]["parcels"] == []
 
 
 @pytest.mark.django_db

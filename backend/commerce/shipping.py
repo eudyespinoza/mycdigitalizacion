@@ -572,10 +572,15 @@ def create_shipping_quote(
 def _manual_shipping_quote(*, cart, user, address, checked_at):
     from django.utils import timezone
 
+    from commerce.checkout import cart_fingerprint
     from commerce.models import ShippingQuote
 
-    parcels, _, fingerprint = _packed_quote_context(
-        cart=cart, address=address, checked_at=checked_at
+    # A manual agreement does not need a carrier-ready package plan. Requiring
+    # boxes here prevents the intended fallback from existing precisely when
+    # shipping has not been configured yet.
+    parcels = []
+    fingerprint = cart_fingerprint(
+        cart, address=address, parcels=parcels, at=checked_at
     )
     cached = (
         ShippingQuote.objects.filter(
