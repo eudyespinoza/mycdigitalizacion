@@ -25,9 +25,8 @@ from commerce.mercadopago_oauth import (
     exchange_authorization_code,
     oauth_callback_url,
     store_oauth_credentials,
-    synchronize_mercadopago_public_name,
 )
-from providers import ProviderError, ProviderNotConfigured
+from providers import ProviderError
 
 
 def _management_redirect(result: str) -> str:
@@ -112,38 +111,6 @@ class MercadoPagoOAuthDisconnectView(APIView):
     )
     def post(self, request):
         configuration = disconnect_mercadopago(actor=request.user)
-        return Response(serialize_configuration("mercadopago", configuration))
-
-
-class MercadoPagoPublicNameSyncView(APIView):
-    permission_classes = (IsManagementOwner,)
-
-    @extend_schema(
-        operation_id="management_mercadopago_sync_public_name",
-        request=None,
-        responses={
-            200: IntegrationConfigurationResponseSerializer,
-            409: IntegrationErrorSerializer,
-            502: IntegrationErrorSerializer,
-        },
-        tags=("Gestión - integraciones",),
-    )
-    def post(self, request):
-        try:
-            configuration = synchronize_mercadopago_public_name(actor=request.user)
-        except ProviderNotConfigured as exc:
-            return Response(
-                {"code": exc.code, "detail": str(exc)},
-                status=status.HTTP_409_CONFLICT,
-            )
-        except ProviderError as exc:
-            return Response(
-                {
-                    "code": exc.code,
-                    "detail": "No pudimos actualizar el nombre comercial en Mercado Pago.",
-                },
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
         return Response(serialize_configuration("mercadopago", configuration))
 
 

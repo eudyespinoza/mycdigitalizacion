@@ -901,7 +901,7 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .mercadopago-connect-copy .management-kicker { margin: 0 0 3px; }
 .mercadopago-connect-copy h2 { margin: 0; }
 .mercadopago-connect-copy p:last-child { max-width: 60ch; margin: 5px 0 0; color: var(--muted); }
-.mercadopago-connect-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.mercadopago-connect-actions { display: flex; justify-content: flex-end; }
 .mercadopago-configuration-card { display: grid; gap: 16px; }
 .mercadopago-configuration-card .management-field-grid { margin-top: 0; }
 .mercadopago-configuration-card select { width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: 11px; padding: 8px 12px; background: var(--surface-elevated); color: var(--ink); font: inherit; }

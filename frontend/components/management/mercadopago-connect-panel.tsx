@@ -9,7 +9,6 @@ type PanelState =
   | "saving"
   | "connecting"
   | "disconnecting"
-  | "syncing"
   | "error";
 
 
@@ -18,14 +17,12 @@ export function MercadoPagoConnectPanel({
   onSave,
   onConnect,
   onDisconnect,
-  onSyncPublicName,
   result,
 }: {
   integration: IntegrationConfiguration;
   onSave: (payload: IntegrationUpdate) => Promise<IntegrationConfiguration>;
   onConnect: () => Promise<IntegrationConfiguration>;
   onDisconnect: () => Promise<IntegrationConfiguration>;
-  onSyncPublicName: () => Promise<IntegrationConfiguration>;
   result?: string;
 }) {
   const [current, setCurrent] = useState(integration);
@@ -88,16 +85,6 @@ export function MercadoPagoConnectPanel({
     }
   };
 
-  const syncPublicName = async () => {
-    setState("syncing");
-    try {
-      setCurrent(await onSyncPublicName());
-      setState("idle");
-    } catch {
-      setState("error");
-    }
-  };
-
   return (
     <div className="mercadopago-connect-layout">
       {result === "connected" && (
@@ -147,27 +134,25 @@ export function MercadoPagoConnectPanel({
             </button>
           )}
           {connected && (
-            <>
-              <button
-                className="button primary"
-                disabled={state === "syncing"}
-                onClick={() => void syncPublicName()}
-                type="button"
-              >
-                {state === "syncing" ? "Sincronizando…" : "Usar nombre público"}
-              </button>
-              <button
-                className="button secondary"
-                disabled={state === "disconnecting"}
-                onClick={() => void disconnect()}
-                type="button"
-              >
-                {state === "disconnecting" ? "Desconectando…" : "Desconectar"}
-              </button>
-            </>
+            <button
+              className="button secondary"
+              disabled={state === "disconnecting"}
+              onClick={() => void disconnect()}
+              type="button"
+            >
+              {state === "disconnecting" ? "Desconectando…" : "Desconectar"}
+            </button>
           )}
         </div>
       </section>
+
+      {connected && connectedBrandName && (
+        <p className="management-notice" role="status">
+          Mercado Pago identifica esta cuenta como “{connectedBrandName}”. Ese nombre
+          pertenece al perfil comercial de Mercado Pago y se cambia desde esa cuenta.
+          El nombre público de la tienda ya se usa en el detalle del cargo de tarjeta.
+        </p>
+      )}
 
       <form className="management-form-section mercadopago-configuration-card" onSubmit={save}>
         <div className="management-section-heading">

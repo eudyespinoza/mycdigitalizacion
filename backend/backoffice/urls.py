@@ -31,7 +31,6 @@ from backoffice.oauth_views import (
     MercadoPagoOAuthDisconnectView,
     MercadoPagoOAuthStartView,
     MercadoPagoOwnAccountConnectView,
-    MercadoPagoPublicNameSyncView,
 )
 from backoffice.operations_views import (
     ManagementCustomerAddressDetailView,
@@ -130,11 +129,6 @@ urlpatterns = [
         "integrations/mercadopago/oauth/disconnect/",
         MercadoPagoOAuthDisconnectView.as_view(),
         name="management-mercadopago-oauth-disconnect",
-    ),
-    path(
-        "integrations/mercadopago/sync-public-name/",
-        MercadoPagoPublicNameSyncView.as_view(),
-        name="management-mercadopago-sync-public-name",
     ),
     path(
         "settings/general/",
