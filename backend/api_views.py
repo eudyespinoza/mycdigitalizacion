@@ -1,3 +1,4 @@
+import logging
 import secrets
 from decimal import Decimal, InvalidOperation
 
@@ -53,6 +54,7 @@ from accounts.throttles import (
     VerificationEmailThrottle,
     VerificationIPThrottle,
 )
+from analytics import services as analytics_services
 from catalog.cache import catalog_cache_key
 from catalog.models import AttributeDefinition, Category, Product, ProductVariant
 from catalog.serializers import (
@@ -161,6 +163,8 @@ from locations.services import (
     sync_localities,
 )
 from providers import ProviderError
+
+logger = logging.getLogger(__name__)
 
 
 class CategoryListView(generics.ListAPIView):
@@ -945,6 +949,18 @@ class CartView(generics.GenericAPIView):
                     detail=exc.messages[0],
                     status_code=status.HTTP_400_BAD_REQUEST,
                 ) from exc
+            try:
+                analytics_services.record_cart_addition(
+                    request,
+                    variant=variant,
+                    quantity=data["quantity"],
+                )
+            except Exception:
+                logger.warning(
+                    "analytics_recording_failed",
+                    extra={"operation": "cart_addition"},
+                    exc_info=True,
+                )
         return Response(CartSerializer(cart).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -1677,6 +1693,19 @@ class CheckoutView(generics.GenericAPIView):
             ) from exc
         except ProviderError as exc:
             raise provider_domain_error(exc) from exc
+        try:
+            analytics_services.mark_checkout_state(
+                request,
+                order=result.order,
+                fulfillment_method=values["fulfillment_method"],
+                payment_started=result.transaction is not None,
+            )
+        except Exception:
+            logger.warning(
+                "analytics_recording_failed",
+                extra={"operation": "checkout_state"},
+                exc_info=True,
+            )
         payload = {
             "order_id": result.order.public_id,
             "identity_status": result.order.identity_status,
@@ -1725,6 +1754,19 @@ class CheckoutResumeView(generics.GenericAPIView):
             ) from exc
         except ProviderError as exc:
             raise provider_domain_error(exc) from exc
+        try:
+            analytics_services.mark_checkout_state(
+                request,
+                order=result.order,
+                fulfillment_method=result.order.fulfillment_method,
+                payment_started=result.transaction is not None,
+            )
+        except Exception:
+            logger.warning(
+                "analytics_recording_failed",
+                extra={"operation": "checkout_resume_state"},
+                exc_info=True,
+            )
         return Response(
             {
                 "order_id": result.order.public_id,

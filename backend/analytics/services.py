@@ -1,4 +1,5 @@
 import secrets
+import uuid
 from dataclasses import dataclass
 from datetime import timedelta
 from urllib.parse import urlsplit
@@ -9,7 +10,12 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 from analytics.hashing import token_hash
-from analytics.models import AnalyticsEvent, AnalyticsSession
+from analytics.models import (
+    AnalyticsConversion,
+    AnalyticsEvent,
+    AnalyticsOrderAttribution,
+    AnalyticsSession,
+)
 
 SESSION_SIGNING_SALT = "analytics.session.v1"
 EXCLUDED_PATH_PREFIXES = (
@@ -176,3 +182,109 @@ def record_event(
         AnalyticsSession.objects.filter(pk=context.session.pk).update(**{flag: True})
         setattr(context.session, flag, True)
     return event
+
+
+def _existing_tracking_context(request, *, at=None):
+    now = at or timezone.now()
+    session = _load_session(request)
+    if not session or session.last_seen_at < now - timedelta(
+        seconds=settings.ANALYTICS_SESSION_COOKIE_AGE
+    ):
+        return None
+    return TrackingContext(
+        session=session,
+        visitor_token=request.COOKIES.get(settings.ANALYTICS_VISITOR_COOKIE_NAME, ""),
+        session_token=request.COOKIES.get(settings.ANALYTICS_SESSION_COOKIE_NAME, ""),
+        set_visitor_cookie=False,
+        set_session_cookie=False,
+    )
+
+
+def link_order_to_request_session(request, order):
+    context = _existing_tracking_context(request)
+    if context is None:
+        return None
+    attribution, _ = AnalyticsOrderAttribution.objects.get_or_create(
+        order=order,
+        defaults={"session": context.session},
+    )
+    return attribution
+
+
+def record_cart_addition(request, *, variant, quantity):
+    context = _existing_tracking_context(request)
+    if context is None:
+        return None
+    return record_event(
+        context,
+        event_id=uuid.uuid4(),
+        event_type=AnalyticsEvent.EventType.ADD_TO_CART,
+        product=variant.product,
+        variant=variant,
+        path="/carrito",
+        quantity=quantity,
+    )
+
+
+def _server_event_id(order, event_type):
+    return uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        f"mycdigitalizaciones:analytics:{order.public_id}:{event_type}",
+    )
+
+
+def mark_checkout_state(request, *, order, fulfillment_method, payment_started):
+    attribution = link_order_to_request_session(request, order)
+    if attribution is None or attribution.session is None:
+        return None
+    context = TrackingContext(
+        session=attribution.session,
+        visitor_token="",
+        session_token="",
+        set_visitor_cookie=False,
+        set_session_cookie=False,
+    )
+    for event_type, enabled, dimensions in (
+        (AnalyticsEvent.EventType.CHECKOUT_STARTED, True, {}),
+        (
+            AnalyticsEvent.EventType.DELIVERY_SELECTED,
+            bool(fulfillment_method),
+            {"fulfillment": fulfillment_method},
+        ),
+        (AnalyticsEvent.EventType.PAYMENT_STARTED, payment_started, {}),
+    ):
+        if enabled:
+            record_event(
+                context,
+                event_id=_server_event_id(order, event_type),
+                event_type=event_type,
+                order=order,
+                path="/finalizar-compra",
+                dimensions=dimensions,
+            )
+    return attribution
+
+
+def record_paid_conversion(*, order, transaction):
+    if transaction.status != transaction.Status.APPROVED or transaction.approved_at is None:
+        return None
+    attribution = AnalyticsOrderAttribution.objects.filter(order=order).first()
+    if attribution is None or attribution.session_id is None:
+        return None
+    conversion, _ = AnalyticsConversion.objects.get_or_create(
+        order=order,
+        defaults={
+            "session": attribution.session,
+            "transaction": transaction,
+            "approved_at": transaction.approved_at,
+            "total": order.total_snapshot,
+            "subtotal": order.subtotal_snapshot,
+            "discount": order.discount_snapshot,
+            "shipping": order.shipping_amount_snapshot,
+        },
+    )
+    AnalyticsSession.objects.filter(
+        pk=attribution.session_id,
+        first_converted_at__isnull=True,
+    ).update(first_converted_at=transaction.approved_at)
+    return conversion

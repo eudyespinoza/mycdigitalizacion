@@ -10,6 +10,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from analytics import services as analytics_services
 from catalog.models import ProductVariant
 from commerce.models import (
     InventoryMovement,
@@ -269,6 +270,13 @@ def _apply_payment_atomic(*, payment_transaction, payment):
         payment_transaction.staff_diagnostics = ""
         payment_transaction.save()
         transition_order_status(order=order, field="payment_status", value=order.PaymentStatus.PAID)
+        transaction.on_commit(
+            lambda: analytics_services.record_paid_conversion(
+                order=order,
+                transaction=payment_transaction,
+            ),
+            robust=True,
+        )
     elif provider_status in {"rejected", "cancelled", "expired"}:
         release_coupon_redemption(order=order)
         payment_transaction.status = PaymentTransaction.Status.REJECTED
