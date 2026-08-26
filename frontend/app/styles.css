@@ -885,6 +885,10 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .analytics-coverage-note small { display: block; margin-top: 2px; color: var(--muted); font-size: .72rem; font-weight: 650; }
 .analytics-table a { color: var(--blue); font-weight: 850; text-underline-offset: 3px; }
 .analytics-two-column { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, .8fr); gap: 16px; align-items: start; }
+.analytics-page-header { align-items: end; }
+.analytics-page-header .button { flex: 0 0 auto; }
+.analytics-decision-section { border-color: color-mix(in srgb, var(--wayfinding) 34%, var(--line)); }
+.analytics-decision-note { margin: -2px 0 12px; color: var(--muted); font-size: .76rem; font-weight: 700; }
 
 @media (max-width: 1180px) {
   .analytics-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }

@@ -17,6 +17,14 @@ const session: ManagementSession = {
   },
 };
 
+const analyticsSession: ManagementSession = {
+  ...session,
+  user: {
+    ...session.user,
+    permissions: ["analytics.view_web_analytics", "analytics.view_commercial_analytics"],
+  },
+};
+
 
 describe("base del panel de gestión", () => {
   test("muestra navegación operativa sin enlazar Django Admin", () => {
@@ -61,5 +69,25 @@ describe("base del panel de gestión", () => {
     ]) {
       expect(screen.getByRole("link", { name: label })).toBeVisible();
     }
+  });
+
+  test("muestra cada tablero solo con su permiso explícito", () => {
+    const { rerender } = render(
+      <ManagementShell session={session}>
+        <h1>Resumen</h1>
+      </ManagementShell>,
+    );
+
+    expect(screen.queryByRole("link", { name: "Métricas web" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Compras y ventas" })).not.toBeInTheDocument();
+
+    rerender(
+      <ManagementShell session={analyticsSession}>
+        <h1>Resumen</h1>
+      </ManagementShell>,
+    );
+
+    expect(screen.getByRole("link", { name: "Métricas web" })).toHaveAttribute("href", "/gestion/metricas");
+    expect(screen.getByRole("link", { name: "Compras y ventas" })).toHaveAttribute("href", "/gestion/estadisticas");
   });
 });

@@ -19,7 +19,7 @@ export function ManagementShell({
         <Link className="management-brand" href="/gestion" aria-label="Inicio de Administración">
           Administración
         </Link>
-        <ManagementNav />
+        <ManagementNav permissions={session.user.permissions} />
         <div className="management-user">
           <strong>{name || "Equipo myc"}</strong>
           <span>{session.user.email}</span>
