@@ -140,4 +140,14 @@ describe("tema global y marcas sociales", () => {
       "/sectigo-trust-seal.html",
     );
   });
+
+  test("incluye la firma de Devlink con un enlace externo seguro", () => {
+    render(<SiteFooter />);
+
+    const devlink = screen.getByRole("link", { name: "Visitar el sitio web de Devlink" });
+    expect(devlink).toHaveTextContent("Powered by Devlink");
+    expect(devlink).toHaveAttribute("href", "https://devlink.com.ar/");
+    expect(devlink).toHaveAttribute("target", "_blank");
+    expect(devlink).toHaveAttribute("rel", "noreferrer noopener");
+  });
 });

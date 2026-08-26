@@ -78,7 +78,18 @@ export function SiteFooter({
           </div>
         </div>
         <div className="shell footer-bottom">
-          <p>© {new Date().getFullYear()} {publicName}</p>
+          <div className="footer-credits">
+            <p>© {new Date().getFullYear()} {publicName}</p>
+            <a
+              aria-label="Visitar el sitio web de Devlink"
+              className="footer-powered-by"
+              href="https://devlink.com.ar/"
+              rel="noreferrer noopener"
+              target="_blank"
+            >
+              Powered by <strong>Devlink</strong>
+            </a>
+          </div>
           <p>Pagos en pesos argentinos con Mercado Pago.</p>
           <iframe
             className="footer-trust-seal"

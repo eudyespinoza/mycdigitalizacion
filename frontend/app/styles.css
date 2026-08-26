@@ -212,6 +212,10 @@ p { line-height: 1.6; }
 .footer-bottom { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 24px; border-top: 1px solid rgba(255,255,255,.14); color: #aebdde; font-size: .86rem; }
 .site-footer.has-whatsapp .footer-bottom { padding-right: 78px; }
 .footer-bottom p { margin: 0; }
+.footer-credits { display: flex; align-items: flex-start; flex-direction: column; gap: 2px; }
+.footer-powered-by { min-height: 44px; display: inline-flex; align-items: center; gap: 5px; color: #dce8ff; text-decoration-color: rgba(220,232,255,.45); text-underline-offset: 5px; transition: color 160ms var(--ease-out), text-decoration-color 160ms var(--ease-out); }
+.footer-powered-by strong { color: #90eafa; font: 700 .9rem var(--font-display); }
+.footer-powered-by:hover, .footer-powered-by:focus-visible { color: #90eafa; text-decoration-color: currentColor; }
 .footer-trust-seal { width: 210px; height: 82px; flex: 0 0 auto; border: 0; color-scheme: dark; }
 .social-links a { width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid currentColor; border-radius: 50%; background: white; text-decoration: none; transition: transform 160ms var(--ease-out), background-color 180ms var(--ease-out); }
 .social-links a:hover { transform: translateY(-2px); background: var(--surface-cold); }
