@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ProductViewTracker } from "@/components/analytics/product-view-tracker";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { ProductDetail } from "@/components/product/product-detail";
@@ -23,6 +24,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
   return (
     <>
       <SiteHeader categories={categories} />
+      <ProductViewTracker productId={product.id} path={`/producto/${product.slug}`} />
       <main id="contenido" className="page-shell shell">
         <nav className="breadcrumb" aria-label="Migas de pan">
           <Link href="/">Inicio</Link><span>/</span>

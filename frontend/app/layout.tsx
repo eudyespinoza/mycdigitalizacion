@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Nunito_Sans, Rubik } from "next/font/google";
 import { CartProvider } from "@/components/cart/cart-provider";
+import { AnalyticsTracker } from "@/components/analytics/analytics-tracker";
 import { BrandProvider } from "@/components/layout/brand-provider";
 import { loadStorefrontBranding } from "@/lib/branding";
 import { normalizeMediaUrl } from "@/lib/api";
@@ -20,6 +22,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   return (
     <html lang="es-AR" className={`${rubik.variable} ${nunito.variable}`} data-scroll-behavior="smooth">
       <body style={resolveThemeVariables(branding)}>
+        <Suspense fallback={null}><AnalyticsTracker /></Suspense>
         <div
           hidden
           data-direction-contract="db399cd4"
