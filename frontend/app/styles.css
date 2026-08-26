@@ -881,6 +881,9 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .analytics-table caption { padding: 0; font-size: 0; }
 .analytics-table .is-numeric { text-align: right; }
 .analytics-empty { margin: 0; padding: 24px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); text-align: center; }
+.analytics-coverage-note { margin: -2px 0 0; padding: 10px 13px; border-radius: 10px; background: var(--surface-cyan); color: var(--ink); font-size: .78rem; font-weight: 750; }
+.analytics-coverage-note small { display: block; margin-top: 2px; color: var(--muted); font-size: .72rem; font-weight: 650; }
+.analytics-table a { color: var(--blue); font-weight: 850; text-underline-offset: 3px; }
 .analytics-two-column { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, .8fr); gap: 16px; align-items: start; }
 
 @media (max-width: 1180px) {
