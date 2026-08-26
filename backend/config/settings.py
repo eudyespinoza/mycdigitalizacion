@@ -195,6 +195,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "drf_spectacular",
+    "analytics",
     "backoffice",
     "accounts",
     "catalog",
@@ -285,6 +286,18 @@ MEDIA_RESPONSIVE_WIDTHS = (320, 640, 960, 1440)
 CATALOG_CSV_MAX_BYTES = int(environ.get("CATALOG_CSV_MAX_BYTES", str(2 * 1024 * 1024)))
 CATALOG_CSV_MAX_ROWS = int(environ.get("CATALOG_CSV_MAX_ROWS", "5000"))
 MAX_CART_LINE_QUANTITY = int(environ.get("MAX_CART_LINE_QUANTITY", "1000"))
+ANALYTICS_HMAC_KEY = environ.get("ANALYTICS_HMAC_KEY", SECRET_KEY)
+ANALYTICS_VISITOR_COOKIE_NAME = environ.get(
+    "ANALYTICS_VISITOR_COOKIE_NAME", "myc_analytics_visitor"
+)
+ANALYTICS_SESSION_COOKIE_NAME = environ.get(
+    "ANALYTICS_SESSION_COOKIE_NAME", "myc_analytics_session"
+)
+ANALYTICS_COOKIE_SECURE = APP_ENV == "production"
+ANALYTICS_VISITOR_COOKIE_AGE = 730 * 24 * 60 * 60
+ANALYTICS_SESSION_COOKIE_AGE = 30 * 60
+ANALYTICS_EVENT_RETENTION_DAYS = 90
+ANALYTICS_AGGREGATE_RETENTION_DAYS = 730
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STORAGES = {
     "default": {

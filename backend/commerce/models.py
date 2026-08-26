@@ -460,6 +460,13 @@ class OrderItem(AppendOnlyModel):
     sku_snapshot = models.CharField(max_length=64)
     quantity = models.PositiveIntegerField()
     unit_price_snapshot = models.DecimalField(max_digits=12, decimal_places=2)
+    unit_cost_snapshot = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0"))],
+    )
     discount_snapshot = models.DecimalField(max_digits=12, decimal_places=2)
     line_total_snapshot = models.DecimalField(max_digits=12, decimal_places=2)
 

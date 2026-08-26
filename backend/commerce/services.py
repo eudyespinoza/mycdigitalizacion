@@ -663,6 +663,7 @@ def create_pending_identity_order(
             sku_snapshot=line.variant.sku,
             quantity=line.quantity,
             unit_price_snapshot=line.variant.price,
+            unit_cost_snapshot=line.variant.cost,
             discount_snapshot=priced.discount,
             line_total_snapshot=priced.total,
         )
