@@ -52,3 +52,7 @@ class AnalyticsEventInputSerializer(StrictSerializer):
 
 class AnalyticsBatchSerializer(StrictSerializer):
     events = AnalyticsEventInputSerializer(many=True, allow_empty=False, max_length=20)
+
+
+class AnalyticsAcceptedSerializer(serializers.Serializer):
+    accepted = serializers.IntegerField(min_value=0)

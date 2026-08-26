@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
-from analytics.serializers import AnalyticsBatchSerializer
+from analytics.serializers import AnalyticsAcceptedSerializer, AnalyticsBatchSerializer
 from analytics.services import normalize_public_path, record_event, resolve_tracking_context
 
 
@@ -19,6 +19,7 @@ class AnalyticsEventThrottle(SimpleRateThrottle):
 class AnalyticsEventView(APIView):
     permission_classes = (permissions.AllowAny,)
     throttle_classes = (AnalyticsEventThrottle,)
+    serializer_class = AnalyticsAcceptedSerializer
 
     def post(self, request):
         serializer = AnalyticsBatchSerializer(data=request.data)

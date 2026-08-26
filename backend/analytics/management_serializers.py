@@ -39,3 +39,18 @@ def analytics_query_data(query_params):
     if query_params.get("brand"):
         data["brand"] = query_params["brand"]
     return data
+
+
+class WebAnalyticsReportSerializer(serializers.Serializer):
+    period = serializers.DictField()
+    data_since = serializers.DateTimeField(allow_null=True)
+    coverage = serializers.DictField()
+    kpis = serializers.DictField()
+    funnel = serializers.DictField()
+    series = serializers.ListField(child=serializers.DictField())
+    tables = serializers.DictField()
+    comparison = serializers.DictField(allow_null=True)
+
+
+class CommercialAnalyticsReportSerializer(WebAnalyticsReportSerializer):
+    filters = serializers.DictField()

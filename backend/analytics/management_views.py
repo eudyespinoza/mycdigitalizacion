@@ -2,11 +2,18 @@ import csv
 import io
 
 from django.http import StreamingHttpResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from analytics.management_selectors import commercial_dashboard, web_dashboard
-from analytics.management_serializers import AnalyticsQuerySerializer, analytics_query_data
+from analytics.management_serializers import (
+    AnalyticsQuerySerializer,
+    CommercialAnalyticsReportSerializer,
+    WebAnalyticsReportSerializer,
+    analytics_query_data,
+)
 from backoffice.models import ManagementAuditEvent
 from backoffice.permissions import HasManagementPermission
 
@@ -20,6 +27,7 @@ def _validated_filters(request):
 class ManagementWebAnalyticsView(APIView):
     permission_classes = (HasManagementPermission,)
     required_permission = "analytics.view_web_analytics"
+    serializer_class = WebAnalyticsReportSerializer
 
     def get(self, request):
         values = _validated_filters(request)
@@ -35,6 +43,7 @@ class ManagementWebAnalyticsView(APIView):
 class ManagementCommercialAnalyticsView(APIView):
     permission_classes = (HasManagementPermission,)
     required_permission = "analytics.view_commercial_analytics"
+    serializer_class = CommercialAnalyticsReportSerializer
 
     def get(self, request):
         values = _validated_filters(request)
@@ -89,6 +98,7 @@ class ManagementCommercialAnalyticsExportView(APIView):
     permission_classes = (HasManagementPermission,)
     required_permission = "analytics.export_commercial_analytics"
 
+    @extend_schema(responses={(200, "text/csv"): OpenApiTypes.BINARY})
     def get(self, request):
         values = _validated_filters(request)
         report = commercial_dashboard(
