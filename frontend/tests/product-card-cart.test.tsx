@@ -57,6 +57,20 @@ const product: Product = {
   media: [],
 };
 
+const otherProduct: Product = {
+  ...product,
+  id: 2,
+  name: "Botella térmica",
+  slug: "botella-termica",
+  variants: [
+    {
+      ...product.variants[0],
+      id: 21,
+      sku: "BOT-AZ",
+    },
+  ],
+};
+
 const emptyCart: Cart = {
   cart_token: "cart-token",
   coupon: null,
@@ -96,7 +110,7 @@ function line(variantId: number, variantName: string, quantity: number): Cart["l
   };
 }
 
-function stubCart(initial: Cart, afterAdd = initial) {
+function stubCart(initial: Cart, afterAdd = initial, afterQuantity = initial) {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/auth/csrf/")) {
@@ -104,6 +118,9 @@ function stubCart(initial: Cart, afterAdd = initial) {
     }
     if (url.endsWith("/cart/") && init?.method === "POST") {
       return new Response(JSON.stringify(afterAdd), { status: 200 });
+    }
+    if (url.endsWith("/cart/") && init?.method === "PATCH") {
+      return new Response(JSON.stringify(afterQuantity), { status: 200 });
     }
     if (url.endsWith("/cart/")) {
       return new Response(JSON.stringify(initial), { status: 200 });
@@ -129,11 +146,74 @@ describe("compra desde las tarjetas de producto", () => {
     const card = screen.getByRole("article", { name: product.name });
     const add = within(card).getByRole("button", { name: "Agregar al carrito" });
     await waitFor(() => expect(add).toBeEnabled());
+    expect(add).not.toHaveTextContent("Agregar al carrito");
+    expect(add.querySelector("svg")).toBeInTheDocument();
     fireEvent.click(add);
 
-    expect(await within(card).findByText("En carrito · 1")).toBeVisible();
+    expect(await within(card).findByRole("status")).toHaveTextContent("En carrito · 1");
     expect(card).toHaveClass("is-in-cart");
     expect(within(card).getByRole("button", { name: "Agregar otro" })).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "Tu carrito" })).not.toBeInTheDocument();
+  });
+
+  test("mantiene habilitadas las demás tarjetas mientras una agrega al carrito", async () => {
+    let resolveAdd!: (response: Response) => void;
+    const pendingAdd = new Promise<Response>((resolve) => {
+      resolveAdd = resolve;
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/auth/csrf/")) {
+        return new Response(JSON.stringify({ csrf_token: "csrf-card" }), { status: 200 });
+      }
+      if (url.endsWith("/cart/") && init?.method === "POST") {
+        return pendingAdd;
+      }
+      if (url.endsWith("/cart/")) {
+        return new Response(JSON.stringify(emptyCart), { status: 200 });
+      }
+      return new Response(null, { status: 404 });
+    }));
+
+    render(
+      <CartProvider>
+        <ProductCard product={{ ...product, variants: [product.variants[0]] }} />
+        <ProductCard product={otherProduct} />
+      </CartProvider>,
+    );
+
+    const firstCard = screen.getByRole("article", { name: product.name });
+    const otherCard = screen.getByRole("article", { name: otherProduct.name });
+    const firstAdd = within(firstCard).getByRole("button", { name: "Agregar al carrito" });
+    const otherAdd = within(otherCard).getByRole("button", { name: "Agregar al carrito" });
+    await waitFor(() => expect(firstAdd).toBeEnabled());
+
+    fireEvent.click(firstAdd);
+
+    expect(firstAdd).toBeDisabled();
+    expect(otherAdd).toBeEnabled();
+
+    resolveAdd(new Response(JSON.stringify(cartWithLines([line(11, "Azul", 1)])), { status: 200 }));
+    expect(await within(firstCard).findByRole("status")).toHaveTextContent("En carrito · 1");
+  });
+
+  test("resta una unidad desde la tarjeta sin abrir el carrito", async () => {
+    const singleVariantProduct = { ...product, variants: [product.variants[0]] };
+    const initial = cartWithLines([line(11, "Azul", 2)]);
+    const afterQuantity = cartWithLines([line(11, "Azul", 1)]);
+    stubCart(initial, initial, afterQuantity);
+
+    render(<CartProvider><ProductCard product={singleVariantProduct} /><CartDrawer /></CartProvider>);
+
+    const card = screen.getByRole("article", { name: product.name });
+    const subtract = await within(card).findByRole("button", { name: `Restar una unidad de ${product.name}` });
+    fireEvent.click(subtract);
+
+    expect(await within(card).findByRole("status")).toHaveTextContent("En carrito · 1");
+    const quantityRequest = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === "PATCH");
+    expect(JSON.parse(String(quantityRequest?.[1]?.body))).toEqual({ variant_id: 11, quantity: 1 });
+    expect(card).toHaveClass("is-in-cart");
     expect(screen.queryByRole("dialog", { name: "Tu carrito" })).not.toBeInTheDocument();
   });
 
@@ -150,7 +230,7 @@ describe("compra desde las tarjetas de producto", () => {
     fireEvent.change(within(card).getByLabelText(`Opción para ${product.name}`), { target: { value: "12" } });
     fireEvent.click(within(card).getByRole("button", { name: "Agregar Rosa" }));
 
-    expect(await within(card).findByText("En carrito · 1")).toBeVisible();
+    expect(await within(card).findByRole("status")).toHaveTextContent("En carrito · 1");
     expect(within(card).getByRole("button", { name: "Agregar otro" })).toBeVisible();
   });
 
@@ -160,7 +240,7 @@ describe("compra desde las tarjetas de producto", () => {
     render(<CartProvider><ProductCard product={product} /></CartProvider>);
 
     const card = screen.getByRole("article", { name: product.name });
-    expect(await within(card).findByText("En carrito · 3")).toBeVisible();
+    expect(await within(card).findByRole("status")).toHaveTextContent("En carrito · 3");
     expect(card).toHaveClass("is-in-cart");
   });
 
