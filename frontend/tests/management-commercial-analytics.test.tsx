@@ -73,6 +73,7 @@ describe("estadísticas de compras y ventas", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Compras y ventas" })).toBeVisible();
+    expect(document.querySelector(".analytics-kpi-grid.is-commercial")).toBeInTheDocument();
     expect(screen.getByText("Cobertura de costos 76,5 %")).toBeVisible();
     expect(screen.getByRole("table", { name: "Reposición sugerida" })).toBeVisible();
     expect(screen.getByText(/No contempla proveedor ni lote mínimo/i)).toBeVisible();

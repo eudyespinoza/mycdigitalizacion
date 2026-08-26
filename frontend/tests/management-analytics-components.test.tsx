@@ -55,8 +55,9 @@ test("el gráfico conserva una tabla accesible equivalente", () => {
   );
 
   expect(screen.getByRole("img", { name: "Actividad diaria" })).toBeVisible();
-  expect(screen.getByRole("table", { name: "Datos de Actividad diaria" })).toBeVisible();
-  expect(screen.getByRole("cell", { name: "15" })).toBeVisible();
+  expect(screen.getByText("Ver datos de la serie").closest("details")).not.toHaveAttribute("open");
+  expect(screen.getByRole("table", { name: "Datos de Actividad diaria", hidden: true })).toBeInTheDocument();
+  expect(screen.getByRole("cell", { name: "15", hidden: true })).toBeInTheDocument();
 });
 
 test("el embudo y la tabla operativa usan encabezados explícitos", () => {

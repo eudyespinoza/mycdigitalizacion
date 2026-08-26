@@ -17,9 +17,9 @@ function display(item: KpiItem) {
   return number.format(value);
 }
 
-export function KpiGrid({ items }: { items: KpiItem[] }) {
+export function KpiGrid({ items, variant }: { items: KpiItem[]; variant?: "commercial" }) {
   return (
-    <dl className="analytics-kpi-grid">
+    <dl className={`analytics-kpi-grid${variant ? ` is-${variant}` : ""}`}>
       {items.map((item) => (
         <div key={item.label}>
           <dt>{item.label}</dt>

@@ -41,7 +41,7 @@ export function MetricChart({
           return <polyline className={`analytics-chart-line series-${seriesIndex}`} fill="none" key={item.key} points={coordinates} />;
         })}
       </svg>
-      <details className="analytics-chart-data" open>
+      <details className="analytics-chart-data">
         <summary>Ver datos de la serie</summary>
         <div className="management-table-wrap">
           <table aria-label={`Datos de ${title}`} className="management-table analytics-table">

@@ -51,7 +51,7 @@ export function CommercialAnalyticsDashboard({
         <a className="button secondary" href={exportHref}>Exportar CSV</a>
       </header>
       <AnalyticsFilters brands={brands} categories={categories} commercial filters={filters} />
-      <KpiGrid items={[
+      <KpiGrid variant="commercial" items={[
         { label: "Ventas netas", value: report.kpis.net_sales, kind: "money" },
         { label: "Pedidos pagos", value: report.kpis.paid_orders },
         { label: "Unidades netas", value: report.kpis.net_units },
