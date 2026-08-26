@@ -17,10 +17,15 @@ def rendered_compose(filename):
         "POSTGRES_DB": "contract",
         "POSTGRES_USER": "contract",
         "POSTGRES_PASSWORD": "contract-password",
+        "REDIS_PASSWORD": "contract-redis-password",
         "SITE_ADDRESS": "store.example.test",
+        "SITE_WWW_ADDRESS": "www.store.example.test",
+        "ACME_EMAIL": "ops@store.example.test",
+        "ADMIN_ALLOWED_CIDRS": "192.0.2.10/32",
+        "RELEASE_ID": "contract-release",
         "DJANGO_SECRET_KEY": "contract-secret",
         "PERSONAL_DATA_ENCRYPTION_KEY": "contract-personal-data-key",
-        "DJANGO_ALLOWED_HOSTS": "store.example.test,backend",
+        "DJANGO_ALLOWED_HOSTS": "store.example.test,www.store.example.test,backend",
     }
     result = subprocess.run(
         ["docker", "compose", "-f", filename, "config"],

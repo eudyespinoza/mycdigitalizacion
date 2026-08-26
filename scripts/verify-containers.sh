@@ -35,7 +35,7 @@ docker compose --env-file .env.example build
 docker compose --env-file .env.example up --detach
 
 for path in healthz health; do
-  curl --fail --retry 20 --retry-connrefused --retry-delay 1 "http://localhost:${CADDY_HTTP_PORT}/${path}"
+  curl --fail --retry 20 --retry-all-errors --retry-delay 1 "http://localhost:${CADDY_HTTP_PORT}/${path}"
 done
 
 docker compose --env-file .env.example down --volumes --remove-orphans
