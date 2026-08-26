@@ -1,5 +1,10 @@
 from django.urls import path
 
+from analytics.management_views import (
+    ManagementCommercialAnalyticsExportView,
+    ManagementCommercialAnalyticsView,
+    ManagementWebAnalyticsView,
+)
 from backoffice.access_views import (
     ManagementAuditListView,
     ManagementRoleListView,
@@ -64,6 +69,21 @@ from support.management_views import (
 )
 
 urlpatterns = [
+    path(
+        "analytics/web/",
+        ManagementWebAnalyticsView.as_view(),
+        name="management-analytics-web",
+    ),
+    path(
+        "analytics/commercial/",
+        ManagementCommercialAnalyticsView.as_view(),
+        name="management-analytics-commercial",
+    ),
+    path(
+        "analytics/commercial/export.csv",
+        ManagementCommercialAnalyticsExportView.as_view(),
+        name="management-analytics-commercial-export",
+    ),
     path(
         "support/categories/",
         ManagementSupportCategoryListCreateView.as_view(),

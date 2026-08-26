@@ -271,7 +271,7 @@ def record_paid_conversion(*, order, transaction):
     attribution = AnalyticsOrderAttribution.objects.filter(order=order).first()
     if attribution is None or attribution.session_id is None:
         return None
-    conversion, _ = AnalyticsConversion.objects.get_or_create(
+    conversion, created = AnalyticsConversion.objects.get_or_create(
         order=order,
         defaults={
             "session": attribution.session,
@@ -287,4 +287,19 @@ def record_paid_conversion(*, order, transaction):
         pk=attribution.session_id,
         first_converted_at__isnull=True,
     ).update(first_converted_at=transaction.approved_at)
+    if created:
+        from analytics.selectors import (
+            invalidate_commercial_analytics,
+            invalidate_web_analytics,
+        )
+
+        invalidate_web_analytics()
+        invalidate_commercial_analytics()
     return conversion
+
+
+def record_refund_change(*, refund):
+    del refund
+    from analytics.selectors import invalidate_commercial_analytics
+
+    invalidate_commercial_analytics()

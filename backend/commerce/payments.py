@@ -437,4 +437,8 @@ def refund_order(*, order, adapter, idempotency_key):
             order=order, field="payment_status", value=order.PaymentStatus.REFUNDED
         )
         release_coupon_redemption(order=order)
+        transaction.on_commit(
+            lambda: analytics_services.record_refund_change(refund=refund),
+            robust=True,
+        )
         return refund

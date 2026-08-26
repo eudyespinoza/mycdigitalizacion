@@ -46,6 +46,7 @@ def _permissions_for_role(role):
     if role == "Owner":
         app_labels = {
             "accounts",
+            "analytics",
             "backoffice",
             "catalog",
             "commerce",
@@ -69,12 +70,21 @@ def _permissions_for_role(role):
             content_type__model="inventorymovement",
             codename="view_inventorymovement",
         )
-        return catalog | inventory
+        analytics = permissions.filter(
+            content_type__app_label="analytics",
+            codename="view_commercial_analytics",
+        )
+        return catalog | inventory | analytics
     if role == "Content":
-        return permissions.filter(
+        content = permissions.filter(
             content_type__app_label="landing",
             content_type__model__in=CONTENT_MODELS,
         ).exclude(codename__startswith="delete_")
+        analytics = permissions.filter(
+            content_type__app_label="analytics",
+            codename="view_web_analytics",
+        )
+        return content | analytics
     if role == "Orders/Logistics":
         views = permissions.filter(
             content_type__app_label="commerce",
@@ -91,7 +101,15 @@ def _permissions_for_role(role):
             content_type__model="address",
             codename="view_address",
         )
-        return views | actions | addresses
+        analytics = permissions.filter(
+            content_type__app_label="analytics",
+            codename__in=(
+                "view_web_analytics",
+                "view_commercial_analytics",
+                "export_commercial_analytics",
+            ),
+        )
+        return views | actions | addresses | analytics
     raise ValueError(f"Unknown admin role: {role}")
 
 

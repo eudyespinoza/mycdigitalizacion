@@ -142,3 +142,14 @@ def test_recent_rollup_task_returns_a_json_serializable_result():
     result = rollup_recent_analytics(now=timezone.now())
 
     assert json.loads(json.dumps(result))[0]["products"] == 0
+
+
+def test_refund_change_invalidates_commercial_analytics():
+    from analytics.selectors import analytics_cache_version
+    from analytics.services import record_refund_change
+
+    before = analytics_cache_version("commercial")
+
+    record_refund_change(refund=object())
+
+    assert analytics_cache_version("commercial") == before + 1

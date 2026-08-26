@@ -74,3 +74,25 @@ def test_management_order_list_does_not_prefetch_detail_relations(django_user_mo
     assert response.status_code == 200
     assert response.json()["count"] == 30
     assert len(captured) <= 6
+
+
+def test_management_analytics_have_bounded_empty_period_query_budgets(django_user_model):
+    owner = django_user_model.objects.create_superuser(
+        email="analytics-performance-owner@example.test",
+        password="StrongPassword!2026",
+        email_verified_at=timezone.now(),
+    )
+    today = timezone.localdate()
+    period = f"from={today.isoformat()}&to={(today + timezone.timedelta(days=1)).isoformat()}"
+    client = APIClient()
+    client.force_login(owner)
+
+    with CaptureQueriesContext(connection) as web_queries:
+        web = client.get(f"/api/v1/management/analytics/web/?{period}")
+    with CaptureQueriesContext(connection) as commercial_queries:
+        commercial = client.get(f"/api/v1/management/analytics/commercial/?{period}")
+
+    assert web.status_code == 200
+    assert commercial.status_code == 200
+    assert len(web_queries) <= 24
+    assert len(commercial_queries) <= 24
