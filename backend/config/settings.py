@@ -451,6 +451,18 @@ SHIPPING_SURCHARGE_VALUE = environ.get("SHIPPING_SURCHARGE_VALUE", "0")
 SHIPPING_FREE_THRESHOLD = environ.get("SHIPPING_FREE_THRESHOLD", "")
 
 CELERY_BEAT_SCHEDULE = {
+    "reconcile-missing-analytics-conversions": {
+        "task": "analytics.tasks.reconcile_missing_conversions",
+        "schedule": 300,
+    },
+    "rollup-recent-analytics": {
+        "task": "analytics.tasks.rollup_recent_analytics",
+        "schedule": 86_400,
+    },
+    "purge-expired-analytics": {
+        "task": "analytics.tasks.purge_expired_analytics_task",
+        "schedule": 86_400,
+    },
     "sync-andreani-localities": {
         "task": "locations.tasks.sync_andreani_localities",
         "schedule": 86_400,
