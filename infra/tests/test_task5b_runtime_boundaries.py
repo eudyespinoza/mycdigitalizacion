@@ -110,7 +110,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
             if port:
                 url = f"http://127.0.0.1:{port.rsplit(':', 1)[1]}"
                 try:
-                    urlopen(f"{url}/static/admin/css/base.css", timeout=1).close()
+                    urlopen(f"{url}/static/rest_framework/docs/css/base.css", timeout=1).close()
                     return url
                 except Exception:
                     pass
@@ -143,7 +143,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
         url = self.start_caddy()
         self.assertEqual(urlopen(f"{url}/media/{media['name']}", timeout=5).status, 200)
         self.assertEqual(urlopen(f"{url}/media/{derivative}", timeout=5).status, 200)
-        self.assertEqual(urlopen(f"{url}/static/admin/css/base.css", timeout=5).status, 200)
+        self.assertEqual(urlopen(f"{url}/static/rest_framework/docs/css/base.css", timeout=5).status, 200)
 
         old_caddy = self.names["caddy"]
         docker("rm", "-f", old_caddy)

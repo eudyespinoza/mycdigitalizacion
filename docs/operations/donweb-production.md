@@ -118,7 +118,7 @@ Ejecutá desde una red externa y verificá contenido, códigos y headers:
 curl -fsS https://DOMINIO/healthz
 curl -fsS https://DOMINIO/readyz
 curl -fsSI https://DOMINIO/
-curl -fsSI https://DOMINIO/static/admin/css/base.css
+curl -fsSI https://DOMINIO/static/rest_framework/docs/css/base.css
 curl -fsS https://DOMINIO/api/v1/storefront/home/
 ```
 
