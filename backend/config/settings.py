@@ -347,6 +347,7 @@ REST_FRAMEWORK = {
         "support_guest_create": "30/hour",
         "support_guest_access": "20/hour",
         "support_guest_message": "60/hour",
+        "analytics_event": "240/hour",
     },
 }
 AUTH_PASSWORD_VALIDATORS = [
