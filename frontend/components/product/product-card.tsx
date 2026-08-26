@@ -87,7 +87,10 @@ export function ProductCard({ product, priority = false }: { product: Product; p
     >
       <Minus aria-hidden="true" size={18} weight="bold" />
     </button>
-    <span className="product-card-cart-state" role="status"><span className="product-card-cart-label">En carrito · </span>{quantityInCart}</span>
+    <span className="product-card-cart-state" role="status">
+      <span className="product-card-cart-label">En carrito · </span>
+      <strong className="product-card-cart-count">{quantityInCart}</strong>
+    </span>
   </>;
   const addIcon = <span aria-hidden="true" className="product-card-add-icon">
     <ShoppingCartSimple size={23} weight="bold" />

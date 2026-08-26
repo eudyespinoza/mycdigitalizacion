@@ -150,7 +150,9 @@ describe("compra desde las tarjetas de producto", () => {
     expect(add.querySelector("svg")).toBeInTheDocument();
     fireEvent.click(add);
 
-    expect(await within(card).findByRole("status")).toHaveTextContent("En carrito · 1");
+    const cartState = await within(card).findByRole("status");
+    expect(cartState).toHaveTextContent("En carrito · 1");
+    expect(cartState.querySelector(".product-card-cart-count")).toHaveTextContent("1");
     expect(card).toHaveClass("is-in-cart");
     expect(within(card).getByRole("button", { name: "Agregar otro" })).toBeVisible();
     expect(screen.queryByRole("dialog", { name: "Tu carrito" })).not.toBeInTheDocument();

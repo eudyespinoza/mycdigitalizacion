@@ -146,6 +146,7 @@ p { line-height: 1.6; }
 .product-card-action-row { min-height: 44px; display: flex; align-items: center; gap: 8px; }
 .product-card-action-row.is-empty { justify-content: flex-end; }
 .product-card-cart-state { min-width: 25px; width: fit-content; border-radius: 999px; padding: 6px 9px; background: color-mix(in srgb, var(--magenta-action) 10%, var(--surface-elevated)); color: var(--magenta-action); font-size: .78rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.product-card-cart-count { color: inherit; font-size: .95rem; line-height: 1; }
 .product-card-quantity-button, .product-card-cart-button { width: 44px; height: 44px; flex: 0 0 44px; display: inline-grid; place-items: center; border-radius: 50%; cursor: pointer; transition: transform 160ms var(--ease-out), background-color 180ms var(--ease-out), border-color 180ms var(--ease-out), color 180ms var(--ease-out), box-shadow 180ms var(--ease-out); }
 .product-card-quantity-button { border: 1px solid color-mix(in srgb, var(--magenta-action) 42%, var(--line)); background: var(--surface-elevated); color: var(--magenta-action); }
 .product-card-cart-button { position: relative; margin-left: auto; border: 1px solid transparent; background: var(--magenta-action); color: white; box-shadow: 0 8px 20px color-mix(in srgb, var(--magenta-action) 24%, transparent); }
@@ -536,8 +537,11 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
   .product-card-copy h3 { font-size: .98rem; }
   .product-card-actions { padding: 0 8px 10px; }
   .product-card-action-row { gap: 4px; }
-  .product-card-cart-state { padding-inline: 7px; }
-  .product-card-cart-label { display: none; }
+  .product-card-action-row:not(.is-empty) { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; grid-template-rows: auto 44px; gap: 8px 6px; }
+  .product-card-action-row:not(.is-empty) .product-card-cart-state { grid-column: 1 / -1; grid-row: 1; justify-self: start; padding: 7px 10px; font-size: .84rem; line-height: 1.15; }
+  .product-card-action-row:not(.is-empty) .product-card-quantity-button { grid-column: 1; grid-row: 2; }
+  .product-card-action-row:not(.is-empty) .product-card-cart-button { grid-column: 3; grid-row: 2; justify-self: end; margin-left: 0; }
+  .product-card-cart-count { font-size: 1rem; }
   .section-heading { align-items: flex-end; }
   .section-heading h2 { font-size: 1.8rem; }
   .section-heading > a { font-size: .9rem; }
