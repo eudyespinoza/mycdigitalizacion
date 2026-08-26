@@ -71,6 +71,21 @@ services:
     env_file:
       - path: "${PRODUCTION_ENV_FILE:-.env.production}"
         required: false
+    environment:
+      <<: *app-environment
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env.production}
+      ADMIN_ALLOWED_CIDRS: ${ADMIN_ALLOWED_CIDRS:?set ADMIN_ALLOWED_CIDRS in .env.production}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env.production}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:-}
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD:-}
+      RESTIC_PASSWORD_FILE: ${RESTIC_PASSWORD_FILE:-}
+      RESTIC_KEEP_DAILY: ${RESTIC_KEEP_DAILY:-7}
+      RESTIC_KEEP_WEEKLY: ${RESTIC_KEEP_WEEKLY:-5}
+      RESTIC_KEEP_MONTHLY: ${RESTIC_KEEP_MONTHLY:-12}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
     command: [python, /ops/validate_env.py]
     restart: "no"
     user: "10001:10001"

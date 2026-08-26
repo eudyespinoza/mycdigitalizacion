@@ -11,9 +11,13 @@ trap cleanup EXIT
 export POSTGRES_DB=mycdigitalizacion_ci
 export POSTGRES_USER=mycdigitalizacion_ci
 export POSTGRES_PASSWORD=ci-database-password-not-for-production
+export REDIS_PASSWORD=ci-redis-password-not-for-production
 export DJANGO_SECRET_KEY=ci-signing-key-not-for-production-and-long-enough
 export PERSONAL_DATA_ENCRYPTION_KEY=ci-personal-data-key-not-for-production
-export DJANGO_ALLOWED_HOSTS=shop.example.test
+export RELEASE_ID=ci-release-verify
+export ACME_EMAIL=ops@shop.test
+export ADMIN_ALLOWED_CIDRS=192.0.2.10/32
+export DJANGO_ALLOWED_HOSTS=shop.example.test,www.shop.example.test
 export SITE_ADDRESS=shop.example.test
 export SITE_WWW_ADDRESS=www.shop.example.test
 export CADDY_HTTP_PORT=8080
