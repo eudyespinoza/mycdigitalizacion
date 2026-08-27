@@ -1033,6 +1033,61 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .secret-configured { position: absolute; top: 0; right: 0; color: var(--success); font-size: .75rem; }
 .management-form-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 .management-notice { padding: 15px 18px; border-radius: 12px; background: var(--surface-cyan); color: var(--blue); }
+
+/* Integration editor */
+.integration-editor { container-type: inline-size; }
+.integration-editor .management-form-section { min-width: 0; }
+.integration-editor .integration-field { min-width: 0; display: grid; align-content: start; gap: 7px; font-weight: 800; }
+.integration-editor .integration-field-heading { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.integration-editor .integration-field-heading > span:first-child,
+.integration-editor .integration-field-heading > label:first-child { min-width: 0; }
+.integration-editor .integration-field > small,
+.integration-editor .integration-file-field > small { color: var(--muted); font-size: .8rem; font-weight: 600; line-height: 1.45; }
+.integration-editor .secret-configured { position: static; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; color: var(--success); font-size: .75rem; font-weight: 850; }
+.integration-editor .integration-field > input,
+.integration-editor .integration-field > select { width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: 11px; padding: 8px 12px; background: var(--surface-elevated); color: var(--ink); font: inherit; }
+.integration-editor .integration-field > input:focus,
+.integration-editor .integration-field > select:focus { outline: 3px solid color-mix(in srgb, var(--cyan-action) 24%, transparent); border-color: var(--cyan-action); }
+.integration-editor-arca { gap: 12px; }
+.integration-editor-arca .management-form-section { padding: 18px 20px; }
+.arca-public-configuration { display: grid; gap: 18px; margin-top: 14px; }
+.arca-primary-field { max-width: 560px; }
+.integration-advanced { padding-top: 14px; border-top: 1px solid var(--line); }
+.integration-advanced summary { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 14px; color: var(--blue); cursor: pointer; font-weight: 850; list-style: none; }
+.integration-advanced summary::-webkit-details-marker { display: none; }
+.integration-advanced summary svg { flex: 0 0 auto; transition: transform 180ms ease-out; }
+.integration-advanced[open] summary svg { transform: rotate(180deg); }
+.integration-advanced > p { max-width: 70ch; margin: 4px 0 0; color: var(--muted); font-size: .88rem; }
+.integration-advanced .management-field-grid { margin-top: 14px; }
+.arca-credential-method { min-width: 0; margin: 18px 0 0; padding: 0; border: 0; }
+.arca-credential-method legend { margin-bottom: 9px; padding: 0; color: var(--blue); font-weight: 850; }
+.arca-method-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.arca-method-options > label { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; min-height: 68px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-cold); cursor: pointer; }
+.arca-method-options > label[data-selected="true"] { border-color: var(--cyan-action); background: var(--surface-cyan); }
+.arca-method-options input { width: 20px; height: 20px; margin: 0; accent-color: var(--cyan-action); }
+.arca-method-options span { min-width: 0; display: grid; gap: 2px; }
+.arca-method-options strong { color: var(--blue); font-size: .94rem; }
+.arca-method-options small { color: var(--muted); font-size: .78rem; font-weight: 600; }
+.arca-credential-fields { align-items: start; margin-top: 14px; }
+.integration-file-control { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; }
+.integration-editor .integration-file-input { width: 1px; height: 1px; min-height: 1px; position: absolute; overflow: hidden; padding: 0; clip-path: inset(50%); white-space: nowrap; }
+.integration-file-trigger { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 12px; border: 1px solid var(--blue); border-radius: 11px; background: var(--surface-elevated); color: var(--blue); cursor: pointer; font-weight: 850; white-space: nowrap; }
+.integration-file-trigger:hover { background: var(--surface-cyan); }
+.integration-file-input:focus-visible + .integration-file-trigger { outline: 3px solid var(--cyan-action); outline-offset: 3px; }
+.integration-file-name { min-width: 0; overflow: hidden; color: var(--muted); font-size: .86rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+@container (max-width: 680px) {
+  .integration-editor .management-field-grid,
+  .integration-editor .integration-enable-row,
+  .arca-method-options { grid-template-columns: 1fr; }
+  .integration-editor .management-field-grid .field-wide { grid-column: auto; }
+}
+@container (max-width: 440px) {
+  .integration-editor-arca .management-form-section { padding: 16px; }
+  .integration-file-control { grid-template-columns: 1fr; }
+  .integration-file-trigger { width: 100%; }
+  .integration-editor .management-form-actions { display: grid; grid-template-columns: 1fr; }
+  .integration-editor .management-form-actions .button { width: 100%; }
+}
 .mercadopago-connect-layout { display: grid; gap: 14px; margin-top: 24px; }
 .mercadopago-connect-card { display: grid; grid-template-columns: 58px minmax(0, 1fr) auto; align-items: center; gap: 18px; }
 .mercadopago-mark { width: 58px; height: 58px; display: grid; place-items: center; border-radius: 50%; background: #009ee3; color: #fff; font-size: 1.15rem; font-weight: 950; letter-spacing: -.06em; }

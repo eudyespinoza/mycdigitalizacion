@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { CaretDown, CheckCircle, UploadSimple } from "@phosphor-icons/react";
+import { FormEvent, useId, useState } from "react";
 
 import { integrationFields, type IntegrationField } from "@/lib/management/integration-fields";
 import type { IntegrationConfiguration, IntegrationUpdate } from "@/lib/management/types";
@@ -25,8 +26,8 @@ function Field({
   }
   if (field.type === "select") {
     return (
-      <label>
-        <span>{field.label}</span>
+      <label className="integration-field">
+        <span className="integration-field-heading">{field.label}</span>
         <select aria-label={field.label} defaultValue={String(value ?? "")} name={field.key}>
           {field.options?.map((option) => (
             <option key={option.value} value={option.value}>{option.label}</option>
@@ -37,25 +38,14 @@ function Field({
     );
   }
   if (field.type === "file") {
-    return (
-      <label>
-        <span>{field.label}</span>
-        {configured && <small className="secret-configured">Configurada</small>}
-        <input
-          accept={field.accept}
-          aria-label={field.label}
-          name={field.key}
-          type="file"
-        />
-        {configured && <small>Dejá el campo vacío para conservar el archivo actual.</small>}
-        {field.hint && <small>{field.hint}</small>}
-      </label>
-    );
+    return <FileField configured={configured} field={field} />;
   }
   return (
-    <label>
-      <span>{field.label}</span>
-      {configured && <small className="secret-configured">Configurada</small>}
+    <label className="integration-field">
+      <span className="integration-field-heading">
+        <span>{field.label}</span>
+        {configured && <small className="secret-configured"><CheckCircle aria-hidden="true" size={15} weight="fill" />Configurada</small>}
+      </span>
       <input
         aria-label={field.label}
         autoComplete="off"
@@ -66,6 +56,47 @@ function Field({
       />
       {field.hint && <small>{field.hint}</small>}
     </label>
+  );
+}
+
+
+function FileField({
+  field,
+  configured,
+}: {
+  field: IntegrationField;
+  configured?: boolean;
+}) {
+  const inputId = useId();
+  const [fileName, setFileName] = useState("");
+
+  return (
+    <div className="integration-field integration-file-field">
+      <div className="integration-field-heading">
+        <label htmlFor={inputId}>{field.label}</label>
+        {configured && <small className="secret-configured"><CheckCircle aria-hidden="true" size={15} weight="fill" />Guardado</small>}
+      </div>
+      <div className="integration-file-control">
+        <input
+          accept={field.accept}
+          aria-label={field.label}
+          className="integration-file-input"
+          id={inputId}
+          name={field.key}
+          onChange={(event) => setFileName(event.currentTarget.files?.[0]?.name ?? "")}
+          type="file"
+        />
+        <label className="integration-file-trigger" htmlFor={inputId}>
+          <UploadSimple aria-hidden="true" size={18} weight="bold" />
+          Seleccionar archivo
+        </label>
+        <span className="integration-file-name" title={fileName || undefined}>
+          {fileName || (configured ? "Archivo protegido guardado" : "Ningún archivo seleccionado")}
+        </span>
+      </div>
+      {configured && <small>Seleccioná otro archivo sólo si querés reemplazar el actual.</small>}
+      {field.hint && <small>{field.hint}</small>}
+    </div>
   );
 }
 
@@ -96,7 +127,26 @@ export function IntegrationEditor({
 }) {
   const [current, setCurrent] = useState(integration);
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [arcaCredentialMethod, setArcaCredentialMethod] = useState<"pfx" | "pem">(() => (
+    integration.secret_fields.pfx_base64
+      ? "pfx"
+      : integration.secret_fields.certificate_pem || integration.secret_fields.private_key_pem
+        ? "pem"
+        : "pfx"
+  ));
   const definition = integrationFields[current.provider];
+  const isArca = current.provider === "arca_a13";
+  const arcaCuitField = isArca ? definition.public.find((field) => field.key === "represented_cuit") : undefined;
+  const arcaEndpointFields = isArca
+    ? definition.public.filter((field) => field.key === "wsaa_url" || field.key === "a13_url")
+    : [];
+  const visibleSecretFields = isArca
+    ? definition.secrets.filter((field) => (
+      arcaCredentialMethod === "pfx"
+        ? field.key === "pfx_base64" || field.key === "pfx_password"
+        : field.key === "certificate_pem" || field.key === "private_key_pem" || field.key === "private_key_passphrase"
+    ))
+    : definition.secrets;
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -165,7 +215,7 @@ export function IntegrationEditor({
   };
 
   return (
-    <form className="management-form" onSubmit={(event) => void submit(event)}>
+    <form className={`management-form integration-editor${isArca ? " integration-editor-arca" : ""}`} onSubmit={(event) => void submit(event)}>
       <div className="management-form-section integration-enable-row">
         <label className="management-check">
           <input defaultChecked={current.enabled} name="enabled" type="checkbox" />
@@ -182,18 +232,67 @@ export function IntegrationEditor({
       </div>
       <section className="management-form-section">
         <h2>Datos de la integración</h2>
-        <div className="management-field-grid">
-          {definition.public.map((field) => (
-            <Field field={field} key={field.key} value={current.public_config[field.key] ?? ""} />
-          ))}
-        </div>
+        {isArca ? (
+          <div className="arca-public-configuration">
+            {arcaCuitField && (
+              <div className="arca-primary-field">
+                <Field field={arcaCuitField} value={current.public_config[arcaCuitField.key] ?? ""} />
+              </div>
+            )}
+            <details className="integration-advanced">
+              <summary>
+                <span>Configuración avanzada de endpoints</span>
+                <CaretDown aria-hidden="true" size={18} weight="bold" />
+              </summary>
+              <p>Podés dejar estas URLs vacías para usar los servicios oficiales del ambiente seleccionado.</p>
+              <div className="management-field-grid">
+                {arcaEndpointFields.map((field) => (
+                  <Field field={field} key={field.key} value={current.public_config[field.key] ?? ""} />
+                ))}
+              </div>
+            </details>
+          </div>
+        ) : (
+          <div className="management-field-grid">
+            {definition.public.map((field) => (
+              <Field field={field} key={field.key} value={current.public_config[field.key] ?? ""} />
+            ))}
+          </div>
+        )}
       </section>
       {definition.secrets.length > 0 && (
         <section className="management-form-section">
           <h2>Credenciales protegidas</h2>
-          <p>Los valores guardados no pueden volver a verse. Escribí uno sólo para reemplazarlo.</p>
-          <div className="management-field-grid">
-            {definition.secrets.map((field) => (
+          <p>Los valores guardados no pueden volver a verse. Cargá uno sólo si necesitás reemplazarlo.</p>
+          {isArca && (
+            <fieldset className="arca-credential-method">
+              <legend>Método de certificado</legend>
+              <div className="arca-method-options">
+                <label data-selected={arcaCredentialMethod === "pfx"}>
+                  <input
+                    checked={arcaCredentialMethod === "pfx"}
+                    name="credential_method"
+                    onChange={() => setArcaCredentialMethod("pfx")}
+                    type="radio"
+                    value="pfx"
+                  />
+                  <span><strong>Archivo PFX / P12</strong><small>Un único archivo protegido</small></span>
+                </label>
+                <label data-selected={arcaCredentialMethod === "pem"}>
+                  <input
+                    checked={arcaCredentialMethod === "pem"}
+                    name="credential_method"
+                    onChange={() => setArcaCredentialMethod("pem")}
+                    type="radio"
+                    value="pem"
+                  />
+                  <span><strong>Certificado + clave PEM</strong><small>Dos archivos independientes</small></span>
+                </label>
+              </div>
+            </fieldset>
+          )}
+          <div className={`management-field-grid${isArca ? " arca-credential-fields" : ""}`}>
+            {visibleSecretFields.map((field) => (
               <Field
                 configured={current.secret_fields[field.key]}
                 field={field}

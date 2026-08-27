@@ -87,6 +87,8 @@ describe("configuración e integraciones", () => {
     const onSave = vi.fn().mockResolvedValue(arca);
     render(<IntegrationEditor integration={arca} onSave={onSave} />);
 
+    fireEvent.click(screen.getByRole("radio", { name: /certificado \+ clave pem/i }));
+
     fireEvent.change(screen.getByLabelText("Certificado ARCA (.crt o .pem)"), {
       target: { files: [new File(["CERTIFICATE"], "arca.crt", { type: "application/x-pem-file" })] },
     });
@@ -102,6 +104,54 @@ describe("configuración e integraciones", () => {
       }),
       clear_secret_fields: ["pfx_base64", "pfx_password"],
     })));
+  });
+
+  test("organiza ARCA por método de credenciales y deja los endpoints como avanzados", () => {
+    const arca: IntegrationConfiguration = {
+      ...mercadoPago,
+      provider: "arca_a13",
+      label: "Identidad fiscal ARCA · Padrón A13",
+      environment: "production",
+      public_config: { represented_cuit: "20123456786" },
+      secret_fields: {
+        certificate_pem: false,
+        private_key_pem: false,
+        private_key_passphrase: false,
+        pfx_base64: false,
+        pfx_password: false,
+      },
+    };
+
+    render(<IntegrationEditor integration={arca} onSave={vi.fn()} />);
+
+    expect(screen.getByRole("radio", { name: /archivo pfx \/ p12/i })).toBeChecked();
+    expect(screen.getByLabelText("Certificado ARCA (.pfx o .p12)")).toBeVisible();
+    expect(screen.queryByLabelText("Certificado ARCA (.crt o .pem)")).not.toBeInTheDocument();
+
+    const advancedSummary = screen.getByText("Configuración avanzada de endpoints");
+    expect(advancedSummary.closest("details")).not.toHaveAttribute("open");
+
+    fireEvent.click(screen.getByRole("radio", { name: /certificado \+ clave pem/i }));
+    expect(screen.getByLabelText("Certificado ARCA (.crt o .pem)")).toBeVisible();
+    expect(screen.queryByLabelText("Certificado ARCA (.pfx o .p12)")).not.toBeInTheDocument();
+  });
+
+  test("muestra el nombre del archivo ARCA seleccionado", () => {
+    const arca: IntegrationConfiguration = {
+      ...mercadoPago,
+      provider: "arca_a13",
+      label: "Identidad fiscal ARCA · Padrón A13",
+      environment: "production",
+      public_config: { represented_cuit: "20123456786" },
+      secret_fields: { pfx_base64: false, pfx_password: false },
+    };
+
+    render(<IntegrationEditor integration={arca} onSave={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Certificado ARCA (.pfx o .p12)"), {
+      target: { files: [new File([new Uint8Array([1, 2, 3])], "certificado-arca.pfx")] },
+    });
+
+    expect(screen.getByText("certificado-arca.pfx")).toBeVisible();
   });
 
   test("carga un PFX de ARCA como base64 y limpia el bundle PEM anterior", async () => {
@@ -122,6 +172,7 @@ describe("configuración e integraciones", () => {
     const onSave = vi.fn().mockResolvedValue(arca);
     render(<IntegrationEditor integration={arca} onSave={onSave} />);
 
+    fireEvent.click(screen.getByRole("radio", { name: /archivo pfx \/ p12/i }));
     fireEvent.change(screen.getByLabelText("Certificado ARCA (.pfx o .p12)"), {
       target: { files: [new File([new Uint8Array([1, 2, 3])], "arca.pfx")] },
     });

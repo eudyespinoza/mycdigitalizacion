@@ -112,7 +112,6 @@ export const integrationFields: Record<
         type: "file",
         accept: ".pfx,.p12,application/x-pkcs12",
         encoding: "base64",
-        hint: "Usá este archivo en lugar del par certificado y clave privada.",
       },
       {
         key: "pfx_password",

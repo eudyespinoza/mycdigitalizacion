@@ -159,3 +159,25 @@ test("Mercado Pago se conecta desde un único botón", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "Confirmar conexion con Mercado Pago" })).toBeVisible();
 });
+
+
+test("ARCA mantiene una jerarquía compacta en todos los anchos", async ({ page }, testInfo) => {
+  await page.goto("/gestion/integraciones/arca_a13");
+
+  await expect(page.getByRole("heading", { level: 1, name: "Identidad fiscal ARCA · Padrón A13" })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /Archivo PFX \/ P12/i })).toBeChecked();
+  await expect(page.getByLabel("Certificado ARCA (.pfx o .p12)")).toBeVisible();
+  await expect(page.locator("details.integration-advanced")).not.toHaveAttribute("open");
+
+  const layout = await page.evaluate(() => ({
+    documentFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+    editorFits: (() => {
+      const editor = document.querySelector<HTMLElement>(".integration-editor");
+      return editor ? editor.scrollWidth <= editor.clientWidth + 1 : false;
+    })(),
+  }));
+  expect(layout.documentFits).toBe(true);
+  expect(layout.editorFits).toBe(true);
+
+  await page.screenshot({ path: `../.impeccable/review/arca-editor-${testInfo.project.name}.png`, fullPage: true });
+});
