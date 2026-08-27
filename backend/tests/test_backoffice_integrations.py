@@ -34,12 +34,78 @@ def test_integration_list_exposes_all_business_providers_without_secrets(django_
         "correo_argentino",
         "andreani",
         "sid_renaper",
+        "arca_a13",
         "smtp",
         "google_identity",
         "geolocation",
         "backups",
     ]
     assert all("secrets" not in row for row in response.json()["results"])
+
+
+@override_settings(CONFIG_ENCRYPTION_MASTER_KEY="integration-config-master-key-for-tests")
+def test_arca_configuration_accepts_either_credential_bundle_and_never_exposes_secrets(
+    django_user_model,
+):
+    from backoffice.models import IntegrationConfiguration, ManagementAuditEvent
+
+    client = owner_client(django_user_model)
+    endpoint = "/api/v1/management/integrations/arca_a13/"
+
+    incomplete = client.patch(
+        endpoint,
+        {
+            "enabled": True,
+            "environment": "sandbox",
+            "public_config": {"represented_cuit": "20123456786"},
+            "secrets": {"certificate_pem": "certificate-only"},
+        },
+        format="json",
+    )
+
+    assert incomplete.status_code == 200
+    assert incomplete.json()["status"] == "incomplete"
+
+    configured = client.patch(
+        endpoint,
+        {
+            "secrets": {
+                "certificate_pem": "certificate-value",
+                "private_key_pem": "private-key-value",
+            }
+        },
+        format="json",
+    )
+
+    assert configured.status_code == 200
+    body = configured.json()
+    assert body["status"] == "configured"
+    assert body["secret_fields"]["certificate_pem"] is True
+    assert body["secret_fields"]["private_key_pem"] is True
+    assert "certificate-value" not in json.dumps(body)
+    assert "private-key-value" not in json.dumps(body)
+    stored = IntegrationConfiguration.objects.get(provider="arca_a13")
+    assert "certificate-value" not in stored.sealed_secrets
+    assert "private-key-value" not in stored.sealed_secrets
+    audit = ManagementAuditEvent.objects.filter(
+        action="integration.updated", object_reference="arca_a13"
+    ).latest("created_at")
+    assert audit.metadata["changed_secret_fields"] == [
+        "certificate_pem",
+        "private_key_pem",
+    ]
+    assert "certificate-value" not in json.dumps(audit.metadata)
+
+    pfx_only = client.patch(
+        endpoint,
+        {
+            "secrets": {"pfx_base64": "cGZ4LWJ5dGVz"},
+            "clear_secret_fields": ["certificate_pem", "private_key_pem"],
+        },
+        format="json",
+    )
+    assert pfx_only.status_code == 200
+    assert pfx_only.json()["status"] == "configured"
 
 
 @pytest.mark.postgresql

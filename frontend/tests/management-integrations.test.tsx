@@ -69,6 +69,44 @@ describe("configuración e integraciones", () => {
     ));
   });
 
+  test("carga certificados ARCA como texto o base64 sin rellenar secretos guardados", async () => {
+    const arca: IntegrationConfiguration = {
+      ...mercadoPago,
+      provider: "arca_a13",
+      label: "Identidad fiscal ARCA · Padrón A13",
+      environment: "production",
+      public_config: { represented_cuit: "20123456786" },
+      secret_fields: {
+        certificate_pem: false,
+        private_key_pem: false,
+        private_key_passphrase: false,
+        pfx_base64: false,
+        pfx_password: false,
+      },
+    };
+    const onSave = vi.fn().mockResolvedValue(arca);
+    render(<IntegrationEditor integration={arca} onSave={onSave} />);
+
+    fireEvent.change(screen.getByLabelText("Certificado ARCA (.crt o .pem)"), {
+      target: { files: [new File(["CERTIFICATE"], "arca.crt", { type: "application/x-pem-file" })] },
+    });
+    fireEvent.change(screen.getByLabelText("Clave privada ARCA (.key o .pem)"), {
+      target: { files: [new File(["PRIVATE KEY"], "arca.key", { type: "application/x-pem-file" })] },
+    });
+    fireEvent.change(screen.getByLabelText("Certificado ARCA (.pfx o .p12)"), {
+      target: { files: [new File([new Uint8Array([1, 2, 3])], "arca.pfx")] },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar configuración" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      secrets: expect.objectContaining({
+        certificate_pem: "CERTIFICATE",
+        private_key_pem: "PRIVATE KEY",
+        pfx_base64: "AQID",
+      }),
+    })));
+  });
+
   test("edita los datos generales con etiquetas de negocio", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(

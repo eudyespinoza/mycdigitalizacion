@@ -24,6 +24,7 @@ export type IntegrationProvider =
   | "correo_argentino"
   | "andreani"
   | "sid_renaper"
+  | "arca_a13"
   | "smtp"
   | "google_identity"
   | "geolocation"

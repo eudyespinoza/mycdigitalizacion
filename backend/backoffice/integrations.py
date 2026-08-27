@@ -82,6 +82,19 @@ INTEGRATION_DEFINITIONS = {
         ("base_url",),
         ("access_token",),
     ),
+    "arca_a13": IntegrationDefinition(
+        "Identidad fiscal ARCA · Padrón A13",
+        ("represented_cuit", "wsaa_url", "a13_url"),
+        (
+            "certificate_pem",
+            "private_key_pem",
+            "private_key_passphrase",
+            "pfx_base64",
+            "pfx_password",
+        ),
+        ("represented_cuit",),
+        (),
+    ),
     "smtp": IntegrationDefinition(
         "Correo transaccional",
         ("host", "port", "use_tls", "from_email"),
@@ -130,6 +143,25 @@ def get_configuration_status(configuration, definition, secrets=None):
         for field in definition.required_public
     )
     complete = complete and all(secret_values.get(field) for field in definition.required_secrets)
+    if definition is INTEGRATION_DEFINITIONS["arca_a13"]:
+        from django.core.exceptions import ValidationError
+
+        from accounts.models import normalize_cuit
+
+        represented_cuit = configuration.public_config.get("represented_cuit", "")
+        try:
+            normalize_cuit(str(represented_cuit))
+            valid_represented_cuit = True
+        except ValidationError:
+            valid_represented_cuit = False
+        has_pem_bundle = bool(
+            secret_values.get("certificate_pem")
+            and secret_values.get("private_key_pem")
+        )
+        has_pfx_bundle = bool(secret_values.get("pfx_base64"))
+        complete = complete and valid_represented_cuit and (
+            has_pem_bundle or has_pfx_bundle
+        )
     if (
         definition is INTEGRATION_DEFINITIONS["geolocation"]
         and configuration.public_config.get("provider") == "google_maps"

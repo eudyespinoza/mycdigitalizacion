@@ -36,6 +36,22 @@ function Field({
       </label>
     );
   }
+  if (field.type === "file") {
+    return (
+      <label>
+        <span>{field.label}</span>
+        {configured && <small className="secret-configured">Configurada</small>}
+        <input
+          accept={field.accept}
+          aria-label={field.label}
+          name={field.key}
+          type="file"
+        />
+        {configured && <small>Dejá el campo vacío para conservar el archivo actual.</small>}
+        {field.hint && <small>{field.hint}</small>}
+      </label>
+    );
+  }
   return (
     <label>
       <span>{field.label}</span>
@@ -51,6 +67,21 @@ function Field({
       {field.hint && <small>{field.hint}</small>}
     </label>
   );
+}
+
+
+function readSecretFile(file: File, encoding: "text" | "base64") {
+  if (!file.name || file.size === 0) return Promise.resolve("");
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("No pudimos leer el archivo."));
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      resolve(encoding === "base64" ? result.split(",", 2)[1] ?? "" : result);
+    };
+    if (encoding === "base64") reader.readAsDataURL(file);
+    else reader.readAsText(file);
+  });
 }
 
 
@@ -70,7 +101,8 @@ export function IntegrationEditor({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setState("saving");
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const public_config = Object.fromEntries(
       definition.public.map((field) => {
         if (field.type === "boolean") return [field.key, form.has(field.key)];
@@ -78,10 +110,23 @@ export function IntegrationEditor({
         return [field.key, field.type === "number" && value ? Number(value) : value];
       }),
     );
-    const secrets = Object.fromEntries(
-      definition.secrets.map((field) => [field.key, String(form.get(field.key) ?? "")]),
-    );
     try {
+      const secrets = Object.fromEntries(await Promise.all(
+        definition.secrets.map(async (field) => {
+          const value = form.get(field.key);
+          if (field.type === "file") {
+            const input = formElement.elements.namedItem(field.key);
+            const file = input instanceof HTMLInputElement ? input.files?.[0] : undefined;
+            return [
+              field.key,
+              file
+                ? await readSecretFile(file, field.encoding ?? "text")
+                : "",
+            ];
+          }
+          return [field.key, String(value ?? "")];
+        }),
+      ));
       const next = await onSave({
         enabled: form.has("enabled"),
         environment: String(form.get("environment")) as IntegrationUpdate["environment"],

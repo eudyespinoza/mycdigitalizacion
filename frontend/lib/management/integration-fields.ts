@@ -4,9 +4,11 @@ import type { IntegrationProvider } from "@/lib/management/types";
 export type IntegrationField = {
   key: string;
   label: string;
-  type?: "text" | "url" | "email" | "number" | "boolean" | "password" | "select";
+  type?: "text" | "url" | "email" | "number" | "boolean" | "password" | "select" | "file";
   hint?: string;
   options?: Array<{ value: string; label: string }>;
+  accept?: string;
+  encoding?: "text" | "base64";
 };
 
 
@@ -66,6 +68,58 @@ export const integrationFields: Record<
     description: "Validación de identidad del titular mediante SID RENAPER.",
     public: [{ key: "base_url", label: "URL de SID", type: "url" }],
     secrets: [{ key: "access_token", label: "Access token", type: "password" }],
+  },
+  arca_a13: {
+    description: "Validación fiscal contra ARCA mediante Padrón A13.",
+    public: [
+      { key: "represented_cuit", label: "CUIT representada" },
+      {
+        key: "wsaa_url",
+        label: "URL de WSAA (opcional)",
+        type: "url",
+        hint: "Dejala vacía para usar el endpoint oficial del ambiente seleccionado.",
+      },
+      {
+        key: "a13_url",
+        label: "URL de Padrón A13 (opcional)",
+        type: "url",
+        hint: "Dejala vacía para usar el endpoint oficial del ambiente seleccionado.",
+      },
+    ],
+    secrets: [
+      {
+        key: "certificate_pem",
+        label: "Certificado ARCA (.crt o .pem)",
+        type: "file",
+        accept: ".crt,.cer,.pem,application/x-pem-file",
+        encoding: "text",
+      },
+      {
+        key: "private_key_pem",
+        label: "Clave privada ARCA (.key o .pem)",
+        type: "file",
+        accept: ".key,.pem,application/x-pem-file",
+        encoding: "text",
+      },
+      {
+        key: "private_key_passphrase",
+        label: "Contraseña de la clave privada (opcional)",
+        type: "password",
+      },
+      {
+        key: "pfx_base64",
+        label: "Certificado ARCA (.pfx o .p12)",
+        type: "file",
+        accept: ".pfx,.p12,application/x-pkcs12",
+        encoding: "base64",
+        hint: "Usá este archivo en lugar del par certificado y clave privada.",
+      },
+      {
+        key: "pfx_password",
+        label: "Contraseña del PFX/P12 (opcional)",
+        type: "password",
+      },
+    ],
   },
   smtp: {
     description: "Mensajes de verificación, pedidos, pagos y seguimiento.",
