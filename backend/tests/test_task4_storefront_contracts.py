@@ -212,6 +212,30 @@ def test_registration_accepts_and_persists_checkout_profile_fields(client):
 
 
 @pytest.mark.django_db
+def test_customer_me_defaults_missing_profile_relations_to_editable_blank_fields(
+    client,
+    django_user_model,
+):
+    customer = django_user_model.objects.create_user(
+        email="profile-missing@example.test",
+        password="Correct-Horse-Battery-Staple-42",
+        email_verified_at=timezone.now(),
+    )
+    client.force_login(customer)
+
+    response = client.get("/api/v1/customers/me/")
+
+    assert response.status_code == 200
+    assert response.json()["profile"] == {
+        "first_name": "",
+        "last_name": "",
+        "phone": "",
+    }
+    assert response.json()["masked_dni"] == ""
+    assert response.json()["masked_cuit"] == ""
+
+
+@pytest.mark.django_db
 def test_profile_patch_requires_csrf_and_returns_only_masked_dni(django_user_model):
     user = verified_user(django_user_model)
     csrf_client = Client(enforce_csrf_checks=True)

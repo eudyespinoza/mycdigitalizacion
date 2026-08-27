@@ -2,6 +2,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from accounts.models import (
@@ -121,9 +122,26 @@ class CustomerUpdateRequestSerializer(serializers.Serializer):
 
 
 class CustomerSerializer(serializers.ModelSerializer):
-    profile = ProfileSerializer(read_only=True)
-    masked_dni = serializers.CharField(source="customer_profile.masked_dni", read_only=True)
-    masked_cuit = serializers.CharField(source="customer_profile.masked_cuit", read_only=True)
+    profile = serializers.SerializerMethodField()
+    masked_dni = serializers.SerializerMethodField()
+    masked_cuit = serializers.SerializerMethodField()
+
+    @extend_schema_field(ProfileSerializer)
+    def get_profile(self, user):
+        profile = getattr(user, "profile", None)
+        if profile is None:
+            return {"first_name": "", "last_name": "", "phone": ""}
+        return ProfileSerializer(profile).data
+
+    @extend_schema_field(serializers.CharField())
+    def get_masked_dni(self, user):
+        customer = getattr(user, "customer_profile", None)
+        return customer.masked_dni if customer else ""
+
+    @extend_schema_field(serializers.CharField())
+    def get_masked_cuit(self, user):
+        customer = getattr(user, "customer_profile", None)
+        return customer.masked_cuit if customer else ""
 
     class Meta:
         model = get_user_model()
