@@ -46,3 +46,43 @@ test("checkout keeps completed data visible with a check before advancing withou
 
   expect(screen.getByRole("heading", { name: "Elegí cómo recibir" })).toBeVisible();
 });
+
+test("checkout links to fiscal data when identity data blocks the first step", async () => {
+  const responses: Record<string, unknown> = {
+    "/api/v1/customers/me/": {
+      id: 1,
+      email: "cliente@example.com",
+      email_verified_at: "2026-08-24T10:00:00Z",
+      is_staff: false,
+      profile: { first_name: "", last_name: "", phone: "" },
+      masked_dni: "",
+      masked_cuit: "",
+    },
+    "/api/v1/identity/status/": { status: "not_required", required: false },
+    "/api/v1/addresses/": [],
+    "/api/v1/billing-profiles/": [],
+    "/api/v1/storefront/home/": {
+      settings: { pickup_enabled: false, pickup_label: "", pickup_address: "", pickup_hours: "" },
+    },
+  };
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const path = new URL(String(input), "http://localhost").pathname;
+    return new Response(JSON.stringify(responses[path]), {
+      status: responses[path] ? 200 : 404,
+      headers: { "Content-Type": "application/json" },
+    });
+  }));
+
+  render(<CheckoutFlow />);
+  fireEvent.click(screen.getByRole("button", { name: "Revisar mis datos" }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("Completá y guardá tu DNI para continuar.");
+  expect(screen.getByRole("link", { name: "Completar datos personales" })).toHaveAttribute(
+    "href",
+    "/cuenta",
+  );
+  expect(screen.getByRole("link", { name: "Cargar datos fiscales" })).toHaveAttribute(
+    "href",
+    "/cuenta/fiscal",
+  );
+});

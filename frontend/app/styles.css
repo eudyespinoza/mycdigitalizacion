@@ -359,12 +359,12 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .checkout-resume { width: min(100%, 620px); display: grid; gap: 10px; }
 .checkout-resume .active-checkout-card { margin: 0; }
 .checkout-resume > .text-button { justify-self: start; }
-.checkout-stepper { list-style: none; margin: 0; padding: 20px; border-radius: 16px; background: var(--surface-cold); }
+.checkout-stepper { grid-column: 1; grid-row: 1 / span 8; align-self: start; list-style: none; margin: 0; padding: 20px; border-radius: 16px; background: var(--surface-cold); }
 .checkout-stepper li { min-height: 56px; display: flex; align-items: center; gap: 12px; color: var(--muted); }
 .checkout-stepper li span { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid #8490a4; border-radius: 50%; }
 .checkout-stepper li.active { color: var(--ink); font-weight: 800; }
 .checkout-stepper li.active span { border-color: var(--cyan-action); background: var(--cyan-action); color: white; }
-.checkout-stage { max-width: 700px; padding: 32px; border-radius: 16px; background: var(--surface-elevated); box-shadow: var(--shadow-card); }
+.checkout-stage { grid-column: 2; width: 100%; max-width: 700px; padding: 32px; border-radius: 16px; background: var(--surface-elevated); box-shadow: var(--shadow-card); }
 .checkout-stage h2, .state-panel h2 { font-size: 1.8rem; }
 .checkout-stage > label:not([for]) { min-height: 50px; display: flex; align-items: center; gap: 10px; margin: 8px 0; }
 .checkout-stage input[type="radio"] { width: 20px; min-height: 20px; }
@@ -389,6 +389,11 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .state-approved { background: #e9fbf6; color: #004d3e; }
 .inline-error, .field-error { color: var(--danger); font-weight: 750; }
 .inline-error { padding: 14px 18px; border-radius: 12px; background: #fff0f3; }
+.checkout-error { grid-column: 2; width: min(100%, 700px); margin: 0; }
+.checkout-error p { margin: 0; }
+.checkout-error-actions { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 10px; }
+.checkout-error-actions a { color: var(--danger); text-decoration: underline; text-underline-offset: 3px; }
+.checkout-layout > .management-notice { grid-column: 2; width: min(100%, 700px); margin: 0; }
 .management-save-error { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .management-save-error a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .field-error { display: block; margin-top: 6px; font-size: .88rem; }
@@ -603,7 +608,8 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
   .cart-summary { position: static; }
   .checkout-stepper { display: grid; grid-template-columns: repeat(4, 1fr); padding: 12px; }
   .checkout-stepper li { flex-direction: column; justify-content: center; gap: 5px; font-size: .7rem; text-align: center; }
-  .state-panel { grid-column: 1; }
+  .checkout-stepper { grid-column: 1; grid-row: auto; }
+  .state-panel, .checkout-stage, .checkout-error, .checkout-layout > .management-notice { grid-column: 1; }
   .checkout-stage { padding: 24px; }
   .auth-page { padding-block: 16px 50px; }
   .auth-page h1 { font-size: 3rem; }
