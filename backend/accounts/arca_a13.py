@@ -286,7 +286,7 @@ class ArcaA13Client:
             {"in0": self._signed_tra()},
             namespace=WSAA_NAMESPACE,
         )
-        root = self._post(self.wsaa_url, envelope, soap_action="loginCms")
+        root = self._post(self.wsaa_url, envelope)
         serialized_ticket = _first_text(root, "loginCmsReturn")
         if not serialized_ticket:
             raise ArcaInvalidResponse("WSAA devolvió una respuesta inválida.")
@@ -326,8 +326,6 @@ class ArcaA13Client:
         self,
         url: str,
         body: bytes,
-        *,
-        soap_action: str,
     ) -> ElementTree.Element:
         try:
             status, raw = self.transport.post(
@@ -335,7 +333,7 @@ class ArcaA13Client:
                 body,
                 headers={
                     "Content-Type": "text/xml; charset=utf-8",
-                    "SOAPAction": soap_action,
+                    "SOAPAction": "",
                     "Accept": "text/xml",
                 },
                 timeout=self.timeout,
@@ -363,11 +361,14 @@ class ArcaA13Client:
         return self._post(
             self.a13_url,
             self._soap_envelope(operation, {**auth, **params}),
-            soap_action=operation,
         )
 
     def dummy(self) -> bool:
-        root = self._a13_call("dummy", {})
+        self._ticket()
+        root = self._post(
+            self.a13_url,
+            self._soap_envelope("dummy", {}),
+        )
         statuses = [
             _first_text(root, name).upper()
             for name in ("appserver", "authserver", "dbserver")

@@ -192,6 +192,10 @@ def test_pfx_credentials_and_production_endpoints_support_dummy(certificate_bund
     assert client.dummy() is True
     assert transport.requests[0]["url"] == WSAA_PRODUCTION_URL
     assert transport.requests[1]["url"] == A13_PRODUCTION_URL
+    assert "<ns1:dummy" in transport.requests[1]["body"]
+    assert "token-value" not in transport.requests[1]["body"]
+    assert "20123456786" not in transport.requests[1]["body"]
+    assert all(request["headers"]["SOAPAction"] == "" for request in transport.requests)
 
 
 def test_invalid_credentials_and_xml_return_safe_errors(certificate_bundle):
