@@ -69,7 +69,7 @@ describe("configuración e integraciones", () => {
     ));
   });
 
-  test("carga certificados ARCA como texto o base64 sin rellenar secretos guardados", async () => {
+  test("carga certificados PEM de ARCA y limpia un PFX anterior", async () => {
     const arca: IntegrationConfiguration = {
       ...mercadoPago,
       provider: "arca_a13",
@@ -93,17 +93,47 @@ describe("configuración e integraciones", () => {
     fireEvent.change(screen.getByLabelText("Clave privada ARCA (.key o .pem)"), {
       target: { files: [new File(["PRIVATE KEY"], "arca.key", { type: "application/x-pem-file" })] },
     });
-    fireEvent.change(screen.getByLabelText("Certificado ARCA (.pfx o .p12)"), {
-      target: { files: [new File([new Uint8Array([1, 2, 3])], "arca.pfx")] },
-    });
     fireEvent.click(screen.getByRole("button", { name: "Guardar configuración" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       secrets: expect.objectContaining({
         certificate_pem: "CERTIFICATE",
         private_key_pem: "PRIVATE KEY",
-        pfx_base64: "AQID",
       }),
+      clear_secret_fields: ["pfx_base64", "pfx_password"],
+    })));
+  });
+
+  test("carga un PFX de ARCA como base64 y limpia el bundle PEM anterior", async () => {
+    const arca: IntegrationConfiguration = {
+      ...mercadoPago,
+      provider: "arca_a13",
+      label: "Identidad fiscal ARCA · Padrón A13",
+      environment: "production",
+      public_config: { represented_cuit: "20123456786" },
+      secret_fields: {
+        certificate_pem: true,
+        private_key_pem: true,
+        private_key_passphrase: true,
+        pfx_base64: false,
+        pfx_password: false,
+      },
+    };
+    const onSave = vi.fn().mockResolvedValue(arca);
+    render(<IntegrationEditor integration={arca} onSave={onSave} />);
+
+    fireEvent.change(screen.getByLabelText("Certificado ARCA (.pfx o .p12)"), {
+      target: { files: [new File([new Uint8Array([1, 2, 3])], "arca.pfx")] },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar configuración" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      secrets: expect.objectContaining({ pfx_base64: "AQID" }),
+      clear_secret_fields: [
+        "certificate_pem",
+        "private_key_pem",
+        "private_key_passphrase",
+      ],
     })));
   });
 

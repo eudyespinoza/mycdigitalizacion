@@ -127,11 +127,24 @@ export function IntegrationEditor({
           return [field.key, String(value ?? "")];
         }),
       ));
+      let clear_secret_fields: string[] | undefined;
+      if (current.provider === "arca_a13") {
+        if (secrets.pfx_base64) {
+          clear_secret_fields = [
+            "certificate_pem",
+            "private_key_pem",
+            "private_key_passphrase",
+          ];
+        } else if (secrets.certificate_pem && secrets.private_key_pem) {
+          clear_secret_fields = ["pfx_base64", "pfx_password"];
+        }
+      }
       const next = await onSave({
         enabled: form.has("enabled"),
         environment: String(form.get("environment")) as IntegrationUpdate["environment"],
         public_config,
         secrets,
+        ...(clear_secret_fields ? { clear_secret_fields } : {}),
       });
       setCurrent(next);
       setState("saved");
