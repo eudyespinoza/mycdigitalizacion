@@ -336,4 +336,3 @@ If a regression caused by these changes required a repair, commit only the affec
 ```bash
 git commit -m "fix: close ARCA fiscal identity regressions"
 ```
-
