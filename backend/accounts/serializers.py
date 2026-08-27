@@ -3,13 +3,19 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema_field
-from rest_framework import serializers
+from rest_framework import serializers, status
+from rest_framework.exceptions import APIException
 
+from accounts.arca_a13 import (
+    ArcaConfigurationError,
+    ArcaInvalidResponse,
+    ArcaUnavailableError,
+)
+from accounts.fiscal_identity import FiscalIdentityError, resolve_fiscal_identifier
 from accounts.models import (
     BillingProfile,
     CustomerProfile,
     Profile,
-    normalize_cuit,
     normalize_dni,
 )
 
@@ -157,6 +163,19 @@ class CustomerSerializer(serializers.ModelSerializer):
         read_only_fields = ("is_staff",)
 
 
+class FiscalIdentityServiceUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "fiscal_identity_unavailable"
+
+    def __init__(self):
+        super().__init__(
+            {
+                "code": self.default_code,
+                "detail": "No pudimos validar los datos con ARCA. Intentá nuevamente.",
+            }
+        )
+
+
 class BillingProfileSerializer(serializers.ModelSerializer):
     masked_cuit = serializers.CharField(read_only=True)
     cuit = serializers.CharField(write_only=True, required=False)
@@ -175,10 +194,11 @@ class BillingProfileSerializer(serializers.ModelSerializer):
 
     def validate_cuit(self, value):
         try:
-            normalize_cuit(value)
-        except DjangoValidationError as exc:
-            raise serializers.ValidationError(exc.messages) from exc
-        return value
+            return resolve_fiscal_identifier(value)
+        except FiscalIdentityError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+        except (ArcaConfigurationError, ArcaInvalidResponse, ArcaUnavailableError) as exc:
+            raise FiscalIdentityServiceUnavailable() from exc
 
     def create(self, validated_data):
         cuit = validated_data.pop("cuit", "")
