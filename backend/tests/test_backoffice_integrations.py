@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 import pytest
 from django.db import connection
@@ -106,6 +107,59 @@ def test_arca_configuration_accepts_either_credential_bundle_and_never_exposes_s
     )
     assert pfx_only.status_code == 200
     assert pfx_only.json()["status"] == "configured"
+
+
+@override_settings(CONFIG_ENCRYPTION_MASTER_KEY="integration-config-master-key-for-tests")
+def test_arca_test_endpoint_runs_dummy_and_reports_safe_failures(django_user_model):
+    from accounts.arca_a13 import ArcaUnavailableError
+
+    client = owner_client(django_user_model)
+    endpoint = "/api/v1/management/integrations/arca_a13/"
+    saved = client.patch(
+        endpoint,
+        {
+            "enabled": True,
+            "environment": "sandbox",
+            "public_config": {"represented_cuit": "20123456786"},
+            "secrets": {
+                "certificate_pem": "certificate-value",
+                "private_key_pem": "private-key-value",
+            },
+        },
+        format="json",
+    )
+    assert saved.status_code == 200
+
+    class SuccessfulClient:
+        def dummy(self):
+            return True
+
+    with patch(
+        "accounts.fiscal_identity.get_arca_a13_client",
+        return_value=SuccessfulClient(),
+    ):
+        tested = client.post(f"{endpoint}test/")
+
+    assert tested.status_code == 200
+    assert tested.json()["last_test_status"] == "success"
+    assert tested.json()["last_test_message"] == "Conexión con ARCA verificada correctamente."
+
+    class UnavailableClient:
+        def dummy(self):
+            raise ArcaUnavailableError("SECRET transport diagnostics")
+
+    with patch(
+        "accounts.fiscal_identity.get_arca_a13_client",
+        return_value=UnavailableClient(),
+    ):
+        failed = client.post(f"{endpoint}test/")
+
+    assert failed.status_code == 502
+    assert failed.json() == {
+        "code": "unavailable",
+        "detail": "No pudimos conectar con ARCA. Revisá las credenciales y el ambiente.",
+    }
+    assert "SECRET" not in json.dumps(failed.json())
 
 
 @pytest.mark.postgresql

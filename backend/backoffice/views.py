@@ -234,6 +234,74 @@ class IntegrationTestView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if provider == "arca_a13":
+            from accounts.fiscal_identity import get_arca_a13_client
+            from providers import ProviderError
+
+            adapter = get_arca_a13_client()
+            if adapter is None:
+                return Response(
+                    {
+                        "code": "integration_incomplete",
+                        "detail": "Completá el CUIT representado y las credenciales de ARCA.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                connected = adapter.dummy()
+            except ProviderError as exc:
+                configuration.last_test_status = "error"
+                configuration.last_tested_at = timezone.now()
+                configuration.last_test_message = (
+                    "No pudimos conectar con ARCA. Revisá las credenciales y el ambiente."
+                )
+                configuration.save(
+                    update_fields=(
+                        "last_test_status",
+                        "last_tested_at",
+                        "last_test_message",
+                        "updated_at",
+                    )
+                )
+                return Response(
+                    {"code": exc.code, "detail": configuration.last_test_message},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            if not connected:
+                configuration.last_test_status = "error"
+                configuration.last_tested_at = timezone.now()
+                configuration.last_test_message = (
+                    "ARCA respondió, pero uno de sus servicios no está disponible."
+                )
+                configuration.save(
+                    update_fields=(
+                        "last_test_status",
+                        "last_tested_at",
+                        "last_test_message",
+                        "updated_at",
+                    )
+                )
+                return Response(
+                    {
+                        "code": "provider_unavailable",
+                        "detail": configuration.last_test_message,
+                    },
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            configuration.last_test_status = "success"
+            configuration.last_tested_at = timezone.now()
+            configuration.last_test_message = (
+                "Conexión con ARCA verificada correctamente."
+            )
+            configuration.save(
+                update_fields=(
+                    "last_test_status",
+                    "last_tested_at",
+                    "last_test_message",
+                    "updated_at",
+                )
+            )
+            return Response(serialize_configuration(provider, configuration))
         if provider in {"correo_argentino", "andreani"}:
             from commerce.provider_config import get_carrier_adapter
             from providers import ProviderError
