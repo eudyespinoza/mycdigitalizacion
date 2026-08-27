@@ -73,6 +73,7 @@ describe("opciones de entrega del checkout", () => {
 
     render(<CheckoutFlow />);
     fireEvent.click(screen.getByRole("button", { name: "Revisar mis datos" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continuar a entrega" }));
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Elegí cómo recibir" })).toBeInTheDocument());
     expect(screen.getByRole("radio", { name: "Retiro en tienda" })).toBeVisible();
@@ -118,6 +119,7 @@ describe("opciones de entrega del checkout", () => {
 
     render(<CartProvider><CheckoutFlow /></CartProvider>);
     fireEvent.click(screen.getByRole("button", { name: "Revisar mis datos" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continuar a entrega" }));
     await screen.findByRole("heading", { name: "Elegí cómo recibir" });
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
     fireEvent.click(await screen.findByRole("button", { name: "Cotizar envío" }));

@@ -1,5 +1,6 @@
 "use client";
 
+import { CheckCircle } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { ApiError, apiRequest } from "@/lib/api";
@@ -63,6 +64,19 @@ export function CheckoutFlow() {
   const pickupLabel = settings?.pickup_label?.trim() || "Retiro en tienda";
   const pickupAddress = settings?.pickup_address?.trim() || "El punto de retiro se coordinará con la tienda.";
   const pickupHours = settings?.pickup_hours?.trim() || "El horario se confirmará con tu pedido.";
+  const profileComplete = Boolean(
+    customer?.email_verified_at
+    && customer.masked_dni
+    && customer.profile.first_name
+    && customer.profile.last_name
+    && customer.profile.phone,
+  );
+  const identityComplete = Boolean(
+    identity?.required === false
+    || identity?.status === "not_required"
+    || identity?.status === "approved",
+  );
+  const dataComplete = profileComplete && identityComplete;
 
   if (cartContext?.cart?.active_checkout) {
     return <div className="checkout-resume"><ActiveCheckoutCard checkout={cartContext.cart.active_checkout} /><Link className="text-button" href="/carrito">Modificar productos</Link></div>;
@@ -90,8 +104,8 @@ export function CheckoutFlow() {
       if (!home.settings.pickup_enabled) setMethod("shipping");
       if (!me.email_verified_at) throw new ApiError(422, "email_not_verified", "Email pendiente");
       if (!me.masked_dni || !me.profile.first_name || !me.profile.last_name || !me.profile.phone) throw new ApiError(422, "identity_missing", "Perfil incompleto");
-      if (identityStatus.required === false || identityStatus.status === "not_required") { setState("idle"); setStep(1); }
-      else if (identityStatus.status === "approved") { setState("idle"); setStep(1); }
+      if (identityStatus.required === false || identityStatus.status === "not_required") setState("idle");
+      else if (identityStatus.status === "approved") setState("idle");
       else if (identityStatus.status === "pending_review") setState("pending_review");
       else if (identityStatus.status === "rejected") setState("rejected");
       else setState("idle");
@@ -104,8 +118,8 @@ export function CheckoutFlow() {
     try {
       const result = await apiRequest<IdentityStatus>("/identity/validate/", { method: "POST", body: JSON.stringify({ consent: true }) });
       setIdentity(result);
-      if (result.required === false || result.status === "not_required") { setState("idle"); setStep(1); }
-      else if (result.status === "approved") { setState("idle"); setStep(1); }
+      if (result.required === false || result.status === "not_required") setState("idle");
+      else if (result.status === "approved") setState("idle");
       else if (result.status === "rejected") setState("rejected");
       else setState("pending_review");
     } catch (cause) { recover(cause, "No pudimos validar la identidad.", 0); }
@@ -114,6 +128,14 @@ export function CheckoutFlow() {
   const continueDelivery = () => {
     if (method === "shipping" && (!selectedAddress || selectedAddress.needs_review)) { setError("Elegí una dirección confirmada o confirmala antes de seguir."); return; }
     setError(""); setStep(2);
+  };
+  const continueFromData = () => {
+    if (!dataComplete) {
+      setError("Completá y validá tus datos antes de continuar.");
+      return;
+    }
+    setError("");
+    setStep(1);
   };
   const getQuote = async () => {
     if (method === "pickup") { setQuotes([]); setSelectedQuoteId(""); setStep(3); return; }
@@ -156,7 +178,7 @@ export function CheckoutFlow() {
     {error && <p className="inline-error" role="alert">{error}</p>}
     {step === 3 && quoteErrors.map((message) => <p className="management-notice" key={message}>{message}</p>)}
     {state !== "idle" && <CheckoutStatePanel orderId={pendingOrderId} state={state} />}
-    {!pendingOrderId && step === 0 && <section className="checkout-stage"><h2>Tus datos</h2>{customer ? <div className="review-block"><p><strong>{customer.profile.first_name} {customer.profile.last_name}</strong><br />{customer.email}<br />DNI {customer.masked_dni || "pendiente"}</p><Link href="/cuenta">Editar perfil</Link>{identity?.required !== false && identity?.status !== "not_required" && identity?.status !== "approved" && <><label className="check-label"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /> Autorizo la verificación de mis datos para esta compra.</label><button className="button primary" disabled={busy} onClick={() => void validateIdentity()}>Verificar mis datos</button></>}</div> : <><p>Antes de continuar, revisá que tus datos estén completos.</p><button className="button primary" disabled={busy} onClick={() => void loadAccount()}>{busy ? "Verificando…" : "Revisar mis datos"}</button></>}</section>}
+    {!pendingOrderId && step === 0 && <section className="checkout-stage"><h2>Tus datos</h2>{customer ? <div className="review-block">{dataComplete && <p className="identity-review-status" role="status"><CheckCircle aria-hidden="true" size={24} weight="fill" />Datos completos</p>}<p><strong>{customer.profile.first_name} {customer.profile.last_name}</strong><br />{customer.email}<br />DNI {customer.masked_dni || "pendiente"}</p><Link href="/cuenta">Editar perfil</Link>{identity?.required !== false && identity?.status !== "not_required" && identity?.status !== "approved" && <><label className="check-label"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /> Autorizo la verificación de mis datos para esta compra.</label><button className="button primary" disabled={busy} onClick={() => void validateIdentity()}>Verificar mis datos</button></>}{dataComplete && <button className="button primary" type="button" onClick={continueFromData}>Continuar a entrega</button>}</div> : <><p>Antes de continuar, revisá que tus datos estén completos.</p><button className="button primary" disabled={busy} type="button" onClick={() => void loadAccount()}>{busy ? "Verificando…" : "Revisar mis datos"}</button></>}</section>}
     {!pendingOrderId && step === 1 && <section className="checkout-stage"><h2>Elegí cómo recibir</h2><label><input type="radio" name="method" checked={method === "shipping"} onChange={() => setMethod("shipping")} /> Envío a domicilio</label>{pickupAvailable && <label><input type="radio" name="method" checked={method === "pickup"} onChange={() => setMethod("pickup")} /> {pickupLabel}</label>}{method === "shipping" && <><label htmlFor="checkout-address">Dirección</label><select id="checkout-address" value={addressId} onChange={(event) => setAddressId(Number(event.target.value))}><option value={0}>Elegí una dirección</option>{addresses.map((address) => <option key={address.id} value={address.id}>{address.label}: {address.raw_address}{address.needs_review ? " · sin confirmar" : ""}</option>)}</select><Link href="/cuenta/direcciones">Agregar o confirmar dirección</Link></>}<div className="checkout-actions"><button className="button secondary" onClick={() => setStep(0)}>Atrás</button><button className="button primary" onClick={continueDelivery}>Continuar</button></div></section>}
     {!pendingOrderId && step === 2 && <section className="checkout-stage"><h2>{method === "pickup" ? pickupLabel : "Cotizá el envío"}</h2><p>{method === "pickup" ? <>{pickupAddress}<br />{pickupHours}</> : `Dirección: ${selectedAddress?.raw_address ?? "sin elegir"}`}</p><div className="checkout-actions"><button className="button secondary" onClick={() => setStep(1)}>Editar entrega</button><button className="button primary" disabled={busy} onClick={() => void getQuote()}>{busy ? "Consultando…" : method === "pickup" ? "Continuar" : "Cotizar envío"}</button></div></section>}
     {!pendingOrderId && step === 3 && <section className="checkout-stage"><h2>Revisá antes de confirmar</h2>{method === "shipping" && <ShippingOptionSelector options={quotes} selectedId={selectedQuoteId} onSelect={setSelectedQuoteId} />}<div className="checkout-review"><section><h3>Productos</h3>{cartContext?.cart?.lines.map((line) => <p key={line.id}>{line.product_name}{line.variant_name ? ` · ${line.variant_name}` : ""} · {line.quantity} <strong>{formatMoney(line.line_total)}</strong></p>)}{cartContext?.cart && <p className="review-total">Total del carrito <strong>{formatMoney(cartContext.cart.total)}</strong></p>}<Link href="/carrito">Editar carrito</Link></section><section><h3>Entrega</h3><p>{method === "pickup" ? <><strong>{pickupLabel}</strong><br />{pickupAddress}<br />{pickupHours}</> : selectedAddress?.raw_address}</p>{quote && <p>{quote.amount_pending ? "Costo de envío a confirmar" : <>Envío {formatMoney(quote.total_amount)} · válido hasta {new Date(quote.expires_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</>}</p>}<button className="text-button" onClick={() => setStep(1)}>Editar entrega</button></section><section><h3>Datos fiscales</h3><label htmlFor="billing">Perfil fiscal</label><select id="billing" value={billingId} onChange={(event) => setBillingId(Number(event.target.value))}><option value={0}>Elegí un perfil</option>{billing.map((profile) => <option key={profile.id} value={profile.id}>{profile.label} · {profile.masked_cuit}</option>)}</select>{selectedBilling && <p>{selectedBilling.legal_name}</p>}<Link href="/cuenta/fiscal">Administrar perfiles</Link></section></div><p>{quote?.amount_pending ? "Crearemos el pedido y te avisaremos cuando el costo esté listo para pagar todo junto." : "Te vamos a llevar a Mercado Pago para completar el pago."}</p><div className="checkout-actions"><button className="button secondary" onClick={() => setStep(2)}>Atrás</button><button className="button primary" disabled={!billingId || busy || !cartContext?.cart?.lines.length || (method === "shipping" && !quote)} onClick={() => void confirm()}>{busy ? "Confirmando…" : quote?.amount_pending ? "Solicitar coordinación" : "Ir a Mercado Pago"}</button></div></section>}

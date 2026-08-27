@@ -5,7 +5,7 @@ import { CheckoutFlow } from "@/components/checkout/checkout-flow";
 
 afterEach(() => vi.unstubAllGlobals());
 
-test("checkout advances to delivery without RENAPER controls when verification is not required", async () => {
+test("checkout keeps completed data visible with a check before advancing without RENAPER", async () => {
   const responses: Record<string, unknown> = {
     "/api/v1/customers/me/": {
       id: 1,
@@ -34,7 +34,15 @@ test("checkout advances to delivery without RENAPER controls when verification i
   render(<CheckoutFlow />);
   fireEvent.click(screen.getByRole("button", { name: "Revisar mis datos" }));
 
-  await waitFor(() => expect(screen.getByRole("heading", { name: "Elegí cómo recibir" })).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText("Datos completos")).toBeVisible());
+  expect(screen.getByText("Ricardo Savio")).toBeVisible();
+  expect(screen.getByText(/DNI ••••3217/)).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Tus datos" })).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "Elegí cómo recibir" })).not.toBeInTheDocument();
   expect(screen.queryByText(/Autorizo la verificación/)).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Verificar mis datos" })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Continuar a entrega" }));
+
+  expect(screen.getByRole("heading", { name: "Elegí cómo recibir" })).toBeVisible();
 });

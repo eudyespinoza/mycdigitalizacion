@@ -137,8 +137,20 @@ describe("Fix Round 1 contracts", () => {
     fireEvent.change(screen.getByLabelText("Teléfono"), { target: { value: "1155551234" } });
     fireEvent.change(screen.getByLabelText("DNI"), { target: { value: "30123123" } });
     fireEvent.click(screen.getByRole("button", { name: "Guardar perfil" }));
-    await screen.findByText("DNI guardado: ••••5678");
+    await waitFor(() => expect(screen.getByLabelText("DNI")).toHaveValue("••••5678"));
+    expect(screen.getByLabelText("DNI")).toHaveAttribute("readonly");
     expect(save).toHaveBeenCalledWith({ first_name: "Ana", last_name: "Pérez", phone: "1155551234", dni: "30123123" });
+  });
+
+  test("a saved DNI is read-only for the customer and links to problem reporting", () => {
+    render(<ProfileForm customer={customer} onSave={vi.fn()} />);
+
+    expect(screen.getByLabelText("DNI")).toHaveValue("••••5678");
+    expect(screen.getByLabelText("DNI")).toHaveAttribute("readonly");
+    expect(screen.getByRole("link", { name: "Reportar un problema" })).toHaveAttribute(
+      "href",
+      "/reportar-problema",
+    );
   });
 
   test("backend media hosts normalize to public same-origin media without allowing arbitrary origins", () => {

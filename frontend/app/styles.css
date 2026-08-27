@@ -299,6 +299,8 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .purchase-panel .button { margin-top: 18px; }
 .compare-price { margin: -4px 0 8px; color: var(--muted); text-decoration: line-through; }
 .success-message { color: var(--success); font-weight: 800; }
+.profile-locked-identity p { max-width: 62ch; margin: 7px 0 0; color: var(--muted); font-size: .9rem; }
+.profile-locked-identity input[readonly] { background: var(--surface-cold); color: var(--ink); cursor: not-allowed; }
 .inline-notice, .shipping-estimator { margin-top: 20px; padding: 20px; border-radius: 12px; background: var(--surface-cyan); }
 .variant-metadata p { padding: 10px 0; }
 .product-info details { border-top: 1px solid var(--line); padding-top: 18px; }
@@ -368,6 +370,8 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .checkout-stage input[type="radio"] { width: 20px; min-height: 20px; }
 .checkout-stage .button { display: flex; margin-top: 24px; }
 .checkout-stage > a { display: block; margin-top: 14px; color: var(--blue); }
+.identity-review-status { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; color: var(--success); font-weight: 800; }
+.review-block > .button { width: fit-content; }
 .checkout-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
 .checkout-review { display: grid; gap: 16px; }
 .checkout-review section { padding: 18px; border-radius: 12px; background: var(--surface-cold); }

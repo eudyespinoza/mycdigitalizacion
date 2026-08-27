@@ -43,6 +43,7 @@ export function CustomerDetailPanel({ initial }: { initial: ManagementCustomerDe
   const updateContact = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    const dni = String(data.get("dni") ?? "").trim();
     setSaving(true);
     setError("");
     try {
@@ -53,6 +54,7 @@ export function CustomerDetailPanel({ initial }: { initial: ManagementCustomerDe
           last_name: String(data.get("last_name") ?? ""),
           email: String(data.get("email") ?? ""),
           phone: String(data.get("phone") ?? ""),
+          ...(dni ? { dni } : {}),
         }),
       });
       setCustomer(updated);
@@ -189,7 +191,7 @@ export function CustomerDetailPanel({ initial }: { initial: ManagementCustomerDe
       </section>
 
       <ManagementFormDialog
-        description="Actualizá los datos de contacto. El DNI permanece protegido y no se modifica desde este formulario."
+        description="Actualizá los datos del cliente. El DNI/NIF sólo se reemplaza si ingresás uno nuevo."
         onClose={() => { if (!saving) setContactOpen(false); }}
         open={contactOpen}
         title="Editar cliente"
@@ -200,6 +202,7 @@ export function CustomerDetailPanel({ initial }: { initial: ManagementCustomerDe
             <label><span>Apellido</span><input defaultValue={customer.last_name} name="last_name" required /></label>
             <label><span>Email</span><input defaultValue={customer.email} name="email" required type="email" /></label>
             <label><span>Teléfono</span><input defaultValue={customer.phone} name="phone" type="tel" /></label>
+            <label className="field-wide"><span>DNI / NIF</span><input inputMode="numeric" name="dni" pattern="[0-9 .-]{8,14}" placeholder={customer.masked_dni || "Ingresá 8 dígitos"} /></label>
           </div>
           {error ? <p className="inline-error" role="alert">{error}</p> : null}
           <div className="management-form-actions">

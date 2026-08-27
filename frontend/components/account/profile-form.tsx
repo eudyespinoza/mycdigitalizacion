@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { ApiError, apiRequest } from "@/lib/api";
 import type { Customer } from "@/lib/types";
@@ -11,10 +12,13 @@ export function ProfileForm({ customer, onSave }: { customer: Customer; onSave?:
   const [saved, setSaved] = useState(customer);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
-  const save = onSave ?? (async (payload) => apiRequest<Customer>("/customers/me/", {
-    method: "PATCH",
-    body: JSON.stringify({ ...payload, ...(payload.dni ? { dni: payload.dni } : {}) }),
-  }));
+  const save = onSave ?? (async (payload) => {
+    const { dni, ...profile } = payload;
+    return apiRequest<Customer>("/customers/me/", {
+      method: "PATCH",
+      body: JSON.stringify({ ...profile, ...(dni ? { dni } : {}) }),
+    });
+  });
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -44,5 +48,5 @@ export function ProfileForm({ customer, onSave }: { customer: Customer; onSave?:
     return <div><label htmlFor={`profile-${name}`}>{label}</label><input id={`profile-${name}`} value={values[name]} onChange={(event) => setValues({ ...values, [name]: event.target.value })} aria-invalid={Boolean(errors[name])} aria-describedby={errors[name] ? errorId : undefined} {...props} />{errors[name] && <span id={errorId} className="field-error" role="alert">{errors[name]}</span>}</div>;
   };
 
-  return <form className="form-stack profile-form" onSubmit={(event) => void submit(event)} noValidate><h3>Datos para comprar</h3><div className="field-pair">{field("first_name", "Nombre", { autoComplete: "given-name" })}{field("last_name", "Apellido", { autoComplete: "family-name" })}</div>{field("phone", "Teléfono", { type: "tel", autoComplete: "tel" })}{field("dni", "DNI", { inputMode: "numeric", placeholder: saved.masked_dni ? "Dejalo vacío para conservarlo" : "Solo números" })}{saved.masked_dni && <p className="success-message" role="status">DNI guardado: {saved.masked_dni}</p>}{errors.form && <p className="inline-error" role="alert">{errors.form}</p>}<button className="button primary" disabled={busy}>{busy ? "Guardando…" : "Guardar perfil"}</button></form>;
+  return <form className="form-stack profile-form" onSubmit={(event) => void submit(event)} noValidate><h3>Datos para comprar</h3><div className="field-pair">{field("first_name", "Nombre", { autoComplete: "given-name" })}{field("last_name", "Apellido", { autoComplete: "family-name" })}</div>{field("phone", "Teléfono", { type: "tel", autoComplete: "tel" })}{saved.masked_dni ? <div className="profile-locked-identity"><label htmlFor="profile-dni">DNI</label><input aria-describedby="profile-dni-help" id="profile-dni" readOnly value={saved.masked_dni} /><p id="profile-dni-help">Por seguridad, sólo Administración puede corregir el DNI/NIF una vez guardado. <Link href="/reportar-problema">Reportar un problema</Link></p></div> : field("dni", "DNI", { inputMode: "numeric", placeholder: "Solo números" })}{errors.form && <p className="inline-error" role="alert">{errors.form}</p>}<button className="button primary" disabled={busy}>{busy ? "Guardando…" : "Guardar perfil"}</button></form>;
 }

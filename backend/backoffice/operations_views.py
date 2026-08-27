@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import (
     PermissionDenied,
@@ -13,7 +14,7 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 
 from accounts.email_policy import ensure_email_verified_when_delivery_is_unavailable
-from accounts.models import Profile
+from accounts.models import CustomerProfile, Profile
 from backoffice.catalog_views import ManagementPagination
 from backoffice.models import ManagementAuditEvent
 from backoffice.operations_serializers import (
@@ -271,6 +272,16 @@ class ManagementCustomerDetailView(generics.GenericAPIView):
                 customer.save(update_fields=["email", "email_verified_at"])
                 ensure_email_verified_when_delivery_is_unavailable(customer)
                 changed_fields.append("email")
+        dni = serializer.validated_data.get("dni", "")
+        if dni:
+            customer_profile, _ = CustomerProfile.objects.select_for_update().get_or_create(
+                user=customer,
+                defaults={"consent_version": settings.CURRENT_CONSENT_VERSION},
+            )
+            if customer_profile.get_dni() != dni:
+                customer_profile.set_dni(dni)
+                customer_profile.save(update_fields=("dni_encrypted", "dni_hash"))
+                changed_fields.append("dni")
         if changed_fields:
             ManagementAuditEvent.objects.create(
                 actor=request.user,

@@ -816,6 +816,15 @@ class CustomerMeView(generics.GenericAPIView):
                 defaults={"consent_version": settings.CURRENT_CONSENT_VERSION},
             )
             if "dni" in data:
+                if customer.dni_encrypted:
+                    raise serializers.ValidationError(
+                        {
+                            "dni": [
+                                "El DNI/NIF ya está guardado. Para corregirlo, reportá un problema "
+                                "y el equipo de Administración lo actualizará."
+                            ]
+                        }
+                    )
                 customer.set_dni(data["dni"])
                 customer.save(update_fields=("dni_encrypted", "dni_hash"))
         request.user.refresh_from_db()

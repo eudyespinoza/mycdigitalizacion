@@ -272,6 +272,28 @@ def test_profile_patch_rejects_invalid_dni_without_overwriting_existing_value(
     assert user.customer_profile.get_dni() == "12345678"
 
 
+@pytest.mark.django_db
+def test_profile_patch_cannot_replace_a_saved_dni(client, django_user_model):
+    user = verified_user(django_user_model, "dni-locked@example.test")
+    user.customer_profile.set_dni("12345678")
+    user.customer_profile.save(update_fields=("dni_encrypted", "dni_hash"))
+    client.force_login(user)
+
+    response = client.patch(
+        "/api/v1/customers/me/", {"dni": "30123456"}, content_type="application/json"
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "dni": [
+            "El DNI/NIF ya está guardado. Para corregirlo, reportá un problema "
+            "y el equipo de Administración lo actualizará."
+        ]
+    }
+    user.customer_profile.refresh_from_db()
+    assert user.customer_profile.get_dni() == "12345678"
+
+
 def make_address(user, **overrides):
     from locations.models import Address
 

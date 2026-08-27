@@ -73,15 +73,16 @@ describe("ficha de cliente", () => {
     const dialog = screen.getByRole("dialog", { name: "Editar cliente" });
     expect(within(dialog).getByLabelText("Nombre")).toHaveValue("Ana");
     expect(within(dialog).getByLabelText("Apellido")).toHaveValue("Pérez");
+    expect(within(dialog).getByLabelText("DNI / NIF")).toHaveAttribute("placeholder", "••••3456");
   });
 
   test("actualiza el contacto desde el formulario solicitado", async () => {
     vi.mocked(managementRequest).mockImplementation(async (_path, init) => {
       const payload = JSON.parse(String(init?.body));
-      if (payload.first_name !== "Eudys" || payload.phone !== "1134567890") {
+      if (payload.first_name !== "Eudys" || payload.phone !== "1134567890" || payload.dni !== "32129876") {
         throw new Error("Payload de contacto inválido");
       }
-      return { ...customer, name: "Eudys Espinoza", first_name: "Eudys", last_name: "Espinoza", phone: "1134567890" };
+      return { ...customer, name: "Eudys Espinoza", first_name: "Eudys", last_name: "Espinoza", phone: "1134567890", masked_dni: "••••9876" };
     });
     render(await ManagementCustomerPage({ params: Promise.resolve({ customerId: "7" }) }));
     fireEvent.click(screen.getByRole("button", { name: "Editar cliente" }));
@@ -89,9 +90,11 @@ describe("ficha de cliente", () => {
     fireEvent.change(within(dialog).getByLabelText("Nombre"), { target: { value: "Eudys" } });
     fireEvent.change(within(dialog).getByLabelText("Apellido"), { target: { value: "Espinoza" } });
     fireEvent.change(within(dialog).getByLabelText("Teléfono"), { target: { value: "1134567890" } });
+    fireEvent.change(within(dialog).getByLabelText("DNI / NIF"), { target: { value: "32129876" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Guardar cambios" }));
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Eudys Espinoza" })).toBeVisible());
+    expect(screen.getByText("••••9876")).toBeVisible();
     expect(screen.queryByRole("dialog", { name: "Editar cliente" })).not.toBeInTheDocument();
   });
 

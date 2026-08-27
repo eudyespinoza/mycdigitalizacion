@@ -153,6 +153,29 @@ def test_management_customer_contact_can_be_updated_and_is_audited(django_user_m
     ).exists()
 
 
+def test_management_customer_dni_can_be_corrected_and_is_audited(django_user_model):
+    customer = create_customer(django_user_model)
+    client, owner = management_client(django_user_model)
+
+    updated = client.patch(
+        f"/api/v1/management/customers/{customer.pk}/",
+        {"dni": "32129876"},
+        format="json",
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["masked_dni"] == "••••9876"
+    customer.customer_profile.refresh_from_db()
+    assert customer.customer_profile.get_dni() == "32129876"
+    event = ManagementAuditEvent.objects.get(
+        actor=owner,
+        action="customer.updated",
+        resource="customer",
+        object_reference=str(customer.pk),
+    )
+    assert "dni" in event.metadata["changed_fields"]
+
+
 def test_management_customer_address_can_be_updated_and_is_audited(django_user_model):
     customer = create_customer(django_user_model)
     address = customer.addresses.get()

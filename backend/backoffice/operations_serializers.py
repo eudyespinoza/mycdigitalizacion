@@ -1,8 +1,9 @@
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from accounts.models import BillingProfile
+from accounts.models import BillingProfile, normalize_dni
 from commerce.models import Order, PackageBox
 from locations.models import Address
 
@@ -269,6 +270,9 @@ class ManagementCustomerUpdateSerializer(serializers.Serializer):
     last_name = serializers.CharField(max_length=120, trim_whitespace=True)
     email = serializers.EmailField(max_length=254)
     phone = serializers.CharField(max_length=32, allow_blank=True, trim_whitespace=True)
+    dni = serializers.CharField(
+        max_length=32, allow_blank=True, required=False, trim_whitespace=True, write_only=True
+    )
 
     def validate_email(self, value):
         normalized = value.casefold()
@@ -281,6 +285,14 @@ class ManagementCustomerUpdateSerializer(serializers.Serializer):
         ):
             raise serializers.ValidationError("Ya existe una cuenta con este email.")
         return normalized
+
+    def validate_dni(self, value):
+        if not value:
+            return value
+        try:
+            return normalize_dni(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages) from exc
 
 
 class PackageBoxSerializer(serializers.ModelSerializer):

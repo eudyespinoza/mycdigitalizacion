@@ -75,7 +75,7 @@ export function AccountDashboard() {
           </button>
         </div>
         <dl><div><dt>Email</dt><dd>{customer.email}</dd></div><div><dt>Verificación</dt><dd>{customer.email_verified_at ? "Email verificado" : "Pendiente"}</dd></div></dl>
-        <ProfileForm customer={customer} onSave={async (payload) => { const next = await apiRequest<Customer>("/customers/me/", { method: "PATCH", body: JSON.stringify({ ...payload, ...(payload.dni ? { dni: payload.dni } : {}) }) }); setCustomer(next); return next; }} />
+        <ProfileForm customer={customer} onSave={async (payload) => { const { dni, ...profile } = payload; const next = await apiRequest<Customer>("/customers/me/", { method: "PATCH", body: JSON.stringify({ ...profile, ...(dni ? { dni } : {}) }) }); setCustomer(next); return next; }} />
       </section>
       <section className="account-panel">
         <div className="section-heading"><h2>Datos fiscales</h2><Link href="/cuenta/fiscal">Administrar</Link></div>
