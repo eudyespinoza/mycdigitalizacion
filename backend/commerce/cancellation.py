@@ -32,12 +32,9 @@ def cancel_order(*, order, actor, reason):
             "El pedido pagado debe reembolsarse antes de cancelarlo.",
             code="paid_order_requires_refund",
         )
-    if locked.payment_status in {
-        Order.PaymentStatus.PENDING,
-        Order.PaymentStatus.NEEDS_ATTENTION,
-    }:
+    if locked.payment_status == Order.PaymentStatus.NEEDS_ATTENTION:
         raise OrderCancellationError(
-            "El pago pendiente requiere revisión antes de cancelar.",
+            "El pago requiere revisión antes de cancelar.",
             code="payment_requires_attention",
         )
     if locked.fulfillment_status != Order.FulfillmentStatus.CANCELLED:

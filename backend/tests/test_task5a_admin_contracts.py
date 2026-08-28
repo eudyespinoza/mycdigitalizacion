@@ -727,6 +727,75 @@ def test_paid_order_cancellation_requires_refund_semantics(django_user_model):
 
 
 @pytest.mark.django_db
+def test_pending_payment_order_can_be_cancelled(django_user_model):
+    from commerce.cancellation import cancel_order
+    from commerce.models import Cart, CartLine
+    from commerce.services import transition_order_status
+
+    customer = django_user_model.objects.create_user(email="pending-cancel@example.test")
+    cart = Cart.objects.create(user=customer)
+    CartLine.objects.create(
+        cart=cart,
+        variant=make_variant(sku="PENDING-CANCEL"),
+        quantity=1,
+    )
+    order = pending_order(cart)
+    order = transition_order_status(
+        order=order,
+        field="payment_status",
+        value="pending",
+    )
+    actor = django_user_model.objects.create_user(
+        email="pending-operator@example.test",
+        is_staff=True,
+    )
+
+    cancelled = cancel_order(
+        order=order,
+        actor=actor,
+        reason="Solicitud del cliente",
+    )
+
+    assert cancelled.fulfillment_status == "cancelled"
+    assert cancelled.payment_status == "pending"
+    assert order.audit_events.filter(kind="admin_cancelled", actor=actor).count() == 1
+
+
+@pytest.mark.django_db
+def test_payment_needing_attention_must_be_resolved_before_cancelling(django_user_model):
+    from commerce.cancellation import OrderCancellationError, cancel_order
+    from commerce.models import Cart, CartLine
+    from commerce.services import transition_order_status
+
+    customer = django_user_model.objects.create_user(email="attention-cancel@example.test")
+    cart = Cart.objects.create(user=customer)
+    CartLine.objects.create(
+        cart=cart,
+        variant=make_variant(sku="ATTENTION-CANCEL"),
+        quantity=1,
+    )
+    order = pending_order(cart)
+    order = transition_order_status(
+        order=order,
+        field="payment_status",
+        value="needs_attention",
+    )
+    actor = django_user_model.objects.create_user(
+        email="attention-operator@example.test",
+        is_staff=True,
+    )
+
+    with pytest.raises(OrderCancellationError) as error:
+        cancel_order(
+            order=order,
+            actor=actor,
+            reason="Solicitud del cliente",
+        )
+
+    assert error.value.code == "payment_requires_attention"
+
+
+@pytest.mark.django_db
 def test_order_admin_exposes_only_guarded_sensitive_actions():
     from commerce.admin import OrderAdmin, ShipmentInline
     from commerce.models import Order

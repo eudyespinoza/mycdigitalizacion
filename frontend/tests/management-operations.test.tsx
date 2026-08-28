@@ -41,6 +41,24 @@ describe("gestión operativa", () => {
     await waitFor(() => expect(onAction).toHaveBeenCalledWith("cancel", "Solicitud del cliente"));
   });
 
+  test("permite cancelar un pedido no entregado con pago pendiente", () => {
+    render(<ManagementOrderActions onAction={vi.fn()} order={{
+      ...order,
+      payment_status: "pending",
+    }} />);
+
+    expect(screen.getByRole("button", { name: "Cancelar pedido" })).toBeVisible();
+  });
+
+  test("mantiene protegido un pedido cuyo pago requiere revisión", () => {
+    render(<ManagementOrderActions onAction={vi.fn()} order={{
+      ...order,
+      payment_status: "needs_attention",
+    }} />);
+
+    expect(screen.queryByRole("button", { name: "Cancelar pedido" })).not.toBeInTheDocument();
+  });
+
   test("advierte y confirma el reintegro al cancelar un pedido pagado", async () => {
     const onAction = vi.fn().mockResolvedValue(undefined);
     render(<ManagementOrderActions onAction={onAction} order={{

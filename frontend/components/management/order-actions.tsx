@@ -37,7 +37,7 @@ export function ManagementOrderActions({
   const refundAmountLabel = formatMoney(refundAmount);
   const canCancel = !["cancelled", "shipped", "fulfilled"].includes(
     order.fulfillment_status,
-  ) && !["pending", "needs_attention"].includes(order.payment_status);
+  ) && order.payment_status !== "needs_attention";
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
