@@ -1,3 +1,13 @@
+export type ManagementPayment = {
+  provider: string;
+  status: string;
+  provider_status: string;
+  payment_id: string | null;
+  amount: string;
+  currency: string;
+  created_at: string;
+};
+
 export type ManagementOrder = {
   public_id: string;
   customer: { id: number; name: string; email: string; phone: string };
@@ -9,6 +19,7 @@ export type ManagementOrder = {
   shipping_provider?: string;
   total: string;
   created_at: string;
+  payments?: ManagementPayment[];
 };
 
 export type ManagementOrderDetail = ManagementOrder & {
@@ -33,15 +44,7 @@ export type ManagementOrderDetail = ManagementOrder & {
     actor: string;
     created_at: string;
   }>;
-  payments: Array<{
-    provider: string;
-    status: string;
-    provider_status: string;
-    payment_id: string | null;
-    amount: string;
-    currency: string;
-    created_at: string;
-  }>;
+  payments: ManagementPayment[];
   shipment: null | {
     provider: string;
     tracking_number: string;

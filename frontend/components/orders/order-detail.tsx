@@ -6,7 +6,7 @@ import { apiRequest } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import type { Order } from "@/lib/types";
 
-const statusCopy: Record<string, string> = { not_started: "Pago no iniciado", pending: "Pago pendiente", paid: "Pagado", failed: "Pago no completado", refunded: "Reembolsado", needs_attention: "En revisión", pending_identity: "Verificando datos", verified: "Datos verificados", manual_review: "En revisión", unfulfilled: "A preparar", preparing: "En preparación", shipped: "En camino", ready_for_pickup: "Listo para retirar", fulfilled: "Entregado" };
+const statusCopy: Record<string, string> = { not_started: "Pago no iniciado", pending: "Pago pendiente", paid: "Pagado", failed: "Pago no completado", refunded: "Reembolsado", needs_attention: "En revisión", pending_identity: "Verificando datos", verified: "Datos verificados", manual_review: "En revisión", unfulfilled: "A preparar", preparing: "En preparación", shipped: "En camino", ready_for_pickup: "Listo para retirar", fulfilled: "Entregado", cancelled: "Cancelado" };
 export function OrderDetail({ orderId }: { orderId: string }) {
   const [order, setOrder] = useState<Order | null>(null); const [error, setError] = useState(""); const [resuming, setResuming] = useState(false);
   const load = () => apiRequest<Order>(`/orders/${encodeURIComponent(orderId)}/`).then(setOrder).catch((cause) => setError(cause instanceof Error ? cause.message : "No encontramos el pedido."));

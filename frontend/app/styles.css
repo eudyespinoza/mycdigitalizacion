@@ -673,6 +673,13 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .management-form-dialog-body .management-form-section { padding: 0; border: 0; border-radius: 0; background: transparent; }
 .management-form-dialog-body .compact-management-form { margin: 0; }
 .management-form-dialog-body .management-field-grid { margin-top: 0; }
+.management-action-dialog-form { display: grid; gap: 18px; }
+.management-action-dialog-form > label { display: grid; gap: 7px; color: var(--ink); font-weight: 800; }
+.management-action-dialog-form textarea { min-height: 112px; resize: vertical; }
+.management-refund-warning { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 12px; padding: 16px; border-radius: 12px; background: color-mix(in srgb, var(--danger) 8%, var(--surface-elevated)); color: var(--ink); }
+.management-refund-warning-icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--danger) 14%, var(--surface-elevated)); color: var(--danger); }
+.management-refund-warning strong { display: block; font-family: var(--font-display), sans-serif; font-size: 1rem; }
+.management-refund-warning p { margin: 4px 0 0; color: color-mix(in srgb, var(--ink) 72%, var(--surface-elevated)); line-height: 1.5; overflow-wrap: anywhere; }
 .taxonomy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .compact-management-form { display: grid; gap: 12px; margin: 16px 0; }
 .management-simple-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }

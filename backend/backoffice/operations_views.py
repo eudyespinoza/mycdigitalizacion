@@ -29,11 +29,19 @@ from backoffice.operations_serializers import (
 )
 from backoffice.permissions import IsManagementUser
 from commerce.admin_services import perform_order_admin_action
-from commerce.models import Order, PackageBox, Shipment
+from commerce.models import Order, OrderAuditEvent, PackageBox, Shipment
 from commerce.provider_config import get_carrier_adapter, get_payment_adapter
 from commerce.services import transition_order_status
 from commerce.shipping import resolve_manual_shipping_cost
 from locations.models import Address
+from providers import (
+    ProviderError,
+    ProviderInvalidResponse,
+    ProviderNotConfigured,
+    ProviderRejected,
+    ProviderTimeout,
+    ProviderUnavailable,
+)
 
 
 def _order_summary_queryset():
@@ -150,8 +158,11 @@ class ManagementOrderActionView(generics.GenericAPIView):
                 )
             else:
                 adapters = {}
+                context = {"confirm_refund": serializer.validated_data["confirm_refund"]}
                 if action == "refund":
                     adapters["payment"] = get_payment_adapter()
+                elif action == "cancel":
+                    context["payment_adapter_factory"] = get_payment_adapter
                 elif action in {"create_shipment", "refresh_tracking"}:
                     provider = (
                         order.shipping_quote.provider if order.shipping_quote_id else None
@@ -163,7 +174,10 @@ class ManagementOrderActionView(generics.GenericAPIView):
                     actor=request.user,
                     reason=reason,
                     adapters=adapters,
+                    context=context,
                 )
+                if outcome := context.get("outcome"):
+                    return Response(outcome, status=status.HTTP_409_CONFLICT)
         except PermissionDenied as exc:
             return Response(
                 {"code": "action_forbidden", "detail": str(exc)},
@@ -174,6 +188,40 @@ class ManagementOrderActionView(generics.GenericAPIView):
             detail = exc.messages[0] if hasattr(exc, "messages") else str(exc)
             return Response(
                 {"code": code, "detail": detail}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except (ProviderNotConfigured, ProviderUnavailable, ProviderTimeout):
+            OrderAuditEvent.objects.create(
+                order=order,
+                kind="admin_refund_failed",
+                data={"reason": reason, "code": "payment_provider_unavailable"},
+                actor=request.user,
+            )
+            return Response(
+                {
+                    "code": "payment_provider_unavailable",
+                    "detail": (
+                        "No pudimos comunicarnos con Mercado Pago. "
+                        "El pedido sigue activo; intentá nuevamente."
+                    ),
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except (ProviderInvalidResponse, ProviderRejected, ProviderError):
+            OrderAuditEvent.objects.create(
+                order=order,
+                kind="admin_refund_failed",
+                data={"reason": reason, "code": "payment_refund_failed"},
+                actor=request.user,
+            )
+            return Response(
+                {
+                    "code": "payment_refund_failed",
+                    "detail": (
+                        "Mercado Pago no pudo procesar la devolución. "
+                        "El pedido sigue activo; revisá la integración e intentá nuevamente."
+                    ),
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
             )
         refreshed = _order_detail_queryset().get(public_id=public_id)
         try:

@@ -34,11 +34,75 @@ describe("gestión operativa", () => {
     const onAction = vi.fn().mockResolvedValue(undefined);
     render(<ManagementOrderActions onAction={onAction} order={order} />);
     fireEvent.click(screen.getByRole("button", { name: "Cancelar pedido" }));
-    fireEvent.change(screen.getByLabelText("Motivo de la acción"), {
+    fireEvent.change(screen.getByLabelText("Motivo de la cancelación"), {
       target: { value: "Solicitud del cliente" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Confirmar cancelación" }));
     await waitFor(() => expect(onAction).toHaveBeenCalledWith("cancel", "Solicitud del cliente"));
+  });
+
+  test("advierte y confirma el reintegro al cancelar un pedido pagado", async () => {
+    const onAction = vi.fn().mockResolvedValue(undefined);
+    render(<ManagementOrderActions onAction={onAction} order={{
+      ...order,
+      payment_status: "paid",
+      payments: [{
+        provider: "mercadopago",
+        status: "approved",
+        provider_status: "approved",
+        payment_id: "mp-payment-12500",
+        amount: "12500.00",
+        currency: "ARS",
+        created_at: "2026-08-20T12:05:00Z",
+      }],
+    }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar pedido" }));
+
+    expect(screen.getByRole("dialog", { name: "Cancelar pedido y devolver el pago" })).toBeVisible();
+    expect(screen.getByText(/Mercado Pago devolverá \$ 12\.500,00/)).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Motivo de la cancelación"), {
+      target: { value: "El cliente solicitó cancelar la compra" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Cancelar y devolver.*12\.500,00/ }));
+
+    await waitFor(() => expect(onAction).toHaveBeenCalledWith(
+      "cancel",
+      "El cliente solicitó cancelar la compra",
+      { confirmRefund: true },
+    ));
+  });
+
+  test("mantiene abierto el diálogo si Mercado Pago no confirma la devolución", async () => {
+    const onAction = vi.fn().mockRejectedValue(
+      new Error("No pudimos comunicarnos con Mercado Pago. El pedido sigue activo; intentá nuevamente."),
+    );
+    render(<ManagementOrderActions onAction={onAction} order={{
+      ...order,
+      payment_status: "paid",
+      payments: [{
+        provider: "mercadopago",
+        status: "approved",
+        provider_status: "approved",
+        payment_id: "mp-payment-12500",
+        amount: "12500.00",
+        currency: "ARS",
+        created_at: "2026-08-20T12:05:00Z",
+      }],
+    }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar pedido" }));
+    fireEvent.change(screen.getByLabelText("Motivo de la cancelación"), {
+      target: { value: "Solicitud del cliente" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Cancelar y devolver/ }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "No pudimos comunicarnos con Mercado Pago. El pedido sigue activo; intentá nuevamente.",
+    );
+    expect(screen.getByRole("dialog", { name: "Cancelar pedido y devolver el pago" })).toBeVisible();
+    expect(screen.getByLabelText("Motivo de la cancelación")).toHaveValue("Solicitud del cliente");
+    expect(screen.getByRole("button", { name: /Cancelar y devolver/ })).toBeEnabled();
   });
 
   test("muestra clientes sin revelar el DNI completo", () => {

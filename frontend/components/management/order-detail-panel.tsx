@@ -5,17 +5,27 @@ import { useRouter } from "next/navigation";
 import { formatMoney } from "@/lib/format";
 import { managementRequest } from "@/lib/management/api";
 import type { ManagementOrderDetail } from "@/lib/management/operations-types";
-import { ManagementOrderActions } from "@/components/management/order-actions";
+import {
+  ManagementOrderActions,
+  type ManagementOrderActionOptions,
+} from "@/components/management/order-actions";
 import { managementStatusLabel } from "@/components/management/order-table";
 
 
 export function ManagementOrderDetailPanel({ order }: { order: ManagementOrderDetail }) {
   const router = useRouter();
-  const act = async (action: string, reason: string, shippingAmount?: string) => {
+  const act = async (action: string, reason: string, options?: ManagementOrderActionOptions) => {
     await managementRequest(`/orders/${order.public_id}/actions/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, reason, ...(shippingAmount ? { shipping_amount: shippingAmount } : {}) }),
+      body: JSON.stringify({
+        action,
+        reason,
+        ...(options?.shippingAmount !== undefined
+          ? { shipping_amount: options.shippingAmount }
+          : {}),
+        ...(options?.confirmRefund ? { confirm_refund: true } : {}),
+      }),
     });
     router.refresh();
   };

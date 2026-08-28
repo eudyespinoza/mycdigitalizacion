@@ -199,6 +199,7 @@ class ManagementOrderActionSerializer(serializers.Serializer):
     shipping_amount = serializers.DecimalField(
         max_digits=12, decimal_places=2, min_value=0, required=False
     )
+    confirm_refund = serializers.BooleanField(default=False, required=False)
 
     def validate(self, attrs):
         if attrs.get("action") == "set_shipping_cost" and "shipping_amount" not in attrs:

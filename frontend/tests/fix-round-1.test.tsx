@@ -249,6 +249,20 @@ describe("Fix Round 1 contracts", () => {
     expect(screen.getByRole("button", { name: "Retomar pago" })).toBeVisible();
   });
 
+  test("customers can see that an administrator cancelled a refunded order", async () => {
+    const order = {
+      public_id: "44444444-4444-4444-8444-444444444444", identity_status: "verified", payment_status: "refunded", fulfillment_status: "cancelled", fulfillment_method: "shipping",
+      customer_snapshot: {}, address_snapshot: { raw_address: "Av. Corrientes 1234" }, fiscal_snapshot: { id: 3, label: "Personal", legal_name: "Ana Pérez", tax_condition: "consumidor_final", is_default: true, masked_cuit: "20-********-3" }, coupon_code_snapshot: "",
+      subtotal_snapshot: "12500.00", discount_snapshot: "0.00", shipping_amount_snapshot: "4500.00", total_snapshot: "17000.00", items: [], timeline: [], shipment: null, pickup_information: null, created_at: "2026-08-20T10:00:00Z",
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(order), { status: 200 })));
+
+    render(<OrderDetail orderId={order.public_id} />);
+
+    expect(await screen.findByText("Entrega: Cancelado.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Retomar pago" })).not.toBeInTheDocument();
+  });
+
   test("pending payment polling is bounded and stops immediately at a terminal server state", async () => {
     const statuses = ["not_started", "pending", "paid"];
     const result = await pollPaymentStatus(async () => statuses.shift() ?? "pending", { attempts: 5, intervalMs: 0 });

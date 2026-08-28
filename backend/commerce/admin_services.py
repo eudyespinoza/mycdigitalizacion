@@ -40,6 +40,49 @@ def perform_order_admin_action(*, action, order, actor, reason, adapters=None, c
     adapters = adapters or {}
     context = context or {}
     if action == "cancel":
+        order = type(order).objects.select_for_update().get(pk=order.pk)
+        if order.payment_status == order.PaymentStatus.PAID:
+            if not actor.has_perm(ACTION_PERMISSIONS["refund"]):
+                raise PermissionDenied("Refunding this paid order is not permitted")
+            if not context.get("confirm_refund"):
+                raise ValidationError(
+                    "Confirmá la devolución del pago antes de cancelar el pedido.",
+                    code="paid_order_confirmation_required",
+                )
+            if order.fulfillment_status in {
+                order.FulfillmentStatus.SHIPPED,
+                order.FulfillmentStatus.FULFILLED,
+            }:
+                return cancel_order(order=order, actor=actor, reason=normalized_reason)
+            payment_adapter = adapters.get("payment")
+            if payment_adapter is None:
+                payment_adapter = context["payment_adapter_factory"]()
+            refund = refund_order(
+                order=order,
+                adapter=payment_adapter,
+                idempotency_key=(
+                    context.get("idempotency_key") or admin_refund_idempotency_key(order)
+                ),
+            )
+            if refund.status != "approved":
+                OrderAuditEvent.objects.get_or_create(
+                    order=order,
+                    kind="admin_refund_pending",
+                    defaults={"data": {"reason": normalized_reason}, "actor": actor},
+                )
+                context["outcome"] = {
+                    "code": "refund_pending",
+                    "detail": (
+                        "Mercado Pago todavía no confirmó la devolución. "
+                        "El pedido sigue activo; intentá nuevamente para consultar su estado."
+                    ),
+                }
+                return order
+            OrderAuditEvent.objects.get_or_create(
+                order=order,
+                kind="admin_refund_completed",
+                defaults={"data": {"reason": normalized_reason}, "actor": actor},
+            )
         result = cancel_order(order=order, actor=actor, reason=normalized_reason)
     elif action == "approve_identity":
         attempt = order.identity_verifications.filter(status="pending_review").first()
