@@ -167,6 +167,90 @@ Nunca uses `docker compose down -v`, `docker volume prune` ni una restauración 
 
 ## 8. Actualización
 
+### Flujo establecido desde la estación Windows (sin GitHub CLI)
+
+Este proyecto no usa GitHub CLI (`gh`) para desplegar. El flujo ya probado usa Git HTTPS con las credenciales guardadas en Git Credential Manager, consulta GitHub Actions por REST y actualiza el servidor con el alias SSH `mycdigitalizacion-prod`. No instales `gh` como requisito ni detengas un despliegue porque no esté disponible.
+
+Primero fijá el commit local y comprobá que `main` remoto continúa exactamente en su padre. Esta guarda evita sobrescribir trabajo remoto. El usuario incluido en la URL selecciona la cuenta correcta de Git Credential Manager; nunca agregues un token a la URL, al comando ni a los logs.
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$releaseSha = (git rev-parse HEAD).Trim()
+$expectedMain = (git rev-parse HEAD^).Trim()
+
+git fetch origin main
+$remoteMain = (git rev-parse origin/main).Trim()
+if ($remoteMain -ne $expectedMain) {
+    throw "origin/main cambió: esperado $expectedMain, encontrado $remoteMain"
+}
+
+$env:GCM_INTERACTIVE = 'Never'
+$env:GIT_TERMINAL_PROMPT = '0'
+$repositoryUrl = 'https://eudyespinoza@github.com/eudyespinoza/mycdigitalizacion.git'
+
+git push --atomic --porcelain $repositoryUrl `
+    "${releaseSha}:refs/heads/feat/ecommerce-foundation" `
+    "${releaseSha}:refs/heads/main"
+```
+
+El workflow requerido se llama `CI` y corre al actualizar `main`. Consultalo sin `gh`, esperando el run cuyo `head_sha` sea exactamente `$releaseSha`:
+
+```powershell
+$headers = @{ 'User-Agent' = 'mycdigitalizacion-deploy' }
+$runsUrl = 'https://api.github.com/repos/eudyespinoza/mycdigitalizacion/actions/runs?branch=main&event=push&per_page=20'
+$deadline = (Get-Date).AddMinutes(30)
+
+do {
+    $run = (Invoke-RestMethod -Headers $headers -Uri $runsUrl).workflow_runs |
+        Where-Object { $_.name -eq 'CI' -and $_.head_sha -eq $releaseSha } |
+        Sort-Object created_at -Descending |
+        Select-Object -First 1
+
+    if ($run -and $run.status -eq 'completed') { break }
+    if ((Get-Date) -ge $deadline) { throw "Timeout esperando CI para $releaseSha" }
+    Start-Sleep -Seconds 30
+} while ($true)
+
+if ($run.conclusion -ne 'success') {
+    throw "CI no aprobó $releaseSha: $($run.conclusion) ($($run.html_url))"
+}
+```
+
+No actualices producción si el run falta, corresponde a otro SHA, sigue en ejecución o no concluyó en `success`. Guardá la URL del run en el informe del despliegue.
+
+Antes de modificar el VPS, comprobá por SSH la revisión actual, que el checkout esté limpio, el backup reciente, el espacio disponible y la salud de los servicios. La ruta estable es `/opt/mycdigitalizacion`.
+
+La actualización remota debe ser un fast-forward al SHA aprobado y debe abortar ante cualquier diferencia:
+
+```sh
+ssh mycdigitalizacion-prod 'set -e
+cd /opt/mycdigitalizacion
+git rev-parse HEAD
+test -z "$(git status --porcelain)"'
+
+ssh mycdigitalizacion-prod 'set -euo pipefail
+cd /opt/mycdigitalizacion
+expected=SHA_APROBADO
+test -z "$(git status --porcelain)"
+git fetch origin main
+test "$(git rev-parse FETCH_HEAD)" = "$expected"
+git merge --ff-only "$expected"
+test "$(git rev-parse HEAD)" = "$expected"
+sed -i "s/^RELEASE_ID=.*/RELEASE_ID=$expected/" .env.production
+chmod 600 .env.production
+dc="docker compose --env-file .env.production -f compose.prod.yaml"
+$dc config --quiet
+$dc build config-check backend worker beat frontend
+$dc run --rm --no-deps config-check
+$dc run --rm -e POSTGRES_BYPASS_POOL=true backend python manage.py migrate --noinput
+$dc up -d backend worker beat frontend
+$dc ps'
+```
+
+Reemplazá `SHA_APROBADO` por el valor literal de `$releaseSha` antes de ejecutar el comando remoto; no dependas de una variable local dentro de las comillas SSH. Si cambian otros servicios, incluilos explícitamente en `build` y `up`.
+
+Finalmente confirmá que el `HEAD` remoto y `RELEASE_ID` coincidan con el SHA aprobado, que los nueve servicios estén sanos y sin reinicios, que no haya errores críticos recientes y que `/healthz`, `/readyz`, `/` y `/api/v1/storefront/home/` respondan correctamente. Conservá las imágenes anteriores hasta cerrar la ventana de rollback.
+
 1. Registrá revisión actual: `git rev-parse HEAD`.
 2. Confirmá backup local/remoto reciente y espacio libre.
 3. Descargá y fijá la nueva revisión, sin ejecutar código no revisado, y actualizá `RELEASE_ID` al identificador exacto.

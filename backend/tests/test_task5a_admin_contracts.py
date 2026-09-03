@@ -385,6 +385,19 @@ def test_media_validation_rejects_spoofed_mime_dimensions_and_unsafe_name(tmp_pa
     assert unsafe_name._detected_extension == ".png"
 
 
+def test_media_validation_closes_a_persisted_field_file_it_opens(settings, tmp_path):
+    from catalog.models import ProductMedia
+    from config.media import validate_image_upload
+
+    settings.MEDIA_ROOT = tmp_path
+    media = ProductMedia(file="catalog/persisted.png", alt_text="Imagen persistida")
+    media.file.storage.save(media.file.name, image_upload())
+
+    validate_image_upload(media.file)
+
+    assert media.file.closed is True
+
+
 @pytest.mark.django_db
 def test_media_derivatives_keep_original_and_degrade_without_avif(tmp_path):
     from django.core.files.storage import FileSystemStorage

@@ -137,6 +137,11 @@ def test_openapi_describes_real_auth_cart_checkout_and_all_v1_operations(client)
         for operation in paths[path].values():
             assert operation["responses"]
 
+    label_path = paths["/api/v1/orders/{public_id}/label/"]
+    assert "application/json" in label_path["post"]["responses"]["200"]["content"]
+    assert "application/pdf" in label_path["get"]["responses"]["200"]["content"]
+    assert "409" in label_path["get"]["responses"]
+
     components = schema["components"]
     register = request_schema(paths["/api/v1/auth/register/"]["post"], components)
     assert set(register["required"]) == {"email", "password", "consent_version"}

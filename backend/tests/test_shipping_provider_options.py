@@ -1,3 +1,4 @@
+import base64
 import uuid
 from decimal import Decimal
 
@@ -27,12 +28,60 @@ class ContractTransport:
         return next(self.responses)
 
 
-def test_andreani_uses_v2_login_v1_rates_and_normalizes_order_tracking():
-    from commerce.shipping import AndreaniAdapter, ShippingPolicy
+def test_provider_http_client_preserves_response_headers_and_binary_bodies():
+    from providers import ProviderHttpClient
 
     transport = ContractTransport(
         [
-            (200, {"token": "andreani-jwt"}),
+            (200, {"X-Authorization-Token": "andreani-jwt"}, {"ok": True}),
+            (200, {"Content-Type": "application/pdf"}, b"%PDF-1.4\nlabel"),
+        ]
+    )
+    client = ProviderHttpClient(transport)
+
+    response = client.request_json_response("GET", "https://provider.example.test/login")
+
+    assert response.headers["x-authorization-token"] == "andreani-jwt"
+    assert response.body == {"ok": True}
+    assert client.request_bytes("GET", "https://provider.example.test/label") == b"%PDF-1.4\nlabel"
+
+
+def test_provider_http_client_types_authentication_failures_without_retry():
+    from providers import ProviderAuthenticationError, ProviderHttpClient
+
+    transport = ContractTransport([(401, {}, {"message": "expired"})])
+
+    with pytest.raises(ProviderAuthenticationError):
+        ProviderHttpClient(transport, retries=3).request_json(
+            "GET", "https://provider.example.test/private"
+        )
+
+    assert len(transport.calls) == 1
+
+
+def test_andreani_uses_official_auth_states_and_pdf_contract():
+    from commerce.shipping import AndreaniAdapter, ShippingPolicy
+
+    class TokenCache:
+        def __init__(self):
+            self.values = {}
+            self.set_calls = []
+
+        def get(self, key, default=None):
+            return self.values.get(key, default)
+
+        def set(self, key, value, timeout=None):
+            self.values[key] = value
+            self.set_calls.append((key, value, timeout))
+
+        def delete(self, key):
+            self.values.pop(key, None)
+
+    token_cache = TokenCache()
+
+    transport = ContractTransport(
+        [
+            (200, {"X-Authorization-Token": "andreani-jwt"}, {}),
             (
                 200,
                 {
@@ -44,10 +93,12 @@ def test_andreani_uses_v2_login_v1_rates_and_normalizes_order_tracking():
                 200,
                 {
                     "numeroAndreani": "360000036137650",
-                    "estado": "Creado",
+                    "estado": "Solicitado",
                     "bultos": [{"numeroDeBulto": "1"}],
                 },
             ),
+            (200, {"numeroAndreani": "360000036137650", "estado": "Creado"}),
+            (200, {"Content-Type": "application/pdf"}, b"%PDF-1.4\nandreani-label"),
             (200, {"numeroAndreani": "360000036137650", "estado": "En distribución"}),
         ]
     )
@@ -72,6 +123,7 @@ def test_andreani_uses_v2_login_v1_rates_and_normalizes_order_tracking():
             "document_number": "30123456789",
         },
         transport=transport,
+        token_cache=token_cache,
     )
     assert adapter.test_connection() is True
 
@@ -115,14 +167,19 @@ def test_andreani_uses_v2_login_v1_rates_and_normalizes_order_tracking():
         },
         idempotency_key="shipping-idempotency",
     )
+    shipment_status = adapter.shipment_status("360000036137650")
+    label = adapter.label("360000036137650")
     tracked = adapter.tracking("360000036137650")
 
-    assert transport.calls[0]["url"].endswith("/v2/login")
-    assert transport.calls[0]["json"] == {
-        "usuario": "api-user",
-        "password": "api-password",
-    }
+    assert transport.calls[0]["method"] == "GET"
+    assert transport.calls[0]["url"].endswith("/login")
+    assert transport.calls[0]["json"] is None
+    assert transport.calls[0]["headers"]["Authorization"] == (
+        "Basic " + base64.b64encode(b"api-user:api-password").decode("ascii")
+    )
+    assert token_cache.set_calls[0][2] == 23 * 60 * 60
     assert transport.calls[1]["url"].endswith("/v1/tarifas")
+    assert transport.calls[1]["headers"]["x-authorization-token"] == "andreani-jwt"
     assert transport.calls[1]["params"] == {
         "cpDestino": "1001",
         "contrato": "300006611",
@@ -139,11 +196,94 @@ def test_andreani_uses_v2_login_v1_rates_and_normalizes_order_tracking():
     assert transport.calls[2]["url"].endswith("/v2/ordenes-de-envio")
     assert transport.calls[2]["headers"]["x-authorization-token"] == "andreani-jwt"
     assert transport.calls[2]["headers"]["X-Idempotency-Key"] == "shipping-idempotency"
+    assert imported["provider_id"] == "360000036137650"
     assert imported["tracking_number"] == "360000036137650"
-    assert imported["label_url"].endswith(
-        "/v2/ordenes-de-envio/360000036137650/etiquetas"
-    )
+    assert imported["state"] == "submitted"
+    assert shipment_status["state"] == "created"
+    assert label == b"%PDF-1.4\nandreani-label"
     assert tracked["estado"] == "En distribución"
+
+
+def test_andreani_refreshes_an_expired_token_once():
+    from commerce.shipping import AndreaniAdapter, ShippingPolicy
+
+    class TokenCache:
+        value = ""
+
+        def get(self, key, default=None):
+            del key
+            return self.value or default
+
+        def set(self, key, value, timeout=None):
+            del key, timeout
+            self.value = value
+
+        def delete(self, key):
+            del key
+            self.value = ""
+
+    transport = ContractTransport(
+        [
+            (200, {"x-authorization-token": "expired-token"}, {}),
+            (401, {}, {"message": "expired"}),
+            (200, {"x-authorization-token": "fresh-token"}, {}),
+            (200, {"tarifaConIva": {"total": "1000.00"}}),
+        ]
+    )
+    adapter = AndreaniAdapter(
+        base_url="https://apisqa.andreani.com",
+        username="refresh-user",
+        password="refresh-password",
+        customer_id="CL0003750",
+        contract="300006611",
+        origin={
+            "postal_code": "1425",
+            "street": "Avenida Santa Fe",
+            "number": "3253",
+            "city": "Buenos Aires",
+        },
+        sender={
+            "name": "Mi empresa",
+            "email": "envios@example.com",
+            "phone": "1122334455",
+            "document_type": "CUIT",
+            "document_number": "30123456789",
+        },
+        transport=transport,
+        token_cache=TokenCache(),
+    )
+
+    quote = adapter.quote(
+        postal_code="1001",
+        parcels=[
+            {
+                "weight_grams": 1000,
+                "length_cm": "10",
+                "width_cm": "10",
+                "height_cm": "10",
+            }
+        ],
+        policy=ShippingPolicy(),
+        merchandise_amount=Decimal("10000"),
+    )
+
+    assert quote.total_amount == Decimal("1000.00")
+    assert [call["url"] for call in transport.calls].count(
+        "https://apisqa.andreani.com/login"
+    ) == 2
+    assert transport.calls[-1]["headers"]["x-authorization-token"] == "fresh-token"
+
+
+def test_andreani_rejects_unknown_pre_shipment_states():
+    from commerce.shipping import AndreaniAdapter
+    from providers import ProviderInvalidResponse
+
+    adapter = object.__new__(AndreaniAdapter)
+
+    with pytest.raises(ProviderInvalidResponse):
+        adapter._normalize_order(
+            {"numeroAndreani": "360000036137650", "estado": "Estado inesperado"}
+        )
 
 
 @pytest.mark.django_db

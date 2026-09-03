@@ -8,6 +8,14 @@ export type ManagementPayment = {
   created_at: string;
 };
 
+export type ManagementShipment = {
+  provider: string;
+  tracking_number: string;
+  status: string;
+  label_url: string;
+  updated_at: string;
+};
+
 export type ManagementOrder = {
   public_id: string;
   customer: { id: number; name: string; email: string; phone: string };
@@ -20,6 +28,7 @@ export type ManagementOrder = {
   total: string;
   created_at: string;
   payments?: ManagementPayment[];
+  shipment?: ManagementShipment | null;
 };
 
 export type ManagementOrderDetail = ManagementOrder & {
@@ -45,13 +54,7 @@ export type ManagementOrderDetail = ManagementOrder & {
     created_at: string;
   }>;
   payments: ManagementPayment[];
-  shipment: null | {
-    provider: string;
-    tracking_number: string;
-    status: string;
-    label_url: string;
-    updated_at: string;
-  };
+  shipment: ManagementShipment | null;
 };
 
 export type ManagementCustomer = {

@@ -50,6 +50,10 @@ def validate_image_upload(value):
         and not value.storage.exists(value.name)
     ):
         return
+    close_file = bool(
+        getattr(value, "_committed", False)
+        and getattr(value, "_file", None) is None
+    )
     file = getattr(value, "file", value)
     if not hasattr(file, "read"):
         return
@@ -61,8 +65,8 @@ def validate_image_upload(value):
         file.seek(0)
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
-            image = Image.open(file)
-            image.verify()
+            with Image.open(file) as image:
+                image.verify()
         file.seek(0)
         with Image.open(file) as decoded:
             width, height = decoded.size
@@ -93,7 +97,12 @@ def validate_image_upload(value):
     except (OSError, SyntaxError) as exc:
         raise ValidationError("Invalid image content") from exc
     finally:
-        file.seek(position)
+        try:
+            file.seek(position)
+        finally:
+            if close_file:
+                file.close()
+                value._file = None
 
 
 def generate_image_derivatives(*, storage, name, supported_formats=None):

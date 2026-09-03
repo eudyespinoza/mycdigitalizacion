@@ -495,6 +495,7 @@ def test_disabled_adapters_raise_typed_failures_for_every_interface_method():
         lambda: payment.refund("1", idempotency_key="key"),
         lambda: carrier.quote(),
         lambda: carrier.import_shipment({}, idempotency_key="key"),
+        lambda: carrier.shipment_status("1"),
         lambda: carrier.label("1"),
         lambda: carrier.tracking("1"),
     ]

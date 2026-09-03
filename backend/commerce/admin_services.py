@@ -8,7 +8,7 @@ from commerce.checkout import resume_checkout
 from commerce.identity_service import approve_identity_manually
 from commerce.models import OrderAuditEvent
 from commerce.payments import refund_order
-from commerce.shipping import create_order_shipment
+from commerce.shipping import create_order_shipment, refresh_shipment_tracking
 
 ACTION_PERMISSIONS = {
     "approve_identity": "commerce.approve_identity_order",
@@ -111,13 +111,7 @@ def perform_order_admin_action(*, action, order, actor, reason, adapters=None, c
         result = order
     else:
         shipment = order.shipment
-        tracking = adapters["carrier"].tracking(shipment.tracking_number)
-        entry = tracking[0] if isinstance(tracking, list) and tracking else tracking
-        events = entry.get("events", []) if isinstance(entry, dict) else []
-        last_event = events[0] if events else {}
-        shipment.status = str(last_event.get("event") or shipment.status).lower()
-        shipment.provider_summary = {"last_event": str(last_event.get("event") or "")}
-        shipment.save(update_fields=("status", "provider_summary", "updated_at"))
+        refresh_shipment_tracking(shipment=shipment, adapter=adapters["carrier"])
         result = order
     if action != "cancel":
         audit = {

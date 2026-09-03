@@ -83,9 +83,11 @@ export function ManagementOrderActions({
   }
   if (
     order.payment_status === "paid"
+    && order.identity_status === "verified"
     && order.fulfillment_method === "shipping"
     && order.shipping_provider !== "manual"
     && order.fulfillment_status === "unfulfilled"
+    && !order.shipment
   ) {
     available.push(["create_shipment", "Crear envío"]);
   }

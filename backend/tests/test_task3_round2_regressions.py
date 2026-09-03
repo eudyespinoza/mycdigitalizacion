@@ -186,11 +186,12 @@ def test_provider_validation_responses_are_rejected_without_retry(status_code):
     assert transport.calls == 1
 
 
-def eligible_shipping_order(django_user_model, *, parcel_count=2):
+def eligible_shipping_order(django_user_model, *, parcel_count=2, provider="correo_argentino"):
     from commerce.models import Cart, CartLine, ShippingQuote
     from commerce.services import create_pending_identity_order, transition_order_status
 
     user = django_user_model.objects.create_user(email=f"shipping-{uuid.uuid4()}@example.test")
+    make_customer(user)
     cart = Cart.objects.create(user=user)
     CartLine.objects.create(cart=cart, variant=make_variant(sku=f"SHIP-{uuid.uuid4()}"), quantity=1)
     parcels = [
@@ -205,6 +206,7 @@ def eligible_shipping_order(django_user_model, *, parcel_count=2):
     ]
     quote = ShippingQuote.objects.create(
         user=user,
+        provider=provider,
         service="multi_parcel" if parcel_count > 1 else "CP",
         postal_code="1414",
         parcels=parcels,
@@ -231,6 +233,340 @@ def eligible_shipping_order(django_user_model, *, parcel_count=2):
     transition_order_status(order=order, field="payment_status", value="paid")
     order.refresh_from_db()
     return order
+
+
+@pytest.mark.django_db
+def test_andreani_submitted_parcel_is_polled_without_repeating_remote_creation(
+    django_user_model,
+):
+    from commerce.models import ShipmentParcelImport
+    from commerce.shipping import create_order_shipment
+
+    order = eligible_shipping_order(django_user_model, parcel_count=1, provider="andreani")
+
+    class Adapter:
+        provider = "andreani"
+
+        def __init__(self):
+            self.import_calls = 0
+            self.status_calls = 0
+
+        def import_shipment(self, payload, *, idempotency_key):
+            del payload, idempotency_key
+            self.import_calls += 1
+            return {
+                "provider_id": "360000036137650",
+                "tracking_number": "360000036137650",
+                "state": "submitted",
+                "provider_status": "Solicitado",
+                "created_at": "",
+                "rejection_reason": "",
+            }
+
+        def shipment_status(self, provider_id):
+            assert provider_id == "360000036137650"
+            self.status_calls += 1
+            return {
+                "provider_id": provider_id,
+                "tracking_number": provider_id,
+                "state": "created",
+                "provider_status": "Creado",
+                "created_at": "2026-08-20T12:00:00-03:00",
+                "rejection_reason": "",
+            }
+
+    adapter = Adapter()
+    shipment = create_order_shipment(order=order, adapter=adapter)
+    parcel = shipment.parcel_imports.get()
+
+    assert shipment.status == "importing"
+    assert parcel.status == ShipmentParcelImport.Status.SUBMITTED
+    assert parcel.provider_id == "360000036137650"
+    assert parcel.next_poll_at is not None
+
+    create_order_shipment(order=order, adapter=adapter)
+    assert adapter.import_calls == 1
+    assert adapter.status_calls == 0
+
+    ShipmentParcelImport.objects.filter(pk=parcel.pk).update(next_poll_at=timezone.now())
+    completed = create_order_shipment(order=order, adapter=adapter)
+
+    assert completed.status == "imported"
+    assert adapter.import_calls == 1
+    assert adapter.status_calls == 1
+
+
+@pytest.mark.django_db
+def test_andreani_rejection_is_terminal_and_preserves_sanitized_reason(django_user_model):
+    from commerce.models import ShipmentParcelImport
+    from commerce.shipping import create_order_shipment
+
+    order = eligible_shipping_order(django_user_model, parcel_count=1, provider="andreani")
+
+    class Adapter:
+        provider = "andreani"
+        calls = 0
+
+        def import_shipment(self, payload, *, idempotency_key):
+            del payload, idempotency_key
+            self.calls += 1
+            return {
+                "provider_id": "rejected-1",
+                "tracking_number": "rejected-1",
+                "state": "rejected",
+                "provider_status": "Rechazado",
+                "created_at": "",
+                "rejection_reason": "Domicilio inválido",
+            }
+
+    adapter = Adapter()
+    shipment = create_order_shipment(order=order, adapter=adapter)
+    parcel = shipment.parcel_imports.get()
+
+    assert shipment.status == "rejected"
+    assert parcel.status == ShipmentParcelImport.Status.REJECTED
+    assert parcel.provider_summary["rejection_reason"] == "Domicilio inválido"
+
+    create_order_shipment(order=order, adapter=adapter)
+    assert adapter.calls == 1
+
+
+@pytest.mark.django_db
+def test_andreani_polling_backs_off_then_requires_attention_after_24_hours(
+    django_user_model,
+):
+    from commerce.models import ShipmentParcelImport
+    from commerce.shipping import create_order_shipment, refresh_shipment_tracking
+
+    order = eligible_shipping_order(django_user_model, parcel_count=1, provider="andreani")
+
+    class Adapter:
+        provider = "andreani"
+        status_calls = 0
+
+        def import_shipment(self, payload, *, idempotency_key):
+            del payload, idempotency_key
+            return {
+                "provider_id": "pending-24h",
+                "tracking_number": "pending-24h",
+                "state": "submitted",
+                "provider_status": "Pendiente",
+                "created_at": "",
+                "rejection_reason": "",
+            }
+
+        def shipment_status(self, provider_id):
+            self.status_calls += 1
+            return {
+                "provider_id": provider_id,
+                "tracking_number": provider_id,
+                "state": "submitted",
+                "provider_status": "Solicitado",
+                "created_at": "",
+                "rejection_reason": "",
+            }
+
+    adapter = Adapter()
+    shipment = create_order_shipment(order=order, adapter=adapter)
+    parcel = shipment.parcel_imports.get()
+    ShipmentParcelImport.objects.filter(pk=parcel.pk).update(next_poll_at=timezone.now())
+
+    before_poll = timezone.now()
+    create_order_shipment(order=order, adapter=adapter)
+    parcel.refresh_from_db()
+
+    assert parcel.poll_attempts == 1
+    assert before_poll + timezone.timedelta(seconds=115) <= parcel.next_poll_at
+    assert parcel.next_poll_at <= timezone.now() + timezone.timedelta(seconds=125)
+
+    ShipmentParcelImport.objects.filter(pk=parcel.pk).update(
+        created_at=timezone.now() - timezone.timedelta(hours=25),
+        next_poll_at=timezone.now(),
+    )
+    expired = create_order_shipment(order=order, adapter=adapter)
+    parcel.refresh_from_db()
+
+    assert expired.status == "attention_required"
+    assert parcel.status == ShipmentParcelImport.Status.ATTENTION_REQUIRED
+    assert adapter.status_calls == 1
+
+    manually_refreshed = refresh_shipment_tracking(shipment=expired, adapter=adapter)
+    parcel.refresh_from_db()
+
+    assert manually_refreshed.status == "importing"
+    assert parcel.status == ShipmentParcelImport.Status.SUBMITTED
+    assert adapter.status_calls == 2
+
+
+@pytest.mark.django_db
+def test_andreani_poll_failure_persists_backoff_before_retrying(django_user_model):
+    from commerce.models import ShipmentParcelImport
+    from commerce.shipping import create_order_shipment
+    from providers import ProviderUnavailable
+
+    order = eligible_shipping_order(django_user_model, parcel_count=1, provider="andreani")
+
+    class Adapter:
+        provider = "andreani"
+
+        def __init__(self):
+            self.status_calls = 0
+
+        def import_shipment(self, payload, *, idempotency_key):
+            del payload, idempotency_key
+            return {
+                "provider_id": "poll-error-1",
+                "tracking_number": "poll-error-1",
+                "state": "submitted",
+                "provider_status": "Solicitado",
+                "created_at": "",
+                "rejection_reason": "",
+            }
+
+        def shipment_status(self, provider_id):
+            del provider_id
+            self.status_calls += 1
+            raise ProviderUnavailable("Andreani no responde")
+
+    adapter = Adapter()
+    shipment = create_order_shipment(order=order, adapter=adapter)
+    parcel = shipment.parcel_imports.get()
+    ShipmentParcelImport.objects.filter(pk=parcel.pk).update(next_poll_at=timezone.now())
+
+    before_poll = timezone.now()
+    with pytest.raises(ProviderUnavailable):
+        create_order_shipment(order=order, adapter=adapter)
+    parcel.refresh_from_db()
+
+    assert parcel.poll_attempts == 1
+    assert before_poll + timezone.timedelta(seconds=115) <= parcel.next_poll_at
+    assert parcel.next_poll_at <= timezone.now() + timezone.timedelta(seconds=125)
+
+    resumed = create_order_shipment(order=order, adapter=adapter)
+
+    assert resumed.status == "importing"
+    assert adapter.status_calls == 1
+
+
+@pytest.mark.django_db
+def test_pending_shipment_recovery_handles_a_disabled_provider(
+    django_user_model, monkeypatch
+):
+    from commerce.models import ShipmentParcelImport
+    from commerce.shipping import DisabledCarrierAdapter, create_order_shipment
+    from commerce.tasks import resume_pending_shipments
+
+    order = eligible_shipping_order(django_user_model, parcel_count=1, provider="andreani")
+
+    class Adapter:
+        provider = "andreani"
+
+        def import_shipment(self, payload, *, idempotency_key):
+            del payload, idempotency_key
+            return {
+                "provider_id": "disabled-poll-1",
+                "tracking_number": "disabled-poll-1",
+                "state": "submitted",
+                "provider_status": "Solicitado",
+                "created_at": "",
+                "rejection_reason": "",
+            }
+
+    shipment = create_order_shipment(order=order, adapter=Adapter())
+    parcel = shipment.parcel_imports.get()
+    ShipmentParcelImport.objects.filter(pk=parcel.pk).update(next_poll_at=timezone.now())
+    monkeypatch.setattr(
+        "commerce.tasks.get_carrier_adapter", lambda provider: DisabledCarrierAdapter()
+    )
+
+    assert resume_pending_shipments() == 0
+    parcel.refresh_from_db()
+    assert parcel.poll_attempts == 1
+    assert parcel.next_poll_at > timezone.now()
+
+
+@pytest.mark.django_db
+def test_tracking_reconciliation_skips_pre_shipments_until_andreani_created(
+    django_user_model, monkeypatch
+):
+    from commerce.shipping import create_order_shipment
+    from commerce.tasks import reconcile_tracking
+
+    order = eligible_shipping_order(django_user_model, parcel_count=1, provider="andreani")
+
+    class Adapter:
+        provider = "andreani"
+
+        def import_shipment(self, payload, *, idempotency_key):
+            del payload, idempotency_key
+            return {
+                "provider_id": "still-pending",
+                "tracking_number": "still-pending",
+                "state": "submitted",
+                "provider_status": "Solicitado",
+                "created_at": "",
+                "rejection_reason": "",
+            }
+
+        def tracking(self, tracking_number):
+            raise AssertionError(f"tracking called too early for {tracking_number}")
+
+    adapter = Adapter()
+    create_order_shipment(order=order, adapter=adapter)
+    monkeypatch.setattr("commerce.tasks.get_carrier_adapter", lambda provider: adapter)
+
+    assert reconcile_tracking() == 0
+
+
+@pytest.mark.django_db
+def test_manual_tracking_refresh_resolves_andreani_pre_shipment_before_tracking(
+    django_user_model,
+):
+    from commerce.shipping import create_order_shipment, refresh_shipment_tracking
+
+    order = eligible_shipping_order(django_user_model, parcel_count=1, provider="andreani")
+
+    class Adapter:
+        provider = "andreani"
+
+        def __init__(self):
+            self.calls = []
+
+        def import_shipment(self, payload, *, idempotency_key):
+            del payload, idempotency_key
+            self.calls.append("create")
+            return {
+                "provider_id": "refresh-pending",
+                "tracking_number": "refresh-pending",
+                "state": "submitted",
+                "provider_status": "Solicitado",
+                "created_at": "",
+                "rejection_reason": "",
+            }
+
+        def shipment_status(self, provider_id):
+            self.calls.append("pre-shipment")
+            return {
+                "provider_id": provider_id,
+                "tracking_number": provider_id,
+                "state": "created",
+                "provider_status": "Creado",
+                "created_at": "2026-08-20T12:00:00-03:00",
+                "rejection_reason": "",
+            }
+
+        def tracking(self, tracking_number):
+            self.calls.append("tracking")
+            return {"events": [{"event": "En distribución"}]}
+
+    adapter = Adapter()
+    shipment = create_order_shipment(order=order, adapter=adapter)
+    refreshed = refresh_shipment_tracking(shipment=shipment, adapter=adapter)
+
+    assert refreshed.status == "en distribución"
+    assert adapter.calls == ["create", "pre-shipment", "tracking"]
+    assert refreshed.provider_summary["shipping_ids"] == ["refresh-pending"]
+    assert refreshed.provider_summary["last_event"] == "En distribución"
 
 
 @pytest.mark.django_db

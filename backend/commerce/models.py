@@ -611,7 +611,10 @@ class Shipment(models.Model):
 class ShipmentParcelImport(models.Model):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
+        SUBMITTED = "submitted", "Submitted"
         IMPORTED = "imported", "Imported"
+        REJECTED = "rejected", "Rejected"
+        ATTENTION_REQUIRED = "attention_required", "Attention required"
 
     shipment = models.ForeignKey(
         Shipment,
@@ -623,6 +626,9 @@ class ShipmentParcelImport(models.Model):
     idempotency_key = models.UUIDField(unique=True)
     parcel_snapshot = models.JSONField()
     status = models.CharField(max_length=24, choices=Status.choices, default=Status.PENDING)
+    provider_id = models.CharField(max_length=160, blank=True)
+    poll_attempts = models.PositiveIntegerField(default=0)
+    next_poll_at = models.DateTimeField(null=True, blank=True)
     provider_summary = models.JSONField(default=dict)
     updated_at = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)

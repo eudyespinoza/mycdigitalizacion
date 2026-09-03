@@ -1,6 +1,7 @@
 import logging
 import secrets
 from decimal import Decimal, InvalidOperation
+from io import BytesIO
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
@@ -9,6 +10,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import F, Q
+from django.http import FileResponse
 from django.middleware.csrf import get_token
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -16,9 +18,12 @@ from django.views.decorators.csrf import csrf_protect
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
+    OpenApiTypes,
     extend_schema,
     extend_schema_view,
 )
+from pypdf import PdfReader, PdfWriter
+from pypdf.errors import PyPdfError
 from rest_framework import generics, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
@@ -74,6 +79,7 @@ from commerce.models import (
     Order,
     PaymentTransaction,
     Shipment,
+    ShipmentParcelImport,
     ShippingQuote,
 )
 from commerce.payments import RefundError, WebhookRejected, ingest_webhook, refund_order
@@ -117,6 +123,7 @@ from commerce.shipping import (
     create_order_shipment,
     create_shipping_quote,
     create_shipping_quote_options,
+    refresh_shipment_tracking,
 )
 from landing.models import (
     CatalogSlide,
@@ -162,7 +169,7 @@ from locations.services import (
     reverse_geocode_pin,
     sync_localities,
 )
-from providers import ProviderError
+from providers import ProviderError, ProviderInvalidResponse, ProviderNotSupported
 
 logger = logging.getLogger(__name__)
 
@@ -1207,19 +1214,32 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
     @extend_schema(
+        methods=("GET",),
+        request=None,
+        responses={
+            (200, "application/pdf"): OpenApiTypes.BINARY,
+            403: ErrorSerializer,
+            404: ErrorSerializer,
+            409: ErrorSerializer,
+            502: ErrorSerializer,
+            503: ErrorSerializer,
+        },
+    )
+    @extend_schema(
+        methods=("POST",),
         request=None,
         responses={
             200: LabelResponseSerializer,
             403: ErrorSerializer,
             404: ErrorSerializer,
+            409: ErrorSerializer,
             501: ErrorSerializer,
             502: ErrorSerializer,
             503: ErrorSerializer,
         },
     )
-    @action(detail=True, methods=("post",), url_path="label")
+    @action(detail=True, methods=("get", "post"), url_path="label")
     def label(self, request, public_id=None):
-        del public_id
         order = self._staff_order()
         shipment = Shipment.objects.filter(order=order).first()
         if not shipment:
@@ -1228,13 +1248,48 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
                 detail="El pedido todavía no tiene un envío.",
                 status_code=status.HTTP_404_NOT_FOUND,
             )
+        if shipment.provider != "andreani":
+            raise provider_domain_error(
+                ProviderNotSupported(
+                    "El proxy interno de etiquetas está disponible solamente para Andreani"
+                )
+            )
+        parcels = list(shipment.parcel_imports.order_by("parcel_index"))
+        if not parcels or any(
+            parcel.status != ShipmentParcelImport.Status.IMPORTED or not parcel.provider_id
+            for parcel in parcels
+        ):
+            raise DomainError(
+                code="shipment_label_not_ready",
+                detail="Andreani todavía está preparando la etiqueta.",
+                status_code=status.HTTP_409_CONFLICT,
+            )
+        label_url = f"/api/v1/orders/{public_id}/label/"
+        if request.method == "POST":
+            return Response({"label_url": label_url})
+
+        adapter = get_carrier_adapter(shipment.provider)
+        writer = PdfWriter()
         try:
-            result = get_carrier_adapter(shipment.provider).label(shipment.provider_id)
+            for parcel in parcels:
+                document = adapter.label(parcel.provider_id)
+                reader = PdfReader(BytesIO(document))
+                for page in reader.pages:
+                    writer.add_page(page)
+            output = BytesIO()
+            writer.write(output)
+            output.seek(0)
         except ProviderError as exc:
             raise provider_domain_error(exc) from exc
-        shipment.label_url = str(result.get("url") or "")
-        shipment.save(update_fields=("label_url", "updated_at"))
-        return Response({"label_url": shipment.label_url})
+        except (PyPdfError, OSError, TypeError, ValueError) as exc:
+            error = ProviderInvalidResponse("Andreani devolvió una etiqueta inválida")
+            raise provider_domain_error(error) from exc
+        return FileResponse(
+            output,
+            as_attachment=request.query_params.get("preview") != "1",
+            filename=f"andreani-{public_id}.pdf",
+            content_type="application/pdf",
+        )
 
     @extend_schema(
         request=None,
@@ -1258,21 +1313,12 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
         try:
-            result = get_carrier_adapter(shipment.provider).tracking(
-                shipment.tracking_number
+            shipment = refresh_shipment_tracking(
+                shipment=shipment,
+                adapter=get_carrier_adapter(shipment.provider),
             )
         except ProviderError as exc:
             raise provider_domain_error(exc) from exc
-        tracking = result[0] if isinstance(result, list) and result else result
-        events = tracking.get("events", []) if isinstance(tracking, dict) else []
-        last_event = events[0] if events else {}
-        shipment.status = str(
-            last_event.get("event")
-            or (tracking.get("estado") if isinstance(tracking, dict) else "")
-            or shipment.status
-        ).lower()
-        shipment.provider_summary = {"last_event": str(last_event.get("event") or "")}
-        shipment.save(update_fields=("status", "provider_summary", "updated_at"))
         return Response({"status": shipment.status})
 
     @extend_schema(

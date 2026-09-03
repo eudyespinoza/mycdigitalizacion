@@ -15,7 +15,7 @@ from commerce.models import (
 from commerce.payments import PaymentMismatch, apply_payment, process_webhook_event
 from commerce.provider_config import get_carrier_adapter, get_payment_adapter
 from commerce.services import release_expired_coupon_redemptions, release_reservation
-from commerce.shipping import ShipmentError, create_order_shipment
+from commerce.shipping import ShipmentError, create_order_shipment, refresh_shipment_tracking
 from providers import ProviderError
 
 logger = logging.getLogger(__name__)
@@ -117,28 +117,20 @@ def reconcile_pending_payments():
 @shared_task
 def reconcile_tracking():
     reconciled = 0
-    for shipment in Shipment.objects.exclude(status__in=("delivered", "returned")):
+    for shipment in Shipment.objects.exclude(
+        status__in=("importing", "rejected", "attention_required", "delivered", "returned")
+    ):
         if not shipment.tracking_number:
             continue
         try:
             adapter = get_carrier_adapter(shipment.provider)
-            result = adapter.tracking(shipment.tracking_number)
+            refresh_shipment_tracking(shipment=shipment, adapter=adapter)
         except ProviderError as exc:
             logger.warning(
                 "tracking_reconciliation_failed",
                 extra={"shipment_id": shipment.pk, "failure_code": exc.code},
             )
             continue
-        tracking = result[0] if isinstance(result, list) and result else result
-        events = tracking.get("events", []) if isinstance(tracking, dict) else []
-        last_event = events[0] if events else {}
-        shipment.status = str(
-            last_event.get("event")
-            or (tracking.get("estado") if isinstance(tracking, dict) else "")
-            or shipment.status
-        ).lower()
-        shipment.provider_summary = {"last_event": str(last_event.get("event") or "")}
-        shipment.save(update_fields=("status", "provider_summary", "updated_at"))
         reconciled += 1
     return reconciled
 

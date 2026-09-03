@@ -14,6 +14,15 @@ import { managementStatusLabel } from "@/components/management/order-table";
 
 export function ManagementOrderDetailPanel({ order }: { order: ManagementOrderDetail }) {
   const router = useRouter();
+  const shipmentStatus = order.shipment?.status === "importing"
+    ? "Procesando en Andreani"
+    : order.shipment?.status === "imported"
+      ? "Etiqueta lista"
+      : order.shipment?.status === "rejected"
+        ? "Rechazado por Andreani"
+        : order.shipment?.status === "attention_required"
+          ? "Requiere atención"
+          : order.shipment?.status ?? "";
   const act = async (action: string, reason: string, options?: ManagementOrderActionOptions) => {
     await managementRequest(`/orders/${order.public_id}/actions/`, {
       method: "POST",
@@ -54,7 +63,28 @@ export function ManagementOrderDetailPanel({ order }: { order: ManagementOrderDe
         <h2>Entrega</h2>
         <p>{String(order.address_snapshot.street ?? "Retiro en tienda")} {String(order.address_snapshot.number ?? "")}</p>
         <p>{String(order.address_snapshot.locality ?? "")} {String(order.address_snapshot.province ?? "")}</p>
-        {order.shipment && <div className="management-notice"><strong>Seguimiento: {order.shipment.tracking_number || "Pendiente"}</strong><br />Estado: {order.shipment.status}</div>}
+        {order.shipment && (
+          <div className="management-notice">
+            <strong>Seguimiento: {order.shipment.tracking_number || "Pendiente"}</strong>
+            <br />
+            Estado: <span>{shipmentStatus}</span>
+            {order.shipment.label_url && (
+              <div className="management-form-actions">
+                <a className="button primary" download href={order.shipment.label_url}>
+                  Descargar etiqueta
+                </a>
+                <a
+                  className="button secondary"
+                  href={`${order.shipment.label_url}?preview=1`}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Imprimir etiqueta
+                </a>
+              </div>
+            )}
+          </div>
+        )}
       </section>
       <section className="management-form-section">
         <h2>Historial</h2>

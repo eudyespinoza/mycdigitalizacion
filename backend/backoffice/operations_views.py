@@ -190,35 +190,64 @@ class ManagementOrderActionView(generics.GenericAPIView):
                 {"code": code, "detail": detail}, status=status.HTTP_400_BAD_REQUEST
             )
         except (ProviderNotConfigured, ProviderUnavailable, ProviderTimeout):
+            shipping_action = action in {"create_shipment", "refresh_tracking"}
             OrderAuditEvent.objects.create(
                 order=order,
-                kind="admin_refund_failed",
-                data={"reason": reason, "code": "payment_provider_unavailable"},
+                kind="admin_shipping_failed" if shipping_action else "admin_refund_failed",
+                data={
+                    "reason": reason,
+                    "code": (
+                        "shipping_provider_unavailable"
+                        if shipping_action
+                        else "payment_provider_unavailable"
+                    ),
+                },
                 actor=request.user,
             )
             return Response(
                 {
-                    "code": "payment_provider_unavailable",
+                    "code": (
+                        "shipping_provider_unavailable"
+                        if shipping_action
+                        else "payment_provider_unavailable"
+                    ),
                     "detail": (
-                        "No pudimos comunicarnos con Mercado Pago. "
-                        "El pedido sigue activo; intentá nuevamente."
+                        "No pudimos comunicarnos con el transportista. Intentá nuevamente."
+                        if shipping_action
+                        else (
+                            "No pudimos comunicarnos con Mercado Pago. "
+                            "El pedido sigue activo; intentá nuevamente."
+                        )
                     ),
                 },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         except (ProviderInvalidResponse, ProviderRejected, ProviderError):
+            shipping_action = action in {"create_shipment", "refresh_tracking"}
             OrderAuditEvent.objects.create(
                 order=order,
-                kind="admin_refund_failed",
-                data={"reason": reason, "code": "payment_refund_failed"},
+                kind="admin_shipping_failed" if shipping_action else "admin_refund_failed",
+                data={
+                    "reason": reason,
+                    "code": (
+                        "shipping_provider_error" if shipping_action else "payment_refund_failed"
+                    ),
+                },
                 actor=request.user,
             )
             return Response(
                 {
-                    "code": "payment_refund_failed",
+                    "code": (
+                        "shipping_provider_error" if shipping_action else "payment_refund_failed"
+                    ),
                     "detail": (
-                        "Mercado Pago no pudo procesar la devolución. "
-                        "El pedido sigue activo; revisá la integración e intentá nuevamente."
+                        "El transportista rechazó la operación. "
+                        "Revisá el envío e intentá nuevamente."
+                        if shipping_action
+                        else (
+                            "Mercado Pago no pudo procesar la devolución. "
+                            "El pedido sigue activo; revisá la integración e intentá nuevamente."
+                        )
                     ),
                 },
                 status=status.HTTP_502_BAD_GATEWAY,

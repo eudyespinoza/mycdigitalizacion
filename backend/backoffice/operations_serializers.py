@@ -132,8 +132,19 @@ class ManagementShipmentSerializer(serializers.Serializer):
     provider = serializers.CharField()
     tracking_number = serializers.CharField(allow_blank=True)
     status = serializers.CharField()
-    label_url = serializers.URLField(allow_blank=True)
+    label_url = serializers.SerializerMethodField()
     updated_at = serializers.DateTimeField()
+
+    def get_label_url(self, shipment) -> str:
+        if shipment.provider != "andreani":
+            return ""
+        parcels = list(shipment.parcel_imports.all())
+        if not parcels or any(
+            parcel.status != parcel.Status.IMPORTED or not parcel.provider_id
+            for parcel in parcels
+        ):
+            return ""
+        return f"/api/v1/orders/{shipment.order.public_id}/label/"
 
 
 class ManagementOrderDetailSerializer(ManagementOrderSummarySerializer):

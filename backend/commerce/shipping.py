@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import unicodedata
 import uuid
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 
+from django.core.cache import cache
 from django.db import transaction
+from django.utils import timezone
 
 from providers import (
+    ProviderAuthenticationError,
     ProviderError,
     ProviderHttpClient,
     ProviderInvalidResponse,
@@ -110,6 +114,10 @@ class DisabledCarrierAdapter:
         raise ProviderNotConfigured("El envío a domicilio no está configurado")
 
     def import_shipment(self, *args, **kwargs):
+        del args, kwargs
+        raise ProviderNotConfigured("El envío a domicilio no está configurado")
+
+    def shipment_status(self, *args, **kwargs):
         del args, kwargs
         raise ProviderNotConfigured("El envío a domicilio no está configurado")
 
@@ -278,6 +286,7 @@ class AndreaniAdapter:
         origin,
         sender,
         transport=None,
+        token_cache=None,
     ):
         if not all((base_url, username, password, customer_id, contract)):
             raise ProviderNotConfigured("Andreani no está configurado")
@@ -296,24 +305,76 @@ class AndreaniAdapter:
         self.origin = origin
         self.sender = sender
         self.http = ProviderHttpClient(transport or UrllibJsonTransport())
+        self.token_cache = token_cache or cache
         self._access_token = ""
+        token_identity = f"{self.base_url}\0{self.username}\0{self.password}"
+        token_digest = hashlib.sha256(token_identity.encode()).hexdigest()
+        self._token_cache_key = f"andreani:token:{token_digest}"
 
     def _authenticate(self):
         if self._access_token:
             return self._access_token
-        data = self.http.request_json(
-            "POST",
-            f"{self.base_url}/v2/login",
-            payload={"usuario": self.username, "password": self.password},
+        cached_token = self.token_cache.get(self._token_cache_key, "")
+        if cached_token:
+            self._access_token = str(cached_token)
+            return self._access_token
+        credentials = base64.b64encode(
+            f"{self.username}:{self.password}".encode()
+        ).decode("ascii")
+        response = self.http.request_json_response(
+            "GET",
+            f"{self.base_url}/login",
+            headers={"Authorization": f"Basic {credentials}"},
         )
-        token = str(data.get("token", ""))
+        token = str(
+            response.headers.get("x-authorization-token")
+            or (response.body.get("token") if isinstance(response.body, dict) else "")
+            or ""
+        )
         if not token:
             raise ProviderInvalidResponse("Andreani no devolvió una sesión válida")
         self._access_token = token
+        self.token_cache.set(self._token_cache_key, token, timeout=23 * 60 * 60)
         return token
+
+    def _invalidate_token(self):
+        self._access_token = ""
+        self.token_cache.delete(self._token_cache_key)
 
     def _headers(self):
         return {"x-authorization-token": self._authenticate()}
+
+    def _request_json(self, method, url, *, headers=None, payload=None, params=None, **kwargs):
+        for attempt in range(2):
+            try:
+                return self.http.request_json(
+                    method,
+                    url,
+                    headers={**self._headers(), **(headers or {})},
+                    payload=payload,
+                    params=params,
+                    **kwargs,
+                )
+            except ProviderAuthenticationError:
+                self._invalidate_token()
+                if attempt:
+                    raise
+        raise ProviderAuthenticationError("Andreani rechazó la autenticación")
+
+    def _request_bytes(self, method, url, *, headers=None, **kwargs):
+        for attempt in range(2):
+            try:
+                return self.http.request_bytes(
+                    method,
+                    url,
+                    headers={**self._headers(), **(headers or {})},
+                    **kwargs,
+                )
+            except ProviderAuthenticationError:
+                self._invalidate_token()
+                if attempt:
+                    raise
+        raise ProviderAuthenticationError("Andreani rechazó la autenticación")
 
     def test_connection(self):
         self._authenticate()
@@ -344,7 +405,7 @@ class AndreaniAdapter:
                     f"{prefix}[valorDeclarado]": f"{declared_value:.2f}",
                 }
             )
-        data = self.http.request_json(
+        data = self._request_json(
             "GET",
             f"{self.base_url}/v1/tarifas",
             params=params,
@@ -430,43 +491,74 @@ class AndreaniAdapter:
                 }
             ],
         }
-        data = self.http.request_json(
+        data = self._request_json(
             "POST",
             f"{self.base_url}/v2/ordenes-de-envio",
-            headers={**self._headers(), "X-Idempotency-Key": idempotency_key},
+            headers={"X-Idempotency-Key": idempotency_key},
             payload=remote_payload,
             idempotent=True,
             expected=(200, 201),
         )
+        return self._normalize_order(data)
+
+    def _normalize_order(self, data):
         entry = data[0] if isinstance(data, list) and data else data
         if not isinstance(entry, dict):
             raise ProviderInvalidResponse("Andreani no confirmó la orden de envío")
-        tracking_number = str(
+        provider_id = str(
             entry.get("numeroAndreani")
             or entry.get("numeroDeEnvio")
             or entry.get("agrupadorDeBultos")
             or ""
         )
-        if not tracking_number:
+        if not provider_id:
             raise ProviderInvalidResponse("Andreani no devolvió el número de envío")
+        provider_status = str(entry.get("estado") or "")
+        normalized_status = "".join(
+            character
+            for character in unicodedata.normalize("NFKD", provider_status.casefold())
+            if not unicodedata.combining(character)
+        )
+        if normalized_status in {"creado", "creada"}:
+            state = "created"
+        elif normalized_status in {"rechazado", "rechazada"}:
+            state = "rejected"
+        elif normalized_status in {"", "pendiente", "solicitado"}:
+            state = "submitted"
+        else:
+            raise ProviderInvalidResponse("Andreani devolvió un estado de envío inválido")
         return {
-            "createdAt": str(entry.get("fechaCreacion") or "confirmed"),
-            "tracking_number": tracking_number,
-            "label_url": f"{self.base_url}/v2/ordenes-de-envio/{tracking_number}/etiquetas",
-            "status": str(entry.get("estado") or "Creado"),
+            "provider_id": provider_id,
+            "tracking_number": str(entry.get("numeroAndreani") or provider_id),
+            "state": state,
+            "provider_status": provider_status,
+            "created_at": str(entry.get("fechaCreacion") or ""),
+            "rejection_reason": str(
+                entry.get("motivoRechazo") or entry.get("motivo") or entry.get("mensaje") or ""
+            ),
         }
+
+    def shipment_status(self, shipment_id):
+        data = self._request_json(
+            "GET",
+            f"{self.base_url}/v2/ordenes-de-envio/{shipment_id}",
+        )
+        return self._normalize_order(data)
 
     def label(self, shipment_id):
-        return {
-            "url": f"{self.base_url}/v2/ordenes-de-envio/{shipment_id}/etiquetas",
-            "requires_authentication": True,
-        }
+        document = self._request_bytes(
+            "GET",
+            f"{self.base_url}/v2/ordenes-de-envio/{shipment_id}/etiquetas",
+            headers={"Accept": "application/pdf"},
+        )
+        if not document.startswith(b"%PDF-"):
+            raise ProviderInvalidResponse("Andreani devolvió una etiqueta inválida")
+        return document
 
     def tracking(self, tracking_number):
-        return self.http.request_json(
+        return self._request_json(
             "GET",
             f"{self.base_url}/v3/envios/{tracking_number}",
-            headers=self._headers(),
         )
 
 
@@ -872,37 +964,121 @@ def _prepare_shipment(*, order):
     return shipment
 
 
-def _import_parcel(*, parcel_import, order, adapter):
+def _poll_delay_minutes(poll_attempts):
+    return min(2 ** max(poll_attempts, 0), 15)
+
+
+def _apply_parcel_response(*, parcel_import, response, now):
     from commerce.models import ShipmentParcelImport
 
+    if not isinstance(response, dict):
+        raise ProviderInvalidResponse("El transportista no confirmó el envío")
+    state = str(response.get("state") or "")
+    if not state and response.get("createdAt"):
+        state = "created"
+    if state not in {"submitted", "created", "rejected"}:
+        raise ProviderInvalidResponse("El transportista devolvió un estado de envío inválido")
+
+    provider_id = str(
+        response.get("provider_id")
+        or response.get("tracking_number")
+        or parcel_import.provider_id
+        or ""
+    )
+    if state in {"submitted", "rejected"} and not provider_id:
+        raise ProviderInvalidResponse("El transportista no devolvió el identificador del envío")
+
+    summary = dict(parcel_import.provider_summary or {})
+    summary.update(
+        {
+            "provider_id": provider_id,
+            "created_at": str(response.get("created_at") or response.get("createdAt") or ""),
+            "tracking_number": str(response.get("tracking_number") or provider_id),
+            "provider_status": str(
+                response.get("provider_status") or response.get("status") or ""
+            ),
+            "rejection_reason": str(response.get("rejection_reason") or "").strip()[:500],
+        }
+    )
+    parcel_import.provider_id = provider_id
+    parcel_import.provider_summary = summary
+    if state == "created":
+        parcel_import.status = ShipmentParcelImport.Status.IMPORTED
+        parcel_import.next_poll_at = None
+    elif state == "rejected":
+        parcel_import.status = ShipmentParcelImport.Status.REJECTED
+        parcel_import.next_poll_at = None
+    else:
+        parcel_import.status = ShipmentParcelImport.Status.SUBMITTED
+        parcel_import.next_poll_at = now + timezone.timedelta(
+            minutes=_poll_delay_minutes(parcel_import.poll_attempts)
+        )
+
+
+def _import_parcel(*, parcel_import, order, adapter, now=None, force_poll=False):
+    from commerce.models import ShipmentParcelImport
+
+    now = now or timezone.now()
+    poll_error = None
     with transaction.atomic():
         locked = ShipmentParcelImport.objects.select_for_update().get(pk=parcel_import.pk)
-        if locked.status == ShipmentParcelImport.Status.IMPORTED:
+        if locked.status in {
+            ShipmentParcelImport.Status.IMPORTED,
+            ShipmentParcelImport.Status.REJECTED,
+        }:
             return locked
-        payload = _parcel_payload(
-            order=order,
-            adapter=adapter,
-            parcel=locked.parcel_snapshot,
-            external_id=locked.external_id,
-        )
-        response = adapter.import_shipment(
-            payload,
-            idempotency_key=str(locked.idempotency_key),
-        )
-        if not isinstance(response, dict) or not response.get("createdAt"):
-            raise ProviderInvalidResponse("Correo Argentino no confirmó la importación del envío")
-        locked.status = ShipmentParcelImport.Status.IMPORTED
-        locked.provider_summary = {
-            "created_at": str(response["createdAt"]),
-            "tracking_number": str(response.get("tracking_number") or ""),
-            "label_url": str(response.get("label_url") or ""),
-            "status": str(response.get("status") or ""),
-        }
-        locked.save(update_fields=("status", "provider_summary", "updated_at"))
-        return locked
+        if locked.status in {
+            ShipmentParcelImport.Status.SUBMITTED,
+            ShipmentParcelImport.Status.ATTENTION_REQUIRED,
+        }:
+            if not force_poll and now - locked.created_at >= timezone.timedelta(hours=24):
+                locked.status = ShipmentParcelImport.Status.ATTENTION_REQUIRED
+                locked.next_poll_at = None
+                locked.save(update_fields=("status", "next_poll_at", "updated_at"))
+                return locked
+            if not force_poll and locked.next_poll_at and locked.next_poll_at > now:
+                return locked
+            try:
+                response = adapter.shipment_status(locked.provider_id)
+            except ProviderError as exc:
+                locked.poll_attempts += 1
+                locked.next_poll_at = now + timezone.timedelta(
+                    minutes=_poll_delay_minutes(locked.poll_attempts)
+                )
+                locked.save(update_fields=("poll_attempts", "next_poll_at", "updated_at"))
+                poll_error = exc
+            else:
+                locked.poll_attempts += 1
+        else:
+            payload = _parcel_payload(
+                order=order,
+                adapter=adapter,
+                parcel=locked.parcel_snapshot,
+                external_id=locked.external_id,
+            )
+            response = adapter.import_shipment(
+                payload,
+                idempotency_key=str(locked.idempotency_key),
+            )
+        if poll_error is None:
+            _apply_parcel_response(parcel_import=locked, response=response, now=now)
+            locked.save(
+                update_fields=(
+                    "status",
+                    "provider_id",
+                    "poll_attempts",
+                    "next_poll_at",
+                    "provider_summary",
+                    "updated_at",
+                )
+            )
+        result = locked
+    if poll_error is not None:
+        raise poll_error
+    return result
 
 
-def create_order_shipment(*, order, adapter):
+def create_order_shipment(*, order, adapter, force_poll=False):
     from commerce.models import Shipment, ShipmentParcelImport
 
     shipment = _prepare_shipment(order=order)
@@ -910,7 +1086,12 @@ def create_order_shipment(*, order, adapter):
         return shipment
     current_order = type(order).objects.select_related("shipping_quote").get(pk=order.pk)
     for parcel_import in shipment.parcel_imports.order_by("parcel_index"):
-        _import_parcel(parcel_import=parcel_import, order=current_order, adapter=adapter)
+        _import_parcel(
+            parcel_import=parcel_import,
+            order=current_order,
+            adapter=adapter,
+            force_poll=force_poll,
+        )
     with transaction.atomic():
         locked = Shipment.objects.select_for_update().get(pk=shipment.pk)
         imports = list(
@@ -918,19 +1099,29 @@ def create_order_shipment(*, order, adapter):
             .filter(shipment=locked)
             .order_by("parcel_index")
         )
-        if not imports or any(
-            parcel.status != ShipmentParcelImport.Status.IMPORTED for parcel in imports
-        ):
+        if not imports:
             return locked
         shipping_ids = [
-            parcel.provider_summary.get("tracking_number") or parcel.external_id
+            parcel.provider_summary.get("tracking_number")
+            or parcel.provider_id
+            or parcel.external_id
             for parcel in imports
         ]
-        locked.status = "imported"
-        locked.provider_id = shipping_ids[0]
-        locked.tracking_number = shipping_ids[0]
-        locked.label_url = str(imports[0].provider_summary.get("label_url") or "")
-        locked.provider_summary = {"shipping_ids": shipping_ids}
+        if all(parcel.status == ShipmentParcelImport.Status.IMPORTED for parcel in imports):
+            locked.status = "imported"
+        elif any(parcel.status == ShipmentParcelImport.Status.REJECTED for parcel in imports):
+            locked.status = "rejected"
+        elif any(
+            parcel.status == ShipmentParcelImport.Status.ATTENTION_REQUIRED for parcel in imports
+        ):
+            locked.status = "attention_required"
+        else:
+            locked.status = "importing"
+        if shipping_ids:
+            locked.provider_id = shipping_ids[0]
+            locked.tracking_number = shipping_ids[0]
+        locked.label_url = ""
+        locked.provider_summary = {**(locked.provider_summary or {}), "shipping_ids": shipping_ids}
         locked.save(
             update_fields=(
                 "status",
@@ -942,3 +1133,31 @@ def create_order_shipment(*, order, adapter):
             )
         )
         return locked
+
+
+def refresh_shipment_tracking(*, shipment, adapter):
+    if shipment.status in {"importing", "attention_required"}:
+        shipment = create_order_shipment(
+            order=shipment.order,
+            adapter=adapter,
+            force_poll=True,
+        )
+    if shipment.status in {"importing", "rejected", "attention_required"}:
+        return shipment
+    if not shipment.tracking_number:
+        return shipment
+    tracking = adapter.tracking(shipment.tracking_number)
+    entry = tracking[0] if isinstance(tracking, list) and tracking else tracking
+    events = entry.get("events", []) if isinstance(entry, dict) else []
+    last_event = events[0] if events else {}
+    shipment.status = str(
+        last_event.get("event")
+        or (entry.get("estado") if isinstance(entry, dict) else "")
+        or shipment.status
+    ).lower()
+    shipment.provider_summary = {
+        **(shipment.provider_summary or {}),
+        "last_event": str(last_event.get("event") or ""),
+    }
+    shipment.save(update_fields=("status", "provider_summary", "updated_at"))
+    return shipment

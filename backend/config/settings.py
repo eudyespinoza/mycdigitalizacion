@@ -481,7 +481,7 @@ CELERY_BEAT_SCHEDULE = {
     },
     "resume-pending-shipments": {
         "task": "commerce.tasks.resume_pending_shipments",
-        "schedule": 300,
+        "schedule": 60,
     },
     "reconcile-tracking": {
         "task": "commerce.tasks.reconcile_tracking",

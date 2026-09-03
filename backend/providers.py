@@ -36,6 +36,10 @@ class ProviderRejected(ProviderError):
     code = "rejected"
 
 
+class ProviderAuthenticationError(ProviderError):
+    code = "authentication_failed"
+
+
 class ProviderNotConfigured(ProviderError):
     code = "not_configured"
 
@@ -54,7 +58,14 @@ class JsonTransport(Protocol):
         json: dict[str, Any] | list[Any] | None = None,
         params: dict[str, Any] | None = None,
         timeout: tuple[float, float] = DEFAULT_TIMEOUT,
-    ) -> tuple[int, Any]: ...
+    ) -> tuple[int, Any] | tuple[int, dict[str, str], Any]: ...
+
+
+@dataclass(frozen=True)
+class ProviderHttpResponse:
+    status: int
+    headers: dict[str, str]
+    body: Any
 
 
 class UrllibJsonTransport:
@@ -70,6 +81,26 @@ class UrllibJsonTransport:
         params: dict[str, Any] | None = None,
         timeout: tuple[float, float] = DEFAULT_TIMEOUT,
     ) -> tuple[int, Any]:
+        response = self.request_response(
+            method,
+            url,
+            headers=headers,
+            json=json,
+            params=params,
+            timeout=timeout,
+        )
+        return response.status, json_loads(response.body)
+
+    def request_response(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        json: dict[str, Any] | list[Any] | None = None,
+        params: dict[str, Any] | None = None,
+        timeout: tuple[float, float] = DEFAULT_TIMEOUT,
+    ) -> ProviderHttpResponse:
         if params:
             separator = "&" if "?" in url else "?"
             url = f"{url}{separator}{urlencode(params)}"
@@ -91,7 +122,12 @@ class UrllibJsonTransport:
                 connection.sock.settimeout(timeout[1])
             connection.request(method, path, body=body, headers=request_headers)
             response = connection.getresponse()
-            return response.status, json_loads(response.read())
+            response_headers = getattr(response, "getheaders", lambda: ())()
+            return ProviderHttpResponse(
+                status=response.status,
+                headers={str(key).lower(): str(value) for key, value in response_headers},
+                body=response.read(),
+            )
         except TimeoutError as exc:
             raise ProviderTimeout("El proveedor tardó demasiado en responder") from exc
         except HTTPException as exc:
@@ -131,28 +167,94 @@ class ProviderHttpClient:
         idempotent: bool = False,
         expected: tuple[int, ...] = (200,),
     ) -> Any:
+        return self.request_json_response(
+            method,
+            url,
+            headers=headers,
+            payload=payload,
+            params=params,
+            idempotent=idempotent,
+            expected=expected,
+        ).body
+
+    def request_json_response(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        payload: dict[str, Any] | list[Any] | None = None,
+        params: dict[str, Any] | None = None,
+        idempotent: bool = False,
+        expected: tuple[int, ...] = (200,),
+    ) -> ProviderHttpResponse:
+        response = self._request_response(
+            method,
+            url,
+            headers=headers,
+            payload=payload,
+            params=params,
+            idempotent=idempotent,
+            expected=expected,
+        )
+        data = json_loads(response.body) if isinstance(response.body, bytes) else response.body
+        if not isinstance(data, dict | list):
+            raise ProviderInvalidResponse("El proveedor devolvió una respuesta inválida")
+        return ProviderHttpResponse(response.status, response.headers, data)
+
+    def request_bytes(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        idempotent: bool = False,
+        expected: tuple[int, ...] = (200,),
+    ) -> bytes:
+        response = self._request_response(
+            method,
+            url,
+            headers=headers,
+            params=params,
+            idempotent=idempotent,
+            expected=expected,
+        )
+        if not isinstance(response.body, bytes):
+            raise ProviderInvalidResponse("El proveedor devolvió una respuesta inválida")
+        return response.body
+
+    def _request_response(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        payload: dict[str, Any] | list[Any] | None = None,
+        params: dict[str, Any] | None = None,
+        idempotent: bool = False,
+        expected: tuple[int, ...] = (200,),
+    ) -> ProviderHttpResponse:
         attempts = 1 + (self.retries if method.upper() == "GET" or idempotent else 0)
         for attempt in range(attempts):
             try:
-                status, data = self.transport.request(
-                    method,
-                    url,
-                    headers=headers,
-                    json=payload,
-                    params=params,
-                    timeout=self.timeout,
+                raw_response = self._send(
+                    method, url, headers=headers, payload=payload, params=params
                 )
             except (ProviderTimeout, ProviderUnavailable):
                 if attempt + 1 < attempts:
                     continue
                 raise
+            status = raw_response.status
             if status in expected:
-                if not isinstance(data, dict | list):
-                    raise ProviderInvalidResponse("El proveedor devolvió una respuesta inválida")
-                return data
+                return raw_response
             if status in {408, 429, 500, 502, 503, 504} and attempt + 1 < attempts:
                 continue
-            if status in {400, 401, 402, 403, 404, 409, 422}:
+            if status in {401, 403}:
+                raise ProviderAuthenticationError(
+                    "El proveedor rechazó la autenticación", diagnostics=f"http_status={status}"
+                )
+            if status in {400, 402, 404, 409, 422}:
                 raise ProviderRejected(
                     "El proveedor rechazó la operación", diagnostics=f"http_status={status}"
                 )
@@ -160,3 +262,42 @@ class ProviderHttpClient:
                 "El proveedor no está disponible", diagnostics=f"http_status={status}"
             )
         raise ProviderUnavailable("El proveedor no está disponible")
+
+    def _send(self, method, url, *, headers, payload, params):
+        request_response = getattr(self.transport, "request_response", None)
+        if callable(request_response):
+            raw_response = request_response(
+                method,
+                url,
+                headers=headers,
+                json=payload,
+                params=params,
+                timeout=self.timeout,
+            )
+        else:
+            raw_response = self.transport.request(
+                method,
+                url,
+                headers=headers,
+                json=payload,
+                params=params,
+                timeout=self.timeout,
+            )
+        if isinstance(raw_response, ProviderHttpResponse):
+            return ProviderHttpResponse(
+                raw_response.status,
+                {str(key).lower(): str(value) for key, value in raw_response.headers.items()},
+                raw_response.body,
+            )
+        if not isinstance(raw_response, tuple) or len(raw_response) not in {2, 3}:
+            raise ProviderInvalidResponse("El proveedor devolvió una respuesta inválida")
+        if len(raw_response) == 2:
+            status, body = raw_response
+            response_headers = {}
+        else:
+            status, response_headers, body = raw_response
+        return ProviderHttpResponse(
+            int(status),
+            {str(key).lower(): str(value) for key, value in response_headers.items()},
+            body,
+        )
