@@ -1,9 +1,10 @@
 from datetime import timedelta
 from decimal import Decimal
+from importlib import import_module
 
 import pytest
 from django.core.exceptions import ValidationError
-from django.db import connection
+from django.db import connection, migrations
 from django.db.migrations.executor import MigrationExecutor
 from django.utils import timezone
 
@@ -20,6 +21,20 @@ def variant_values(**overrides):
     }
     values.update(overrides)
     return values
+
+
+def test_catalog_sku_migration_separates_data_updates_from_postgresql_index_ddl():
+    migration = import_module(
+        "catalog.migrations.0008_automatic_catalog_skus"
+    ).Migration
+    data_operation = next(
+        operation
+        for operation in migration.operations
+        if isinstance(operation, migrations.RunPython)
+    )
+
+    assert migration.atomic is False
+    assert data_operation.atomic is True
 
 
 @pytest.mark.django_db

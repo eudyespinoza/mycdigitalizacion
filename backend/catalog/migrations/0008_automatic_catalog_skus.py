@@ -2,7 +2,6 @@ import django.contrib.postgres.indexes
 import django.contrib.postgres.search
 from django.db import migrations, models
 
-
 PRODUCT_SKU_START = 600001
 PRODUCT_SKU_END = 699999
 VARIANT_SEQUENCE_END = 99
@@ -53,6 +52,8 @@ def assign_catalog_skus(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    atomic = False
+
     dependencies = [("catalog", "0007_variant_stock_limits")]
 
     operations = [
@@ -90,7 +91,11 @@ class Migration(migrations.Migration):
             name="sku",
             field=models.CharField(max_length=6, null=True, unique=True),
         ),
-        migrations.RunPython(assign_catalog_skus, migrations.RunPython.noop),
+        migrations.RunPython(
+            assign_catalog_skus,
+            migrations.RunPython.noop,
+            atomic=True,
+        ),
         migrations.AlterField(
             model_name="product",
             name="sku",
