@@ -32,7 +32,7 @@ def management_client(django_user_model):
     return client
 
 
-def test_management_product_creation_uses_variants_and_audited_initial_stock(
+def test_management_product_creation_assigns_skus_and_audits_initial_stock(
     django_user_model,
 ):
     category = Category.objects.create(name="Librería", slug="libreria")
@@ -50,7 +50,6 @@ def test_management_product_creation_uses_variants_and_audited_initial_stock(
             "publish": True,
             "variants": [
                 {
-                    "sku": "CUA-A5-AZUL",
                     "name": "Azul",
                     "price": "4890.00",
                     "cost": "2600.00",
@@ -67,10 +66,12 @@ def test_management_product_creation_uses_variants_and_audited_initial_stock(
 
     assert response.status_code == 201
     body = response.json()
+    assert body["sku"] == "600001"
     assert body["is_sellable"] is True
+    assert body["variants"][0]["sku"] == "600001-01"
     assert body["variants"][0]["cost"] == "2600.00"
     assert body["variants"][0]["on_hand"] == 12
-    variant = ProductVariant.objects.get(sku="CUA-A5-AZUL")
+    variant = ProductVariant.objects.get(sku="600001-01")
     movement = InventoryMovement.objects.get(variant=variant)
     assert movement.quantity_delta == 12
     assert movement.source == "domain"
@@ -85,6 +86,7 @@ def test_management_product_update_keeps_existing_sku_and_adds_a_variant(
     created = client.post(
         "/api/v1/management/products/",
         {
+            "sku": "699999",
             "name": "Libreta tapa dura",
             "slug": "libreta-tapa-dura",
             "category_id": category.pk,
@@ -109,6 +111,7 @@ def test_management_product_update_keeps_existing_sku_and_adds_a_variant(
     response = client.patch(
         f"/api/v1/management/products/{created.json()['id']}/",
         {
+            "sku": "699998",
             "variants": [
                 {
                     "id": existing["id"],
@@ -139,9 +142,10 @@ def test_management_product_update_keeps_existing_sku_and_adds_a_variant(
     )
 
     assert response.status_code == 200
+    assert response.json()["sku"] == "600001"
     assert [variant["sku"] for variant in response.json()["variants"]] == [
-        "MYC-LIB-TAP-80",
-        "MYC-LIB-TAP-60",
+        "600001-01",
+        "600001-02",
     ]
     assert ProductVariant.objects.filter(product_id=created.json()["id"]).count() == 2
 
@@ -178,6 +182,22 @@ def test_management_product_list_searches_real_catalog_and_includes_cost(django_
     assert response.status_code == 200
     assert response.json()["count"] == 1
     assert response.json()["results"][0]["variants"][0]["cost"] == "3900.00"
+
+
+def test_management_product_list_searches_product_base_sku_without_variants(django_user_model):
+    category = Category.objects.create(name="Bases", slug="bases-sku")
+    product = Product.objects.create(
+        category=category,
+        name="Sin variante",
+        slug="sin-variante-sku",
+    )
+    client = management_client(django_user_model)
+
+    response = client.get(f"/api/v1/management/products/?search={product.sku}")
+
+    assert response.status_code == 200
+    assert response.json()["count"] == 1
+    assert response.json()["results"][0]["sku"] == product.sku
 
 
 def test_stock_adjustment_requires_reason_and_creates_movement(django_user_model):
@@ -404,8 +424,8 @@ def test_management_product_supports_multiple_variants_and_filter_attributes(
 
     assert response.status_code == 201
     assert [variant["sku"] for variant in response.json()["variants"]] == [
-        "MOC-AZUL",
-        "MOC-ROSA",
+        "600001-01",
+        "600001-02",
     ]
     assert response.json()["variants"][0]["attributes"] == [
         {

@@ -210,8 +210,7 @@ class ManagementVariantSerializer(serializers.ModelSerializer):
             "attributes",
             "attribute_values",
         )
-        read_only_fields = ("available_stock", "recent_movements", "attributes")
-        extra_kwargs = {"sku": {"validators": []}}
+        read_only_fields = ("sku", "available_stock", "recent_movements", "attributes")
 
     def validate_attribute_values(self, values):
         normalized = []
@@ -360,6 +359,7 @@ class ManagementProductSummarySerializer(
         model = Product
         fields = (
             "id",
+            "sku",
             "name",
             "slug",
             "description",
@@ -395,6 +395,7 @@ class ManagementProductSerializer(ManagementOfferStateMixin, serializers.ModelSe
         model = Product
         fields = (
             "id",
+            "sku",
             "name",
             "slug",
             "description",
@@ -411,40 +412,27 @@ class ManagementProductSerializer(ManagementOfferStateMixin, serializers.ModelSe
             "media",
             "publish",
         )
-        read_only_fields = ("id", "is_active", "is_sellable", "created_at")
+        read_only_fields = ("id", "sku", "is_active", "is_sellable", "created_at")
 
     def validate_variants(self, variants):
         if not variants and not self.instance:
             raise serializers.ValidationError("Cargá al menos una variante.")
         errors = [{} for _ in variants]
-        skus = [variant["sku"] for variant in variants]
         variant_ids = [variant.get("id") for variant in variants if variant.get("id")]
         allowed_ids = (
             set(self.instance.variants.filter(pk__in=variant_ids).values_list("pk", flat=True))
             if self.instance
             else set()
         )
-        existing_by_sku = {
-            sku: pk
-            for pk, sku in ProductVariant.objects.filter(sku__in=skus).values_list("pk", "sku")
-        }
-        seen_skus = set()
         seen_ids = set()
         for index, variant in enumerate(variants):
-            sku = variant["sku"]
             variant_id = variant.get("id")
-            if sku in seen_skus:
-                errors[index]["sku"] = ["El SKU está repetido en este producto."]
-            seen_skus.add(sku)
             if variant_id:
                 if variant_id in seen_ids:
                     errors[index]["id"] = ["La variante está repetida en el formulario."]
                 elif variant_id not in allowed_ids:
                     errors[index]["id"] = ["La variante no pertenece a este producto."]
                 seen_ids.add(variant_id)
-            existing_id = existing_by_sku.get(sku)
-            if existing_id and existing_id != variant_id:
-                errors[index]["sku"] = ["Ya existe otra variante con este SKU."]
         if any(errors):
             raise serializers.ValidationError(errors)
         return variants

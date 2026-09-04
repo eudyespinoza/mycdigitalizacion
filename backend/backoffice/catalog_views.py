@@ -98,7 +98,8 @@ class ProductListCreateView(generics.GenericAPIView):
         search = self.request.query_params.get("search", "").strip()
         if search:
             queryset = queryset.filter(
-                Q(name__icontains=search)
+                Q(sku__icontains=search)
+                | Q(name__icontains=search)
                 | Q(slug__icontains=search)
                 | Q(variants__sku__icontains=search)
             ).distinct()

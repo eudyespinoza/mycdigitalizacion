@@ -68,6 +68,7 @@ export type ManagementVariant = {
 
 export type ManagementProduct = {
   id: number;
+  sku: string;
   name: string;
   slug: string;
   description: string;
@@ -91,7 +92,6 @@ export type ProductEditorPayload = {
   publish: boolean;
   variants: Array<{
     id?: number;
-    sku: string;
     name: string;
     price: string;
     cost: string;

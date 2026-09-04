@@ -195,6 +195,7 @@ describe("reglas de promociones en gestión", () => {
   test("indica la oferta aplicada en la lista de productos", () => {
     const product: ManagementProduct = {
       id: 11,
+      sku: "600001",
       name: "Cuaderno A5",
       slug: "cuaderno-a5-oferta",
       description: "Cuaderno rayado",

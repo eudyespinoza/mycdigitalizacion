@@ -1029,6 +1029,8 @@ select:focus, input:focus, textarea:focus { outline: 0; border-color: var(--cyan
 .management-field-grid textarea { resize: vertical; }
 .management-field-grid input:focus, .management-field-grid textarea:focus, .integration-enable-row select:focus { outline: 3px solid rgba(8,174,205,.24); border-color: var(--cyan-action); }
 .management-field-grid .field-wide { grid-column: 1 / -1; }
+.management-readonly-field { display: grid; gap: 7px; min-width: 0; font-weight: 800; }
+.management-readonly-field output { min-height: 44px; display: flex; align-items: center; border: 1px solid var(--line); border-radius: 11px; padding: 8px 12px; background: var(--surface-cold); color: var(--ink); font: inherit; font-variant-numeric: tabular-nums; }
 .management-sku-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; min-width: 0; }
 .management-sku-field label { min-width: 0; }
 .management-sku-field .button { min-height: 44px; padding-inline: 14px; white-space: nowrap; }

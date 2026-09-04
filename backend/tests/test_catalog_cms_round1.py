@@ -138,6 +138,7 @@ def test_public_catalog_and_cart_exclude_draft_or_inactive_variants(client):
 
     detail = client.get(f"/api/v1/products/{sellable.product.slug}/")
     assert detail.status_code == 200
+    assert detail.json()["sku"] == sellable.product.sku
     assert [item["sku"] for item in detail.json()["variants"]] == ["PUBLIC-ACTIVE"]
     assert client.get(f"/api/v1/products/{draft.product.slug}/").status_code == 404
     assert client.post("/api/v1/cart/", {"variant_id": inactive.pk}).status_code == 400

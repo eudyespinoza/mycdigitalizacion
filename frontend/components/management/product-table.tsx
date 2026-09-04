@@ -46,7 +46,7 @@ export function ManagementProductTable({ products }: { products: ManagementProdu
                     </span>
                   ) : null}
                 </td>
-                <td>{variant?.sku ?? "Sin variante"}</td>
+                <td>{product.sku}</td>
                 <td>{variant ? formatMoney(variant.price) : "—"}</td>
                 <td>{variant ? formatMoney(variant.cost) : "—"}</td>
                 <td>{hasInfiniteStock ? "Stock ilimitado" : `${available} disponibles`}</td>

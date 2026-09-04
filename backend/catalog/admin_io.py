@@ -9,8 +9,7 @@ from django.utils.text import slugify
 
 from catalog.models import Category, Product, ProductVariant
 
-HEADERS = (
-    "sku",
+IMPORT_HEADERS = (
     "product_name",
     "product_slug",
     "category_slug",
@@ -23,6 +22,7 @@ HEADERS = (
     "width_cm",
     "height_cm",
 )
+LEGACY_IMPORT_HEADERS = ("sku", *IMPORT_HEADERS)
 
 
 @dataclass(frozen=True)
@@ -35,7 +35,6 @@ class ProductImportError:
 @dataclass(frozen=True)
 class ProductImportRow:
     row_number: int
-    sku: str
     product_name: str
     product_slug: str
     category: Category
@@ -83,11 +82,13 @@ def validate_product_csv(upload):
         fieldnames = tuple(reader.fieldnames or ())
     except (ValueError, csv.Error) as exc:
         return (), (ProductImportError(1, "file", str(exc)),)
-    if fieldnames != HEADERS or len(fieldnames) != len(set(fieldnames)):
+    if (
+        fieldnames not in (IMPORT_HEADERS, LEGACY_IMPORT_HEADERS)
+        or len(fieldnames) != len(set(fieldnames))
+    ):
         return (), (ProductImportError(1, "header", "CSV headers do not match the template"),)
     rows = []
     errors = []
-    seen_skus = set()
     try:
         data_rows = list(reader)
     except csv.Error as exc:
@@ -95,15 +96,9 @@ def validate_product_csv(upload):
     if len(data_rows) > settings.CATALOG_CSV_MAX_ROWS:
         return (), (ProductImportError(1, "file", "CSV row count exceeds the configured limit"),)
     for row_number, data in enumerate(data_rows, start=2):
-        sku = str(data["sku"] or "").strip()
         product_name = str(data["product_name"] or "").strip()
         product_slug = slugify(str(data["product_slug"] or "").strip())
         category = Category.objects.filter(slug=str(data["category_slug"] or "").strip()).first()
-        if not sku:
-            errors.append(ProductImportError(row_number, "sku", "SKU is required"))
-        elif sku in seen_skus or ProductVariant.objects.filter(sku=sku).exists():
-            errors.append(ProductImportError(row_number, "sku", "SKU must be unique"))
-        seen_skus.add(sku)
         if not product_name:
             errors.append(
                 ProductImportError(row_number, "product_name", "Product name is required")
@@ -148,7 +143,6 @@ def validate_product_csv(upload):
             rows.append(
                 ProductImportRow(
                     row_number=row_number,
-                    sku=sku,
                     product_name=product_name,
                     product_slug=product_slug,
                     category=category,
@@ -184,7 +178,6 @@ def import_products_csv(upload, *, dry_run, actor):
             )
             variant = ProductVariant.objects.create(
                 product=product,
-                sku=row.sku,
                 name=row.variant_name,
                 price=row.price,
                 cost=row.cost,
@@ -200,7 +193,7 @@ def import_products_csv(upload, *, dry_run, actor):
                     new_on_hand=row.on_hand,
                     actor=actor,
                     source="catalog_csv",
-                    reference=f"CSV import row {row.row_number}: {row.sku}",
+                    reference=f"CSV import row {row.row_number}: {variant.sku}",
                 )
     return ImportResult(len(rows), len(rows), ())
 

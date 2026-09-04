@@ -18,22 +18,6 @@ function slugify(value: string) {
     .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
-function skuTokens(value: string, limit: number) {
-  return slugify(value).split("-").filter(Boolean).slice(0, limit)
-    .map((token) => token.slice(0, 3).toUpperCase());
-}
-
-function generateSku(brandName: string, productName: string, variantName: string, index: number) {
-  const brand = skuTokens(brandName, 1);
-  const product = skuTokens(productName, 2);
-  const variant = skuTokens(variantName, 1);
-  return [
-    ...(brand.length ? brand : ["MYC"]),
-    ...(product.length ? product : ["PRO"]),
-    ...(variant.length ? variant : [`V${String(index + 1).padStart(2, "0")}`]),
-  ].join("-");
-}
-
 type VariantDraft = {
   key: string;
   id?: number;
@@ -160,18 +144,6 @@ export function ManagementProductEditor({
     if (!slugWasEdited) setSlug(slugify(value));
   };
 
-  const generateVariantSku = (index: number) => {
-    const brandName = brands.find((brand) => String(brand.id) === brandId)?.name ?? "";
-    const base = generateSku(brandName, name, variants[index].name, index);
-    const used = new Set(
-      variants.filter((_, rowIndex) => rowIndex !== index).map((row) => row.sku.toUpperCase()),
-    );
-    let candidate = base;
-    let suffix = 2;
-    while (used.has(candidate)) candidate = `${base}-${suffix++}`;
-    updateVariant(index, "sku", candidate);
-  };
-
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -187,7 +159,6 @@ export function ManagementProductEditor({
       publish: form.has("publish"),
       variants: variants.map((variant) => ({
         ...(variant.id ? { id: variant.id } : {}),
-        sku: variant.sku,
         name: variant.name,
         price: variant.price,
         cost: variant.cost,
@@ -239,6 +210,10 @@ export function ManagementProductEditor({
       <section className="management-form-section">
         <h2>Información</h2>
         <div className="management-field-grid">
+          <div className="management-readonly-field">
+            <span>SKU del producto</span>
+            <output aria-label="SKU del producto">{initial?.sku || "Se asignará al guardar"}</output>
+          </div>
           <label><span>Nombre del producto</span><input name="name" onChange={(event) => updateName(event.target.value)} required value={name} /></label>
           <label><span>Identificador para la web</span><input name="slug" onChange={(event) => { setSlugWasEdited(true); setSlug(slugify(event.target.value)); }} placeholder="Se genera desde el nombre" value={slug} /></label>
           <label><span>Categoría</span><select defaultValue={initial?.category.id ?? categories[0]?.id} name="category_id" required>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
@@ -258,9 +233,9 @@ export function ManagementProductEditor({
             <fieldset className="management-variant-card" key={variant.key}>
               <legend>Variante {index + 1}</legend>
               <div className="management-field-grid">
-                <div className="management-sku-field">
-                  <label><span>SKU</span><input aria-invalid={saveError?.issues.some((issue) => issue.field === `variants.${index}.sku`) || undefined} aria-label={accessibleLabel("SKU", index)} name={`variants.${index}.sku`} onChange={(event) => updateVariant(index, "sku", event.target.value)} required value={variant.sku} /></label>
-                  <button aria-label={accessibleLabel("Generar SKU", index)} className="button secondary" onClick={() => generateVariantSku(index)} type="button">Generar SKU</button>
+                <div className="management-readonly-field">
+                  <span>SKU de la variante</span>
+                  <output aria-label={`SKU de variante ${index + 1}`}>{variant.sku || "Se asignará al guardar"}</output>
                 </div>
                 <label><span>Nombre de la variante</span><input aria-label={accessibleLabel("Nombre de la variante", index)} name={`variants.${index}.name`} onChange={(event) => updateVariant(index, "name", event.target.value)} placeholder="Ej.: Azul, A4 o Pack x6" value={variant.name} /></label>
                 <label><span>Precio</span><input aria-label={accessibleLabel("Precio", index)} min="0" name={`variants.${index}.price`} onChange={(event) => updateVariant(index, "price", event.target.value)} required step="0.01" type="number" value={variant.price} /></label>

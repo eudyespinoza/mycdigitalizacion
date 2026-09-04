@@ -103,8 +103,33 @@ class ProductQuerySet(models.QuerySet):
             raise ValidationError("Use the product activation service")
         return super().update(**kwargs)
 
+    def bulk_create(self, objs, **kwargs):
+        from catalog.sku import reserve_product_skus
+
+        objects = list(objs)
+        pending = [product for product in objects if not product.sku]
+        with transaction.atomic(using=self.db):
+            for product, sku in zip(
+                pending,
+                reserve_product_skus(len(pending), using=self.db),
+                strict=True,
+            ):
+                product.sku = sku
+            return super().bulk_create(objects, **kwargs)
+
+
+class CatalogSkuSequence(models.Model):
+    key = models.CharField(max_length=32, primary_key=True)
+    next_value = models.PositiveIntegerField()
+
 
 class Product(models.Model):
+    sku = models.CharField(max_length=6, unique=True, null=True, editable=False)
+    next_variant_sequence = models.PositiveSmallIntegerField(
+        default=1,
+        db_default=1,
+        editable=False,
+    )
     category = models.ForeignKey(Category, related_name="products", on_delete=models.PROTECT)
     brand = models.ForeignKey(
         Brand, null=True, blank=True, related_name="products", on_delete=models.PROTECT
@@ -148,18 +173,26 @@ class Product(models.Model):
             raise ValidationError("A sellable product requires at least one active variant")
 
     def save(self, *args, **kwargs):
-        self.full_clean()
-        if self.pk and not getattr(self, "_allow_activation", False):
-            original = type(self)._base_manager.filter(pk=self.pk).values(
-                "is_active", "is_sellable"
-            ).get()
-            activating = (
-                (not original["is_active"] and self.is_active)
-                or (not original["is_sellable"] and self.is_sellable)
-            )
-            if activating:
-                raise ValidationError("Use the product activation service")
-        return super().save(*args, **kwargs)
+        from catalog.sku import reserve_product_sku
+
+        with transaction.atomic():
+            if not self.sku:
+                self.sku = reserve_product_sku()
+            self.full_clean()
+            if self.pk:
+                original = type(self)._base_manager.filter(pk=self.pk).values(
+                    "sku", "is_active", "is_sellable"
+                ).get()
+                if original["sku"] != self.sku:
+                    raise ValidationError("El SKU de un producto no se puede modificar.")
+                if not getattr(self, "_allow_activation", False):
+                    activating = (
+                        (not original["is_active"] and self.is_active)
+                        or (not original["is_sellable"] and self.is_sellable)
+                    )
+                    if activating:
+                        raise ValidationError("Use the product activation service")
+            return super().save(*args, **kwargs)
 
     def _save_activation(self):
         self._allow_activation = True
@@ -274,10 +307,29 @@ class ProductVariantQuerySet(models.QuerySet):
                 raise ValidationError("Cannot delete the last active variant")
         return super().delete()
 
+    def bulk_create(self, objs, **kwargs):
+        from catalog.sku import reserve_variant_skus
+
+        objects = list(objs)
+        pending = [variant for variant in objects if not variant.sku]
+        if any(variant.product_id is None for variant in pending):
+            raise ValidationError("Las variantes necesitan un producto guardado.")
+        with transaction.atomic(using=self.db):
+            for variant, sku in zip(
+                pending,
+                reserve_variant_skus(
+                    product_ids=[variant.product_id for variant in pending],
+                    using=self.db,
+                ),
+                strict=True,
+            ):
+                variant.sku = sku
+            return super().bulk_create(objects, **kwargs)
+
 
 class ProductVariant(models.Model):
     product = models.ForeignKey(Product, related_name="variants", on_delete=models.CASCADE)
-    sku = models.CharField(max_length=64, unique=True)
+    sku = models.CharField(max_length=64, unique=True, editable=False)
     name = models.CharField(max_length=120, blank=True)
     price = models.DecimalField(
         max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0"))]
@@ -331,18 +383,30 @@ class ProductVariant(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        if self.pk and not getattr(self, "_allow_state_change", False):
-            original = type(self)._base_manager.filter(pk=self.pk).values("is_active").first()
-            if (
-                original
-                and original["is_active"]
-                and not self.is_active
-                and self.product.is_sellable
-                and not self.product.variants.filter(is_active=True).exclude(pk=self.pk).exists()
-            ):
-                raise ValidationError("Cannot deactivate the last active variant")
-        self.full_clean()
-        return super().save(*args, **kwargs)
+        from catalog.sku import reserve_variant_sku
+
+        with transaction.atomic():
+            if not self.sku:
+                self.sku = reserve_variant_sku(product_id=self.product_id)
+            if self.pk:
+                original = (
+                    type(self)._base_manager.filter(pk=self.pk).values("sku", "is_active").first()
+                )
+                if original and original["sku"] != self.sku:
+                    raise ValidationError("El SKU de una variante no se puede modificar.")
+                if not getattr(self, "_allow_state_change", False):
+                    if (
+                        original
+                        and original["is_active"]
+                        and not self.is_active
+                        and self.product.is_sellable
+                        and not self.product.variants.filter(is_active=True)
+                        .exclude(pk=self.pk)
+                        .exists()
+                    ):
+                        raise ValidationError("Cannot deactivate the last active variant")
+            self.full_clean()
+            return super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
         if (

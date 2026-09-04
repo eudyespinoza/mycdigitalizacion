@@ -520,25 +520,40 @@ def test_product_csv_dry_run_validates_all_rows_and_writes_only_when_committed(
     valid_csv = SimpleUploadedFile(
         "products.csv",
         (
-            b"sku,product_name,product_slug,category_slug,variant_name,price,cost,on_hand,"
+            b"product_name,product_slug,category_slug,variant_name,price,cost,on_hand,"
             b"weight_grams,length_cm,width_cm,height_cm\n"
-            b"SKU-CSV,Papel A4,papel-a4,papeles,Resma,1250.50,900.25,12,500,30,21,5\n"
+            b"Papel A4,papel-a4,papeles,Resma,1250.50,900.25,12,500,30,21,5\n"
         ),
         content_type="text/csv",
     )
     dry = import_products_csv(valid_csv, dry_run=True, actor=actor)
     assert dry.valid_rows == 1
     assert dry.errors == ()
-    assert not ProductVariant.objects.filter(sku="SKU-CSV").exists()
+    assert not ProductVariant.objects.exists()
 
     valid_csv.seek(0)
     committed = import_products_csv(valid_csv, dry_run=False, actor=actor)
     assert committed.created_variants == 1
-    assert ProductVariant.objects.get(sku="SKU-CSV").cost == Decimal("900.25")
-    movement = InventoryMovement.objects.get(variant__sku="SKU-CSV")
+    imported = ProductVariant.objects.get(sku="600001-01")
+    assert imported.cost == Decimal("900.25")
+    movement = InventoryMovement.objects.get(variant=imported)
     assert movement.quantity_delta == 12
     assert movement.actor == actor
     assert movement.source == "catalog_csv"
+
+    legacy_csv = SimpleUploadedFile(
+        "legacy-products.csv",
+        (
+            b"sku,product_name,product_slug,category_slug,variant_name,price,cost,on_hand,"
+            b"weight_grams,length_cm,width_cm,height_cm\n"
+            b"LEGACY-MANUAL,Cartulina,cartulina,papeles,Pliego,500,250,2,50,70,50,1\n"
+        ),
+        content_type="text/csv",
+    )
+    legacy = import_products_csv(legacy_csv, dry_run=False, actor=actor)
+    assert legacy.errors == ()
+    assert ProductVariant.objects.filter(sku="600002-01").exists()
+    assert not ProductVariant.objects.filter(sku="LEGACY-MANUAL").exists()
 
     invalid_csv = SimpleUploadedFile(
         "invalid.csv",

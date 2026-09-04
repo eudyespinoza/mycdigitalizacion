@@ -6,11 +6,12 @@ import { ManagementProductEditor } from "@/components/management/product-editor"
 import { ProductMediaManager } from "@/components/management/product-media-manager";
 import { ManagementProductTable } from "@/components/management/product-table";
 import { ApiError, apiRequest } from "@/lib/api";
-import type { ManagementProduct } from "@/lib/management/catalog-types";
+import type { ManagementProduct, ProductEditorPayload } from "@/lib/management/catalog-types";
 
 
 const product: ManagementProduct = {
   id: 11,
+  sku: "600001",
   name: "Cuaderno A5",
   slug: "cuaderno-a5",
   description: "Cuaderno rayado",
@@ -24,7 +25,7 @@ const product: ManagementProduct = {
   media: [],
   variants: [{
     id: 21,
-    sku: "CUA-A5",
+    sku: "600001-01",
     name: "Azul",
     price: "4890.00",
     cost: "2600.00",
@@ -46,7 +47,7 @@ describe("gestión de catálogo e inventario", () => {
   test("muestra producto, SKU, precio, costo y stock", () => {
     render(<ManagementProductTable products={[product]} />);
     expect(screen.getByRole("link", { name: "Cuaderno A5" })).toBeVisible();
-    expect(screen.getByText("CUA-A5")).toBeVisible();
+    expect(screen.getByText("600001")).toBeVisible();
     expect(screen.getByText("$ 4.890,00")).toBeVisible();
     expect(screen.getByText("$ 2.600,00")).toBeVisible();
     expect(screen.getByText("10 disponibles")).toBeVisible();
@@ -62,16 +63,16 @@ describe("gestión de catálogo e inventario", () => {
       />,
     );
     fireEvent.change(screen.getByLabelText("Nombre del producto"), { target: { value: "Cuaderno A5" } });
-    fireEvent.change(screen.getByLabelText("SKU"), { target: { value: "CUA-A5" } });
     fireEvent.change(screen.getByLabelText("Precio"), { target: { value: "4890" } });
     fireEvent.change(screen.getByLabelText("Costo"), { target: { value: "2600" } });
     fireEvent.click(screen.getByRole("button", { name: "Guardar producto" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "Cuaderno A5",
-        variants: [expect.objectContaining({ sku: "CUA-A5", cost: "2600" })],
+        variants: [expect.objectContaining({ cost: "2600" })],
       }),
     ));
+    expect(onSave.mock.calls[0][0].variants[0]).not.toHaveProperty("sku");
   });
 
   test("configura stock infinito y un máximo opcional por carrito", async () => {
@@ -125,7 +126,7 @@ describe("gestión de catálogo e inventario", () => {
     expect(screen.getByLabelText("Identificador para la web")).toHaveValue("cuaderno-escolar-personalizado");
   });
 
-  test("genera un SKU desde la marca, el producto y la variante", () => {
+  test("muestra los SKU existentes como datos de solo lectura", () => {
     render(
       <ManagementProductEditor
         brands={[product.brand!]}
@@ -135,15 +136,22 @@ describe("gestión de catálogo e inventario", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("Nombre del producto"), {
-      target: { value: "Cuaderno cuadriculado" },
-    });
-    fireEvent.change(screen.getByLabelText("Nombre de la variante"), {
-      target: { value: "Celeste" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Generar SKU" }));
+    expect(screen.getByLabelText("SKU del producto")).toHaveTextContent("600001");
+    expect(screen.getByLabelText("SKU de variante 1")).toHaveTextContent("600001-01");
+    expect(screen.queryByRole("textbox", { name: /SKU/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Generar SKU/i })).not.toBeInTheDocument();
+  });
 
-    expect(screen.getByLabelText("SKU")).toHaveValue("MYC-CUA-CUA-CEL");
+  test("anticipa que los SKU nuevos se asignan al guardar", () => {
+    render(
+      <ManagementProductEditor
+        brands={[product.brand!]}
+        categories={[product.category]}
+        onSave={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByText("Se asignará al guardar")).toHaveLength(2);
   });
 
   test("agrega y guarda varias variantes sin texto de funcionalidad futura", async () => {
@@ -156,11 +164,9 @@ describe("gestión de catálogo e inventario", () => {
       />,
     );
     fireEvent.change(screen.getByLabelText("Nombre del producto"), { target: { value: "Cuaderno A5" } });
-    fireEvent.change(screen.getByLabelText("SKU"), { target: { value: "CUA-A5-AZUL" } });
     fireEvent.change(screen.getByLabelText("Precio"), { target: { value: "4890" } });
     fireEvent.change(screen.getByLabelText("Costo"), { target: { value: "2600" } });
     fireEvent.click(screen.getByRole("button", { name: "Agregar variante" }));
-    fireEvent.change(screen.getByLabelText("SKU de variante 2"), { target: { value: "CUA-A5-ROSA" } });
     fireEvent.change(screen.getByLabelText("Precio de variante 2"), { target: { value: "4990" } });
     fireEvent.change(screen.getByLabelText("Costo de variante 2"), { target: { value: "2700" } });
     fireEvent.click(screen.getByRole("button", { name: "Guardar producto" }));
@@ -168,11 +174,13 @@ describe("gestión de catálogo e inventario", () => {
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
         variants: [
-          expect.objectContaining({ sku: "CUA-A5-AZUL" }),
-          expect.objectContaining({ sku: "CUA-A5-ROSA" }),
+          expect.objectContaining({ cost: "2600" }),
+          expect.objectContaining({ cost: "2700" }),
         ],
       }),
     ));
+    const savedPayload = onSave.mock.calls[0][0] as ProductEditorPayload;
+    expect(savedPayload.variants.every((variant) => !("sku" in variant))).toBe(true);
     expect(screen.queryByText(/después vas a poder/i)).not.toBeInTheDocument();
   });
 
@@ -211,7 +219,7 @@ describe("gestión de catálogo e inventario", () => {
       400,
       "validation_error",
       "Revisá los datos ingresados.",
-      { "variants.1.sku": ["Ya existe otra variante con este SKU."] },
+      { "variants.1.price": ["Ingresá un precio válido."] },
     ));
     render(
       <ManagementProductEditor
@@ -222,9 +230,6 @@ describe("gestión de catálogo e inventario", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Agregar variante" }));
-    fireEvent.change(screen.getByLabelText("SKU de variante 2"), {
-      target: { value: "CUA-A5-ROSA" },
-    });
     fireEvent.change(screen.getByLabelText("Precio de variante 2"), {
       target: { value: "4990" },
     });
@@ -233,9 +238,8 @@ describe("gestión de catálogo e inventario", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Guardar producto" }));
 
-    expect(await screen.findByText("Variante 2 · SKU: Ya existe otra variante con este SKU.")).toBeVisible();
-    expect(screen.getByLabelText("SKU de variante 2")).toHaveFocus();
-    expect(screen.getByLabelText("SKU de variante 2")).toHaveValue("CUA-A5-ROSA");
+    expect(await screen.findByText("Variante 2 · Precio: Ingresá un precio válido.")).toBeVisible();
+    expect(screen.getByLabelText("Precio de variante 2")).toHaveFocus();
   });
 
   test("conserva la ubicación de errores anidados devuelta por el servidor", async () => {
@@ -243,7 +247,7 @@ describe("gestión de catálogo e inventario", () => {
       JSON.stringify({
         variants: [
           {},
-          { sku: ["Ya existe otra variante con este SKU."] },
+          { price: ["Ingresá un precio válido."] },
         ],
       }),
       { status: 400, headers: { "Content-Type": "application/json" } },
@@ -252,7 +256,7 @@ describe("gestión de catálogo e inventario", () => {
     await expect(apiRequest("/management/products/5/")).rejects.toMatchObject({
       code: "validation_error",
       fields: {
-        "variants.1.sku": ["Ya existe otra variante con este SKU."],
+        "variants.1.price": ["Ingresá un precio válido."],
       },
     });
     fetchMock.mockRestore();
@@ -261,7 +265,7 @@ describe("gestión de catálogo e inventario", () => {
   test("ajusta stock con motivo obligatorio", async () => {
     const onAdjust = vi.fn().mockResolvedValue({ ...product.variants[0], on_hand: 18 });
     render(<InventoryTable onAdjust={onAdjust} variants={product.variants} />);
-    fireEvent.click(screen.getByRole("button", { name: "Ajustar stock de CUA-A5" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ajustar stock de 600001-01" }));
     fireEvent.change(screen.getByLabelText("Stock físico resultante"), { target: { value: "18" } });
     fireEvent.change(screen.getByLabelText("Motivo"), { target: { value: "Ingreso de mercadería" } });
     fireEvent.click(screen.getByRole("button", { name: "Confirmar ajuste" }));
@@ -275,7 +279,7 @@ describe("gestión de catálogo e inventario", () => {
     />);
 
     expect(screen.getByText("Ilimitado")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Ajustar stock de CUA-A5" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ajustar stock de 600001-01" })).not.toBeInTheDocument();
   });
 
   test("resume un producto con stock infinito sin mostrar cero disponibles", () => {
