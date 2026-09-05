@@ -12,6 +12,16 @@ const facets = { categories: [{ name: "Papelería", slug: "papeleria", count: 1,
 const addressBase = { id: 2, label: "Casa", raw_address: "Av. Corrientes 1234, CABA", normalized_address: "Avenida Corrientes 1234", street: "Av. Corrientes", number: "1234", postal_code: "1043", cpa: "C1043", locality: "CABA", province: "CABA", latitude: "-34.6037000", longitude: "-58.3816000", floor: "", apartment: "", reference: "", notes: "", geocode_source: "georef", geocode_confidence: "0.950", geocode_summary: {}, needs_review: false, reviewed_at: "2026-08-20T00:05:00Z", created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T00:05:00Z" };
 const billing = [{ id: 3, label: "Personal", legal_name: "Cliente sintético de prueba", tax_condition: "consumidor_final", is_default: true, masked_cuit: "20-********-3" }];
 const image = readFileSync(new URL("../public/campaigns/pulso-libreria-collection.png", import.meta.url));
+const managementEditorProduct = {
+  id: 7, sku: "600001", name: "Cuaderno A5", slug: "cuaderno-a5", description: "Cuaderno de tapa rígida para estudio y oficina. Datos sintéticos de prueba.",
+  category: { ...categories[2], is_active: true }, brand: { id: 4, name: "Sur", slug: "sur" }, is_active: true, is_sellable: true,
+  created_at: "2026-08-20T10:00:00Z", on_offer: false, active_offer_names: [],
+  media: [{ id: 31, file_url: "/media/catalog/cuaderno.png", responsive_sources: [], alt_text: "Cuaderno azul, vista frontal", order: 0, variant_id: 11, variant_name: "Azul" }],
+  variants: [
+    { id: 11, sku: "600001-01", name: "Azul", price: "15000.00", cost: "8000.00", on_hand: 10, available_stock: 8, stock_is_infinite: false, max_purchase_quantity: 5, is_active: true, packaged_weight_grams: 300, length_cm: "21.00", width_cm: "15.00", height_cm: "2.00", attributes: [] },
+    { id: 12, sku: "600001-02", name: "Tapa flexible · edición de prueba con una presentación de nombre extenso", price: "17500.00", cost: "9000.00", on_hand: 15, available_stock: 15, stock_is_infinite: false, max_purchase_quantity: null, is_active: true, packaged_weight_grams: 250, length_cm: "21.00", width_cm: "15.00", height_cm: "1.50", attributes: [] },
+  ],
+};
 const horizontalLogoImage = readFileSync(new URL("../public/campaigns/pulso-comercial-hero.png", import.meta.url));
 
 const supportStaff = { id: 90, email: "visual-admin@example.test", name: "Ana Gestión" };
@@ -227,6 +237,7 @@ http.createServer(async (request, response) => {
   if (path === "/api/v1/management/roles") return json(response, 200, { results: [{ name: "catalog", label: "Catálogo", permission_count: 8 }] });
   if (path === "/api/v1/management/audit") return json(response, 200, { count: 1, next: null, previous: null, results: [{ id: 1, actor: "visual-admin@example.test", action: "product.updated", resource: "product", object_reference: "7", metadata: {}, created_at: "2026-08-20T10:00:00Z" }] });
   if (path === "/api/v1/management/settings/general") return json(response, 200, { public_name: "mycdigitalizacion", announcement: "Envíos a todo el país", contact_email: "ventas@example.com", pickup_enabled: true, pickup_label: "Retiro central", pickup_address: "Av. Corrientes 1234", pickup_hours: "Lunes a viernes de 10 a 18", instagram_url: "https://instagram.com/mycdigitalizacion", facebook_url: "", tiktok_url: "", youtube_url: "", linkedin_url: "", whatsapp_enabled: true, whatsapp_number: "5491155551234", whatsapp_message: "Hola, quiero consultar por un producto", logo_url: "/brand/mycdigitalizacion-logo.png", favicon_url: "/brand/mycdigitalizacion-logo.png", ...theme });
+  if (path === "/api/v1/management/products/7") return json(response, 200, managementEditorProduct);
   if (path === "/api/v1/management/categories") return json(response, 200, { results: categories.map((category) => ({ ...category, is_active: true })) });
   if (path === "/api/v1/management/brands") return json(response, 200, { results: [{ id: 4, name: "Sur", slug: "sur" }] });
   if (path === "/api/v1/management/attributes") return json(response, 200, { results: [{ id: 1, name: "Color", slug: "color", value_type: "option", is_filterable: true, options: [{ id: 1, label: "Azul", value: "azul" }] }] });

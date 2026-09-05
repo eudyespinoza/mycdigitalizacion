@@ -294,6 +294,14 @@ Los bordes son fríos y finos. No mezclar esquinas rectas, redondeos arbitrarios
 - **Código:** mantiene tokens, breakpoints, anchos de slot, composición, semántica, límites y políticas de accesibilidad. El panel no es un constructor libre.
 - **Operación:** revisa contenido publicado, datos reales de catálogo y credenciales. Un asset válido no implica que un proveedor externo esté operativo.
 
+### Alta y edición de productos
+
+- El editor usa hasta 1320 px. En escritorio amplio, la información comercial ocupa la columna principal y las imágenes una lateral de 320 px; en tablet y móvil se apilan.
+- SKU es un metadato de solo lectura, no un campo editable. Precio, costo, stock y máximo por compra se agrupan; las columnas responden al espacio disponible sin reducir controles por debajo de 44 px.
+- Dirección web y medidas se despliegan bajo demanda y conservan un resumen visible. Una validación fallida abre la sección correspondiente y enfoca el campo, sin perder el borrador.
+- Las imágenes muestran miniaturas y formularios individuales bajo demanda, fuera del formulario del producto. Se aclara que se guardan por separado; en alta se habilitan después del primer guardado.
+- El guardado cierra el formulario en una barra clara, de ancho completo en móvil. Sigue el flujo del documento para no cubrir campos ni competir con el teclado.
+
 ### States, accessibility and motion
 
 - Cubrir loading, vacío, error, sin stock, disabled, identidad en revisión, pago pendiente/fallido/aprobado por servidor y entrega/tracking.

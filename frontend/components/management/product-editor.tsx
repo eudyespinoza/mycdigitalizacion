@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
+import { CaretDown, Plus } from "@phosphor-icons/react";
 
 import { ApiError } from "@/lib/api";
 import type {
@@ -63,6 +64,14 @@ function draftFromVariant(variant?: ManagementVariant, key = "new-1"): VariantDr
 
 function accessibleLabel(label: string, index: number) {
   return index === 0 ? undefined : `${label} de variante ${index + 1}`;
+}
+
+function revealControl(control: HTMLElement) {
+  let disclosure = control.closest("details");
+  while (disclosure) {
+    disclosure.open = true;
+    disclosure = disclosure.parentElement?.closest("details") ?? null;
+  }
 }
 
 const VARIANT_FIELD_LABELS: Record<string, string> = {
@@ -192,10 +201,13 @@ export function ManagementProductEditor({
         issues,
       });
       setState("error");
-      const firstField = issues[0]?.field;
-      if (firstField) {
+      if (issues.length) {
         window.setTimeout(() => {
-          const control = formElement.elements.namedItem(firstField);
+          issues.forEach((issue) => {
+            const control = formElement.elements.namedItem(issue.field);
+            if (control instanceof HTMLElement) revealControl(control);
+          });
+          const control = formElement.elements.namedItem(issues[0].field);
           if (control instanceof HTMLElement) control.focus();
         }, 0);
       }
@@ -206,46 +218,52 @@ export function ManagementProductEditor({
   const loginHref = `/cuenta/ingresar?next=${encodeURIComponent(editorPath)}`;
 
   return (
-    <form className="management-form" onSubmit={(event) => void submit(event)}>
+    <form className="management-form product-editor" onInvalidCapture={(event) => revealControl(event.target as HTMLElement)} onSubmit={(event) => void submit(event)}>
       <section className="management-form-section">
-        <h2>Información</h2>
-        <div className="management-field-grid">
-          <div className="management-readonly-field">
-            <span>SKU del producto</span>
+        <div className="product-section-title">
+          <h2>Información del producto</h2>
+          <div className="product-sku">
+            <span>SKU</span>
             <output aria-label="SKU del producto">{initial?.sku || "Se asignará al guardar"}</output>
           </div>
-          <label><span>Nombre del producto</span><input name="name" onChange={(event) => updateName(event.target.value)} required value={name} /></label>
-          <label><span>Identificador para la web</span><input name="slug" onChange={(event) => { setSlugWasEdited(true); setSlug(slugify(event.target.value)); }} placeholder="Se genera desde el nombre" value={slug} /></label>
+        </div>
+        <div className="management-field-grid product-info-fields">
+          <label className="field-wide"><span>Nombre del producto</span><input name="name" onChange={(event) => updateName(event.target.value)} required value={name} /></label>
           <label><span>Categoría</span><select defaultValue={initial?.category.id ?? categories[0]?.id} name="category_id" required>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
           <label><span>Marca</span><select name="brand_id" onChange={(event) => setBrandId(event.target.value)} value={brandId}><option value="">Sin marca</option>{brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></label>
-          <label className="field-wide"><span>Descripción</span><textarea defaultValue={initial?.description} name="description" rows={5} /></label>
-          <label className="management-check field-wide"><input defaultChecked={initial?.is_sellable} name="publish" type="checkbox" /><span>Publicar para la venta</span></label>
+          <label className="field-wide"><span>Descripción</span><textarea defaultValue={initial?.description} name="description" rows={3} /></label>
         </div>
+        <details className="product-disclosure product-web-settings">
+          <summary><span>Dirección en la web</span><span className="product-disclosure-value">{slug || "Se genera desde el nombre"}</span><CaretDown aria-hidden size={16} /></summary>
+          <div className="management-field-grid"><label className="field-wide"><span>Identificador para la web</span><input name="slug" onChange={(event) => { setSlugWasEdited(true); setSlug(slugify(event.target.value)); }} placeholder="Se genera desde el nombre" value={slug} /></label></div>
+        </details>
+        <label className="management-check product-publish"><input defaultChecked={initial?.is_sellable} name="publish" type="checkbox" /><span>Publicar para la venta</span></label>
       </section>
 
       <section className="management-form-section">
-        <div className="management-section-heading">
-          <div><h2>Variantes</h2><p>Agregá colores, tamaños o presentaciones con su propio precio, costo, stock y medidas.</p></div>
-          <button className="button secondary" onClick={() => setVariants((rows) => [...rows, draftFromVariant(undefined, `new-${rows.length + 1}-${Date.now()}`)])} type="button">Agregar variante</button>
+        <div className="product-section-title">
+          <div><h2>Variantes <span className="product-variant-count">{variants.length}</span></h2><p>Precio, stock y presentación.</p></div>
+          <button className="button secondary" onClick={() => setVariants((rows) => [...rows, draftFromVariant(undefined, `new-${rows.length + 1}-${Date.now()}`)])} type="button"><Plus aria-hidden size={18} />Agregar variante</button>
         </div>
         <div className="management-variant-list">
           {variants.map((variant, index) => (
-            <fieldset className="management-variant-card" key={variant.key}>
+            <fieldset className="product-variant" key={variant.key}>
               <legend>Variante {index + 1}</legend>
-              <div className="management-field-grid">
-                <div className="management-readonly-field">
-                  <span>SKU de la variante</span>
+              <div className="product-variant-identity">
+                <div className="product-sku">
+                  <span>SKU</span>
                   <output aria-label={`SKU de variante ${index + 1}`}>{variant.sku || "Se asignará al guardar"}</output>
                 </div>
-                <label><span>Nombre de la variante</span><input aria-label={accessibleLabel("Nombre de la variante", index)} name={`variants.${index}.name`} onChange={(event) => updateVariant(index, "name", event.target.value)} placeholder="Ej.: Azul, A4 o Pack x6" value={variant.name} /></label>
+                {!variant.id && variants.length > 1 && <button className="button text danger" aria-label={`Quitar variante ${index + 1}`} onClick={() => setVariants((rows) => rows.filter((_, rowIndex) => rowIndex !== index))} type="button">Quitar variante</button>}
+              </div>
+              <div className="management-field-grid product-variant-fields">
+                <label className="field-wide"><span>Nombre de la variante</span><input aria-label={accessibleLabel("Nombre de la variante", index)} name={`variants.${index}.name`} onChange={(event) => updateVariant(index, "name", event.target.value)} placeholder="Ej.: Azul, A4 o Pack x6" value={variant.name} /></label>
                 <label><span>Precio</span><input aria-label={accessibleLabel("Precio", index)} min="0" name={`variants.${index}.price`} onChange={(event) => updateVariant(index, "price", event.target.value)} required step="0.01" type="number" value={variant.price} /></label>
                 <label><span>Costo</span><input aria-label={accessibleLabel("Costo", index)} min="0" name={`variants.${index}.cost`} onChange={(event) => updateVariant(index, "cost", event.target.value)} required step="0.01" type="number" value={variant.cost} /></label>
                 <label><span>Stock físico</span><input aria-label={accessibleLabel("Stock físico", index)} disabled={Boolean(variant.id) || variant.stock_is_infinite} min="0" name={`variants.${index}.on_hand`} onChange={(event) => updateVariant(index, "on_hand", event.target.value)} type="number" value={variant.on_hand} />{variant.id && <small>Modificalo desde <Link href="/gestion/inventario">Inventario</Link>.</small>}</label>
-                <label><span>Cantidad máxima por compra</span><input aria-label={accessibleLabel("Cantidad máxima por compra", index)} min="1" name={`variants.${index}.max_purchase_quantity`} onChange={(event) => updateVariant(index, "max_purchase_quantity", event.target.value)} placeholder="Sin límite" type="number" value={variant.max_purchase_quantity} /></label>
-                <label><span>Peso embalado (gramos)</span><input aria-label={accessibleLabel("Peso embalado (gramos)", index)} min="1" name={`variants.${index}.packaged_weight_grams`} onChange={(event) => updateVariant(index, "packaged_weight_grams", event.target.value)} type="number" value={variant.packaged_weight_grams} /></label>
-                <label><span>Largo (cm)</span><input aria-label={accessibleLabel("Largo (cm)", index)} min="0.01" name={`variants.${index}.length_cm`} onChange={(event) => updateVariant(index, "length_cm", event.target.value)} step="0.01" type="number" value={variant.length_cm} /></label>
-                <label><span>Ancho (cm)</span><input aria-label={accessibleLabel("Ancho (cm)", index)} min="0.01" name={`variants.${index}.width_cm`} onChange={(event) => updateVariant(index, "width_cm", event.target.value)} step="0.01" type="number" value={variant.width_cm} /></label>
-                <label><span>Alto (cm)</span><input aria-label={accessibleLabel("Alto (cm)", index)} min="0.01" name={`variants.${index}.height_cm`} onChange={(event) => updateVariant(index, "height_cm", event.target.value)} step="0.01" type="number" value={variant.height_cm} /></label>
+                <label><span>Máximo por compra</span><input aria-label={accessibleLabel("Cantidad máxima por compra", index) ?? "Cantidad máxima por compra"} min="1" name={`variants.${index}.max_purchase_quantity`} onChange={(event) => updateVariant(index, "max_purchase_quantity", event.target.value)} placeholder="Sin límite" type="number" value={variant.max_purchase_quantity} /></label>
+              </div>
+              {attributes.length > 0 && <div className="management-field-grid product-attribute-fields">
                 {attributes.map((definition) => (
                   <label key={definition.id}>
                     <span>{definition.name}</span>
@@ -263,18 +281,26 @@ export function ManagementProductEditor({
                     )}
                   </label>
                 ))}
-                <div className="field-wide management-variant-options">
-                  <label className="management-check"><input checked={variant.stock_is_infinite} onChange={(event) => updateVariant(index, "stock_is_infinite", event.target.checked)} type="checkbox" /><span>Stock infinito</span></label>
-                  <label className="management-check"><input checked={variant.is_active} onChange={(event) => updateVariant(index, "is_active", event.target.checked)} type="checkbox" /><span>Variante activa</span></label>
-                </div>
-                {variant.stock_is_infinite && <p className="field-wide management-field-help">Esta variante no descuenta unidades al concretar una venta.</p>}
+              </div>}
+              <div className="management-variant-options">
+                <label className="management-check"><input aria-label={accessibleLabel("Stock infinito", index)} checked={variant.stock_is_infinite} onChange={(event) => updateVariant(index, "stock_is_infinite", event.target.checked)} type="checkbox" /><span>Stock infinito</span></label>
+                <label className="management-check"><input aria-label={accessibleLabel("Variante activa", index)} checked={variant.is_active} onChange={(event) => updateVariant(index, "is_active", event.target.checked)} type="checkbox" /><span>Variante activa</span></label>
               </div>
-              {!variant.id && variants.length > 1 && <button className="button text" onClick={() => setVariants((rows) => rows.filter((_, rowIndex) => rowIndex !== index))} type="button">Quitar variante</button>}
+              {variant.stock_is_infinite && <p className="management-field-help">Esta variante no descuenta unidades al concretar una venta.</p>}
+              <details className="product-disclosure">
+                <summary><span>Envío y medidas</span><span className="product-disclosure-value">{Number(variant.packaged_weight_grams)} g · {Number(variant.length_cm)} × {Number(variant.width_cm)} × {Number(variant.height_cm)} cm</span><CaretDown aria-hidden size={16} /></summary>
+                <p className="management-field-help">Medidas del producto embalado. Revisalas para cotizar correctamente el envío.</p>
+                <div className="management-field-grid product-dimension-fields">
+                  <label><span>Peso (g)</span><input aria-label={accessibleLabel("Peso embalado (gramos)", index) ?? "Peso embalado (gramos)"} min="1" name={`variants.${index}.packaged_weight_grams`} onChange={(event) => updateVariant(index, "packaged_weight_grams", event.target.value)} type="number" value={variant.packaged_weight_grams} /></label>
+                  <label><span>Largo (cm)</span><input aria-label={accessibleLabel("Largo (cm)", index)} min="0.01" name={`variants.${index}.length_cm`} onChange={(event) => updateVariant(index, "length_cm", event.target.value)} step="0.01" type="number" value={variant.length_cm} /></label>
+                  <label><span>Ancho (cm)</span><input aria-label={accessibleLabel("Ancho (cm)", index)} min="0.01" name={`variants.${index}.width_cm`} onChange={(event) => updateVariant(index, "width_cm", event.target.value)} step="0.01" type="number" value={variant.width_cm} /></label>
+                  <label><span>Alto (cm)</span><input aria-label={accessibleLabel("Alto (cm)", index)} min="0.01" name={`variants.${index}.height_cm`} onChange={(event) => updateVariant(index, "height_cm", event.target.value)} step="0.01" type="number" value={variant.height_cm} /></label>
+                </div>
+              </details>
             </fieldset>
           ))}
         </div>
       </section>
-      {state === "saved" && <p className="success-message">Producto guardado.</p>}
       {state === "error" && saveError && (
         <div className="inline-error management-save-error" role="alert">
           <span>{saveError.message}</span>
@@ -288,7 +314,10 @@ export function ManagementProductEditor({
           )}
         </div>
       )}
-      <button className="button primary" disabled={state === "saving" || !categories.length} type="submit">{state === "saving" ? "Guardando…" : "Guardar producto"}</button>
+      <div className="product-save-bar">
+        <span role="status">{state === "saved" ? "Producto guardado." : "Guardá para aplicar los cambios."}</span>
+        <button className="button primary" disabled={state === "saving" || !categories.length} type="submit">{state === "saving" ? "Guardando…" : "Guardar producto"}</button>
+      </div>
     </form>
   );
 }

@@ -242,6 +242,40 @@ describe("gestión de catálogo e inventario", () => {
     expect(screen.getByLabelText("Precio de variante 2")).toHaveFocus();
   });
 
+  test("resume las medidas plegadas sin perderlas al guardar", async () => {
+    const onSave = vi.fn().mockResolvedValue(product);
+    render(<ManagementProductEditor brands={[]} categories={[product.category]} initial={product} onSave={onSave} />);
+    const weight = screen.getByLabelText("Peso embalado (gramos)");
+    const details = weight.closest("details");
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute("open");
+    expect(screen.getByText("330 g · 21 × 15 × 2 cm")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Guardar producto" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      variants: [expect.objectContaining({ packaged_weight_grams: 330, length_cm: "21.00", width_cm: "15.00", height_cm: "2.00" })],
+    })));
+  });
+
+  test("abre las medidas cuando falla la validación nativa", () => {
+    render(<ManagementProductEditor brands={[]} categories={[product.category]} initial={product} onSave={vi.fn()} />);
+    const weight = screen.getByLabelText("Peso embalado (gramos)");
+    fireEvent.invalid(weight);
+    expect(weight.closest("details")).toHaveAttribute("open");
+  });
+
+  test("abre y enfoca las medidas cuando el servidor rechaza un campo plegado", async () => {
+    const onSave = vi.fn().mockRejectedValue(new ApiError(400, "validation_error", "Revisá los datos.", {
+      "variants.0.length_cm": ["Revisá el largo embalado."],
+    }));
+    render(<ManagementProductEditor brands={[]} categories={[product.category]} initial={product} onSave={onSave} />);
+    fireEvent.click(screen.getByRole("button", { name: "Guardar producto" }));
+    const length = screen.getByLabelText("Largo (cm)");
+    await waitFor(() => expect(length).toHaveFocus());
+    expect(length.closest("details")).toHaveAttribute("open");
+    expect(length).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent("Revisá el largo embalado.");
+  });
+
   test("conserva la ubicación de errores anidados devuelta por el servidor", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(
       JSON.stringify({
@@ -308,6 +342,8 @@ describe("gestión de catálogo e inventario", () => {
     const onUpdate = vi.fn().mockResolvedValue(uploaded(31, "frente.png"));
     const onDelete = vi.fn().mockResolvedValue(undefined);
     render(<ProductMediaManager initialMedia={[]} onCreate={onCreate} onDelete={onDelete} onUpdate={onUpdate} variants={product.variants} />);
+    expect(screen.getByLabelText("Archivos")).not.toBeVisible();
+    fireEvent.click(screen.getByText("Agregar imágenes"));
     const files = [
       new File(["front"], "frente.png", { type: "image/png" }),
       new File(["inside"], "interior.png", { type: "image/png" }),
@@ -323,6 +359,8 @@ describe("gestión de catálogo e inventario", () => {
     ]));
     expect(await screen.findByAltText("Cuaderno azul - frente.png")).toHaveAttribute("src", "/media/catalog/frente.png");
     expect(screen.getByAltText("Cuaderno azul - interior.png")).toHaveAttribute("src", "/media/catalog/interior.png");
+    screen.getAllByRole("button", { name: "Guardar imagen" }).forEach((button) => expect(button).not.toBeVisible());
+    fireEvent.click(screen.getByText("Cuaderno azul - frente.png"));
     fireEvent.click(screen.getAllByRole("button", { name: "Eliminar" })[0]);
     await waitFor(() => expect(onDelete).toHaveBeenCalledWith(31));
   });

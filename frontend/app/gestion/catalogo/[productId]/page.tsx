@@ -13,5 +13,5 @@ export default async function EditProductPage({ params }: { params: Promise<{ pr
     managementServerGet<{ results: ManagementBrand[] }>("/brands/"),
     managementServerGet<{ results: ManagementAttributeDefinition[] }>("/attributes/"),
   ]);
-  return <div className="management-page management-editor-page"><Link className="management-back" href="/gestion/catalogo">← Productos</Link><header className="management-page-header"><div><p className="management-kicker">Producto</p><h1>{product.name}</h1><p>{product.is_sellable ? "Publicado en la tienda" : "Borrador"}</p></div></header><ProductEditorPanel attributes={attributes.results} brands={brands.results} categories={categories.results} initial={product} /></div>;
+  return <div className="management-page management-product-page"><Link className="management-back" href="/gestion/catalogo">← Productos</Link><header className="management-page-header"><div><h1>{product.name}</h1><p>{product.is_sellable ? "Publicado en la tienda" : "Borrador"}</p></div></header><ProductEditorPanel attributes={attributes.results} brands={brands.results} categories={categories.results} initial={product} /></div>;
 }

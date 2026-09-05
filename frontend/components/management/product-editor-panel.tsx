@@ -27,7 +27,7 @@ export function ProductEditorPanel({
   attributes: ManagementAttributeDefinition[];
 }) {
   const router = useRouter();
-  return <>
+  return <div className="product-editor-layout">
     <ManagementProductEditor
       attributes={attributes}
       brands={brands}
@@ -43,12 +43,14 @@ export function ProductEditorPanel({
         return saved;
       }}
     />
-    {initial && <ProductMediaManager
+    <aside className="product-editor-media" aria-label="Galería del producto">
+    {initial ? <ProductMediaManager
       initialMedia={initial.media}
       variants={initial.variants}
       onCreate={(form) => managementRequest<ManagementProductMedia>(`/products/${initial.id}/media/`, { method: "POST", body: form })}
       onDelete={(id) => managementRequest<void>(`/products/${initial.id}/media/${id}/`, { method: "DELETE" })}
       onUpdate={(id, form) => managementRequest<ManagementProductMedia>(`/products/${initial.id}/media/${id}/`, { method: "PATCH", body: form })}
-    />}
-  </>;
+    /> : <section className="management-form-section product-editor-media-placeholder"><h2>Imágenes del producto</h2><p>Guardá el producto para cargar sus imágenes y asignarlas a cada variante.</p></section>}
+    </aside>
+  </div>;
 }

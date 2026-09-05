@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { FormEvent, useState } from "react";
+import { CaretDown, Plus } from "@phosphor-icons/react";
 
 import { normalizeMediaUrl } from "@/lib/api";
 import type { ManagementProductMedia, ManagementVariant } from "@/lib/management/catalog-types";
@@ -78,30 +79,36 @@ export function ProductMediaManager({
 
   return (
     <section className="management-form-section management-product-media">
-      <div><h2>Imágenes del producto</h2><p>La primera imagen se usa como portada. Podés cambiar el orden y el texto descriptivo.</p></div>
+      <div><h2>Imágenes del producto</h2><p>La primera imagen es la portada. Los cambios de imágenes se guardan por separado.</p></div>
+      {!media.length && <p className="product-media-empty-copy">Todavía no hay imágenes cargadas.</p>}
       <div className="management-media-grid">
-        {media.map((item) => (
-          <article className="management-media-card" key={item.id}>
-            <div className="management-media-preview"><Image alt={item.alt_text} fill sizes="240px" src={normalizeMediaUrl(item.file_url)} unoptimized /></div>
+        {media.map((item, index) => (
+          <details className="management-media-card product-media-item" key={item.id}>
+            <summary>
+              <div className="management-media-preview"><Image alt={item.alt_text} fill sizes="72px" src={normalizeMediaUrl(item.file_url)} unoptimized /></div>
+              <span className="product-media-caption"><strong>{item.alt_text}</strong><span>{index === 0 ? "Portada · " : ""}{item.variant_name || "Imagen general"}</span><span>Editar imagen</span></span>
+              <CaretDown aria-hidden size={16} />
+            </summary>
             <form className="compact-management-form" onSubmit={(event) => void update(event, item.id)}>
-              <span className="management-media-assignment">{item.variant_name || "Imagen general"}</span>
               <label><span>Texto alternativo</span><input defaultValue={item.alt_text} name="alt_text" required /></label>
               <label><span>Orden</span><input defaultValue={item.order} min="0" name="order" type="number" /></label>
               <label><span>Asignación</span><select defaultValue={item.variant_id ?? ""} name="variant_id"><option value="">General del producto</option>{variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.name || variant.sku}</option>)}</select></label>
-              <div className="management-form-actions"><button className="button secondary" type="submit">Guardar imagen</button><button className="button text danger" onClick={() => void remove(item.id)} type="button">Eliminar</button></div>
+              <div className="management-form-actions"><button className="button secondary" disabled={state === "saving"} type="submit">Guardar imagen</button><button className="button text danger" disabled={state === "saving"} onClick={() => void remove(item.id)} type="button">Eliminar</button></div>
             </form>
-          </article>
+          </details>
         ))}
       </div>
+      <details className="product-media-add product-disclosure">
+      <summary><Plus aria-hidden size={18} /><span>Agregar imágenes</span><CaretDown aria-hidden size={16} /></summary>
       <form className="compact-management-form management-media-upload" onSubmit={(event) => void create(event)}>
-        <h3>Agregar imágenes</h3>
         <label><span>Archivos</span><input accept="image/png,image/jpeg,image/webp,image/avif" multiple name="files" required type="file" /></label>
         <label><span>Texto alternativo base</span><input name="alt_text" placeholder="Ej.: Mochila azul, vista frontal" required /></label>
         <label><span>Asignar imágenes a</span><select name="variant_id"><option value="">Galería general del producto</option>{variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.name || variant.sku}</option>)}</select></label>
         <label><span>Orden</span><input defaultValue={media.length} min="0" name="order" type="number" /></label>
         <button className="button secondary" disabled={state === "saving"} type="submit">{state === "saving" ? "Guardando…" : "Subir imagen"}</button>
       </form>
-      {state === "error" && <p className="inline-error">No pudimos guardar la imagen. Revisá el archivo y volvé a intentar.</p>}
+      </details>
+      {state === "error" && <p className="inline-error" role="alert">No pudimos guardar la imagen. Revisá el archivo y volvé a intentar.</p>}
     </section>
   );
 }
